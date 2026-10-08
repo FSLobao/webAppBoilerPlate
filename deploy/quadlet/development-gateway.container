@@ -1,0 +1,31 @@
+[Unit]
+Description=Shared Development Gateway
+Wants=network-online.target
+After=network-online.target podman.socket
+Requires=podman.socket
+
+[Container]
+ContainerName=development-gateway
+Image=localhost/development-gateway:1
+DNS=127.0.0.1
+Volume=/var/lib/development-gateway/generated:/etc/development-gateway/generated:ro
+Volume=@@AUTHORIZED_KEYS@@:/run/development-gateway/authorized_keys:ro
+Volume=/etc/development-gateway/cockpit-password:/run/secrets/cockpit-password:ro
+Volume=/etc/development-gateway/tls/development-gateway.cert:/etc/cockpit/ws-certs.d/development-gateway.cert:ro
+Volume=/etc/development-gateway/tls/development-gateway.key:/etc/cockpit/ws-certs.d/development-gateway.key:ro
+Volume=/var/lib/development-gateway/ssh_host_keys/ssh_host_ed25519_key:/run/ssh-host-keys/ssh_host_ed25519_key:ro
+Volume=/var/lib/development-gateway/ssh_host_keys/ssh_host_ed25519_key.pub:/run/ssh-host-keys/ssh_host_ed25519_key.pub:ro
+Volume=/var/lib/development-gateway/dns:/run/development-gateway/dns:ro
+Volume=/run/podman/podman.sock:/run/podman/podman.sock:ro
+Pull=never
+DropCapability=NET_RAW
+@@NETWORKS@@
+@@PUBLISHED_PORTS@@
+Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

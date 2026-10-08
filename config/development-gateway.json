@@ -1,0 +1,12 @@
+{
+    "schema_version": 1,
+    "gateway": {
+        "name": "development-gateway",
+        "bind_address": "127.0.0.1",
+        "ssh_port": 2222,
+        "cockpit_port": 9090,
+        "authorized_keys_path": "/etc/development-gateway/authorized_keys"
+    },
+    "networks": [],
+    "dns_records": []
+}

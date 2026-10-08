@@ -1,0 +1,42 @@
+FROM --platform=linux/amd64 docker.io/library/debian:13-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261008T000000Z trixie main' \
+        'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261008T000000Z trixie-security main' \
+        > /etc/apt/sources.list \
+    && printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+    && chmod 0755 /usr/sbin/policy-rc.d \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates=20250419 \
+        cockpit=337-1+deb13u2 \
+        cockpit-podman=108-1 \
+        dnsmasq=2.91-1+deb13u2 \
+        iproute2=6.15.0-1 \
+        jq=1.7.1-6+deb13u4 \
+        openssh-server=1:10.0p1-7+deb13u4 \
+        openssl=3.5.7-1~deb13u3 \
+        podman=5.4.2+ds1-2+b2 \
+        passwd=1:4.17.4-2 \
+        procps=2:4.0.4-9 \
+        util-linux=2.41.5-0+deb13u1 \
+    && rm -f /usr/sbin/policy-rc.d \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /etc/ssh/ssh_host_* \
+    && install -d -m 0755 /run/sshd /run/development-gateway/dns \
+        /etc/development-gateway/generated /etc/cockpit/ws-certs.d \
+    && useradd --create-home --shell /bin/bash developer \
+    && useradd --create-home --shell /bin/bash gateway-admin \
+    && usermod --append --groups root gateway-admin \
+    && passwd --delete developer \
+    && passwd --lock gateway-admin \
+    && chmod 0755 /home/developer /home/gateway-admin
+
+COPY startup.sh /usr/local/sbin/development-gateway-startup
+RUN chmod 0755 /usr/local/sbin/development-gateway-startup
+
+EXPOSE 22/tcp 53/tcp 53/udp 9090/tcp
+ENTRYPOINT ["/usr/local/sbin/development-gateway-startup"]
