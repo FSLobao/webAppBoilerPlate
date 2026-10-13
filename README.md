@@ -386,8 +386,8 @@ OpenSSL:
 ```bash
 podman build --pull=always --file gateway/development/Containerfile \
   --tag localhost/gateway:1 gateway/development
-bash tests/test-gateway-config.sh
-bash tests/test-gateway-container.sh
+bash tests/scripts/test-gateway-config.sh
+bash tests/scripts/test-gateway-container.sh
 ```
 
 O smoke test cria chaves e certificado temporários, não conecta redes nem publica portas, e remove

@@ -102,8 +102,8 @@ On an x86_64 development host with Podman, `jq`, `ssh-keygen`, and OpenSSL:
 ```bash
 podman build --pull=always --file gateway/development/Containerfile \
   --tag localhost/gateway:1 gateway/development
-bash tests/test-gateway-config.sh
-bash tests/test-gateway-container.sh
+bash tests/scripts/test-gateway-config.sh
+bash tests/scripts/test-gateway-container.sh
 ```
 
 The container test uses temporary keys and a self-signed certificate, creates no network attachment or published port, and removes its test container and temporary files on exit.

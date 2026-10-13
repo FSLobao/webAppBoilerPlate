@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly IMAGE=localhost/gateway:1
-readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly TMP_DIR="$(mktemp -d)"
 readonly TEST_NAME="gateway-test-$$"
 

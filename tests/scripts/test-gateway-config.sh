@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly DEPLOY_SCRIPT="$REPO_ROOT/scripts/deploy-gateway.sh"
 readonly PREFLIGHT_SCRIPT="$REPO_ROOT/scripts/host-preflight.sh"
 readonly SAMPLE_CONFIG="$REPO_ROOT/config/host_config.json"
