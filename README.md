@@ -23,7 +23,7 @@ aplicações, desenvolvimento remoto com VS Code, implantação reproduzível e 
 operacional do host.
 
 O contrato arquitetural está em
-[docs/plans/WEB_APP_BOILERPLATE_ARCHITECTURE.md](docs/plans/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
+[docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
 Ele descreve o ambiente-alvo RHEL 9, os gateways, as redes, o acesso SSH, o DNS de desenvolvimento,
 os secrets e os critérios para a implementação.
 

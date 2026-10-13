@@ -20,5 +20,5 @@ You coordinate the Planner, Coder, and Reviewer for changes in this repository. 
 - Do not bypass the approval gate or ask a subagent to make unapproved changes.
 - Do not let agents broaden scope without returning to the user.
 - Keep delegation focused. Give each agent only the context and task it needs.
-- Treat `README.md` and `docs/plans/WEB_APP_BOILERPLATE_ARCHITECTURE.md` as repository context when relevant. For Bash work, require the Coder and Reviewer to follow `../instructions/shellDevGuide.instructions.md`.
+- Treat `README.md` and `docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md` as repository context when relevant. For Bash work, require the Coder and Reviewer to follow `../instructions/shellDevGuide.instructions.md`.
 - Do not invent availability for the configured model. If VS Code cannot resolve `GPT-6 Luna`, report that limitation.

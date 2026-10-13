@@ -33,8 +33,9 @@ O boilerplate deve privilegiar:
 
 O ambiente de produção/desenvolvimento remoto é suportado por:
 
-- Red Hat Enterprise Linux 9;
-- Podman;
+- Red Hat Enterprise Linux 9.8 como alvo de qualificação;
+- Podman 5.8.2 em modo rootful e Quadlet como alvo de deployment;
+- SELinux em modo Enforcing;
 - acesso administrativo ao host restrito à equipe responsável pela infraestrutura;
 - autenticação do acesso ao host realizada pelos mecanismos corporativos existentes;
 - firewall e controles de acesso externos ao ambiente dos containers.
@@ -53,12 +54,7 @@ O host é responsável principalmente por:
 
 # 3. Princípio fundamental de isolamento
 
-A arquitetura possui três planos distintos:
-
-```text
-### 3. Princípio fundamental de isolamento
-
-A arquitetura possui três planos distintos:
+A arquitetura separa o perímetro de segurança e três planos funcionais:
 
 ```text
                   ┌──────────────────────────┐
@@ -322,7 +318,7 @@ Não deve existir uma rede global compartilhada entre todas as aplicações apen
 
 ## 8.2 Gateway compartilhado
 
-O Gateway pode estar conectado a múltiplas redes:
+O Gateway compartilhado deve possuir uma interface Podman para cada rede no inventário global `networks` de `config/host_config.json`. Ele não mantém uma lista seletiva de redes por serviço:
 
 ```text
                  Gateway
@@ -348,6 +344,8 @@ project-b-net  ──X── project-c-net
 O acesso entre aplicações deve ser explicitamente configurado quando necessário.
 
 O fato de o Gateway possuir acesso às redes não implica que as redes tenham conectividade entre si.
+
+O Gateway é a exceção confiável: conectado a todas as redes, ele pode iniciar conexões para todos os containers, inclusive bancos. O isolamento entre redes de aplicação não protege esses serviços de um Gateway comprometido. Mantenha autenticação nos destinos e trate o container Gateway como componente administrativo de alto privilégio.
 
 ---
 
@@ -375,7 +373,7 @@ DNSMasq
 generated DNS configuration
     │
     ▼
-container IP
+    reachable Gateway address (NAT) or container IP (routed network)
 ```
 
 ## 9.2 Configuração gerada pelo deployment
@@ -387,7 +385,9 @@ O deployment deverá conhecer a relação entre:
 ```text
 application
     └── service
-          └── current container address
+          ├── current container address and service port
+          ├── optional Gateway NAT listener address and port
+          └── DNS answer selected for routed or NAT clients
 ```
 
 e produzir os registros DNS correspondentes.
@@ -401,6 +401,8 @@ backend.project-b.dev.internal
 ```
 
 A configuração deverá ser regenerável sem intervenção manual dentro do container do gateway.
+
+Para clientes remotos sem uma rota para os CIDRs Podman, o registro DNS resolve para o endereço alcançável do Gateway; a regra NAT encaminha a porta declarada ao endereço e à porta atuais do container. DNS não transporta portas, portanto serviços TCP distintos no mesmo endereço precisam de portas externas únicas. Registros com IP de container são válidos somente para clientes com rotas explícitas até essa rede.
 
 ## 9.3 Nomes internos e externos
 
@@ -418,7 +420,7 @@ frontend.project-a.dev.internal
 dev-gateway.dev.internal
 ```
 
-Esses nomes podem apontar diretamente para endereços das redes Podman ou para endpoints destinados ao acesso administrativo.
+Esses nomes apontam para endereços das redes Podman somente quando os clientes possuem rotas para esses CIDRs. Para acesso remoto por NAT, apontam para o endereço alcançável do Gateway; a porta do serviço é declarada separadamente.
 
 ### Nomes externos de aplicação
 
@@ -439,7 +441,7 @@ Os namespaces interno e externo não devem ser tratados como equivalentes.
 
 Os endereços IP individuais dos containers não constituem identidade permanente.
 
-Quando um container for recriado, o deployment deverá atualizar a configuração do DNSMasq para refletir o novo endereço.
+Quando um container for recriado, o deployment deverá atualizar o destino NAT para o novo endereço. No modo NAT, o registro DNS continua apontando para o endereço estável do Gateway; em redes roteadas, o registro aponta para o endereço atual do container.
 
 O desenvolvedor continuará utilizando o mesmo nome lógico.
 
@@ -485,29 +487,12 @@ Endereços IP individuais de containers não devem ser tratados como identificad
 ---
 
 
-O Gateway deve fornecer ou encaminhar DNS para nomes de desenvolvimento.
-
-Os desenvolvedores não devem precisar conhecer IPs dos containers.
-
-Exemplos conceituais:
-
-```text
-backend.project-a.dev
-frontend.project-a.dev
-
-backend.project-b.dev
-frontend.project-b.dev
-```
-
-O mecanismo concreto de DNS será definido na implementação.
-
-A resolução deve ser compatível com containers recriados.
 
 ---
 
 # 11. Acesso SSH e VS Code
 
-O Gateway será o ponto de entrada para acesso SSH aos containers.
+O Gateway será o ponto de entrada para acesso SSH aos containers. Para clientes remotos, uma exposição NAT explícita encaminha uma porta alcançável do Gateway ao serviço SSH do container; a autenticação continua ocorrendo no destino.
 
 O objetivo é permitir utilização do:
 
@@ -611,19 +596,6 @@ A tecnologia de VPN será uma decisão de implantação.
 
 O boilerplate não deve assumir uma tecnologia específica.
 
-O gateway deve, entretanto, permitir futura integração com tecnologias de VPN.
-
-Exemplos possíveis:
-
-- WireGuard;
-- OpenVPN;
-- Tailscale;
-- VPN corporativa;
-- outras tecnologias compatíveis.
-
-A tecnologia de VPN será uma decisão de implantação.
-
-O boilerplate não deve assumir uma tecnologia específica.
 
 ---
 
@@ -639,6 +611,10 @@ Deve permitir, quando necessário:
 - tradução de endereços quando a topologia exigir.
 
 O NAT não deve ser utilizado como mecanismo primário de segurança.
+
+O JSON de configuração define endereço de bind, porta externa, serviço/container de destino, rede e porta atual do container. DNSMasq resolve o nome ao endereço alcançável do Gateway; a porta é configurada separadamente. Não existe uma segunda aprovação por serviço: os endpoints declarados no JSON constituem o estado desejado, e o perímetro externo controla quem pode alcançá-los. O Gateway também deve conseguir acessar SSH, HTTP/80 e outras portas dos containers em todas as redes anexadas.
+
+Preservar o IP original do cliente é incompatível com SNAT, que reescreve esse endereço. Portanto, use DNAT sem SNAT e configure rotas de retorno para os CIDRs dos clientes via interface do Gateway em cada rede relevante. Valide o caminho simétrico no host e nos containers. Se essas rotas não puderem ser garantidas, escolha explicitamente entre SNAT (perde o IP original) ou um proxy que transporte metadados de origem e cujo serviço de destino suporte esse protocolo. Não declare preservação de IP com SNAT. O escopo inicial deve suportar TCP; adicione UDP somente para necessidade concreta.
 
 ---
 
@@ -668,6 +644,8 @@ Pode utilizar:
 - reverse proxy.
 
 O acesso administrativo não deve depender do Application Gateway.
+
+A primeira implementação deverá usar Nginx. O container escuta TCP 80; o endereço de bind e a porta publicada no host ficam em `application_gateway` no `config/host_config.json`, com a porta padrão 80. Por aplicação, `/app` serve o frontend e `/app/api/<route>` encaminha ao FastAPI. A rota da API deve ser avaliada antes do fallback SPA. HTTP na porta 80 não criptografa tráfego; TLS deve terminar em Nginx ou em uma camada externa confiável antes de enviar credenciais ou dados sensíveis.
 
 ---
 
@@ -706,6 +684,10 @@ O frontend deve ser servido por:
 
 A tecnologia concreta do framework JavaScript deve ser definida em uma decisão separada.
 
+Recomendação inicial: Vite com módulos JavaScript sem framework, gerados como arquivos estáticos. Para aplicações muito pequenas, HTML/CSS/JavaScript sem build também é válido; adote Vue, Svelte ou React somente quando complexidade de estado, componentes reutilizáveis ou padrão da equipe justificar. O plano de stack compara as opções.
+
+O padrão de API recomendado é mesma origem e prefixo por aplicação: `/app` serve o frontend e `/app/api/<route>` encaminha ao FastAPI. Um hostname separado para a API permanece uma alternativa futura para consumidores independentes, mas exige CORS, DNS e TLS adicionais.
+
 ---
 
 # 17. PostgreSQL
@@ -734,6 +716,9 @@ PostgreSQL
 ```
 
 Frontend não deve acessar PostgreSQL diretamente.
+
+
+O backup obrigatório executa `pg_dumpall` sem filtros para salvar dados, estrutura de todos os bancos e objetos globais do cluster. O schedule e o caminho do mount remoto são configurados por instância PostgreSQL no JSON; um timer systemd é gerado a partir do schedule. O mount e a retenção são responsabilidade da infraestrutura de armazenamento; o job falha se o mount não estiver disponível e não usa fallback local. Restore é uma ação manual do operador: conexão direta e privada ao PostgreSQL, seguida da execução do SQL completo via `psql`. Não exponha PostgreSQL pelo Application Gateway nem restaure automaticamente durante deployment.
 
 ---
 
@@ -843,19 +828,19 @@ Essa integração não faz parte do boilerplate inicial.
 
 O repositório deve conter scripts para:
 
-1. validar pré-requisitos;
-2. criar a estrutura de diretórios necessária no host;
-3. criar/configurar redes;
-4. criar volumes necessários;
-5. preparar a estrutura de secrets;
-6. configurar chaves públicas SSH de bootstrap;
-7. criar ou atualizar containers;
-8. conectar o Gateway às redes das aplicações;
-9. gerar/atualizar a configuração do DNSMasq;
-10. configurar o Application Gateway;
-11. iniciar os serviços;
-12. verificar saúde básica;
-13. apresentar informações úteis para manutenção.
+1. validar pré-requisitos do host e todas as redes declaradas em `config/host_config.json`;
+2. executar verificações e configurações específicas somente para os serviços declarados/ativados no arquivo;
+3. criar a estrutura de diretórios, volumes e secrets sem sobrescrever dados existentes;
+4. criar ou validar redes Podman e CIDRs;
+5. construir/atualizar containers através de Quadlet;
+6. conectar o Gateway compartilhado a todas as redes do inventário global `networks`, com uma interface por rede;
+7. gerar DNSMasq com endereços alcançáveis e destinos atuais conforme o modo NAT ou roteado;
+8. instalar exposições NAT explícitas para serviços remotos;
+9. configurar rotas HTTP/HTTPS do Application Gateway;
+10. carregar chaves públicas SSH dos arquivos seguros no host;
+11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
+12. apresentar estado, logs, recursos alterados e instruções de recuperação.
+13. gerar, para cada PostgreSQL configurado, um timer systemd do schedule JSON e uma execução `pg_dumpall` completa no mount remoto declarado.
 
 O deployment deve ser idempotente sempre que possível.
 
@@ -873,6 +858,8 @@ O mecanismo de bootstrap deverá permitir distinguir:
 - chaves para acesso administrativo ao próprio Gateway.
 
 As chaves privadas nunca deverão ser copiadas para o ambiente pelo deployment.
+
+As chaves públicas serão lidas de arquivos fora do Git, com propriedade e permissões restritas no host. A auditoria do host registra alterações nos arquivos; PAM e logs de sessão dos operadores são controles externos e não fazem parte do deployment do boilerplate.
 
 # 21. Manutenção
 
@@ -967,10 +954,10 @@ repository/
 │   └── application/
 ├── database/
 ├── deploy/
+│   └── quadlet/
 ├── config/
 ├── docs/
 ├── scripts/
-└── compose/
 ```
 
 A estrutura exata poderá ser ajustada durante a implementação, mas as responsabilidades devem permanecer separadas.
@@ -1049,24 +1036,29 @@ As seguintes decisões são consideradas parte do contrato:
 
 | Decisão | Escolha |
 |---|---|
-| Host | RHEL 9 |
-| Runtime | Podman |
+| Alvo de qualificação do host | RHEL 9.8 com SELinux Enforcing |
+| Runtime de containers | Podman 5.8.2 rootful |
+| Ciclo de vida dos containers | Quadlet para containers persistentes |
 | Podman mode | Rootful |
 | Backend | Python + FastAPI |
-| Frontend | JavaScript |
+| Frontend | Vite com JavaScript sem framework como opção inicial proposta; HTML/JS estático para páginas pequenas |
+| Rota frontend/API | `/app` e `/app/api/<route>` no mesmo domínio |
 | Database | PostgreSQL |
 | Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
 | Cockpit | Dentro do Gateway |
 | cockpit-podman | Dentro do Gateway |
-| Application Gateway | Container separado |
+| Application Gateway | Nginx compartilhado separado do Development Gateway |
+| Porta HTTP pública | TCP 80 por padrão; endereço de bind e portas definidos no JSON |
 | Rede por aplicação | Sim |
-| Gateway compartilhado entre redes | Sim |
+| Gateway compartilhado entre redes | Sim; uma interface Podman para cada rede no inventário global `networks` |
+| Acesso do Gateway | A todas as redes e serviços Podman, sem aprovação individual por serviço; componente administrativo confiável |
+| Inventário de redes | `config/host_config.json` declara todas as redes; blocos opcionais configuram serviços do host |
 | DNS de desenvolvimento | DNSMasq no Gateway |
 | Configuração DNS | Gerada/atualizada pelo deployment |
-| Nomes internos | Namespace DNS interno de desenvolvimento |
+| Nomes internos | DNSMasq aponta ao endereço do Gateway em NAT; IP de container somente para clientes com rota ao CIDR |
 | Nomes externos | Namespace/endpoints externos separados |
-| NAT | Via Gateway |
+| NAT | DNAT-only; endereços/portas no JSON e rota simétrica para preservar IP de origem; sem SNAT |
 | SSH | Via Gateway |
 | SSH para aplicações | Gateway realiza forwarding; autenticação ocorre no destino |
 | SSH para gateway | Autenticação no próprio Gateway |
@@ -1077,8 +1069,9 @@ As seguintes decisões são consideradas parte do contrato:
 | Firewall de usuários | Fora do gateway |
 | Podman API | Preferencialmente Unix socket |
 | Acesso diário ao host | Não |
-| Deployment | Scripts versionados |
-| SSH key bootstrap | Parte do deployment |
+| Deployment | Scripts versionados e Quadlet; preflight comum e verificações específicas por serviço |
+| SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo |
+| Backup PostgreSQL | `pg_dumpall` integral; schedule e mount no JSON; restore manual via `psql`; retenção pelo storage |
 | Application secrets | Fora do Git |
 | Secret storage inicial | Arquivos no host |
 | Secret mapping | Somente leitura e apenas para containers necessários |
@@ -1086,22 +1079,18 @@ As seguintes decisões são consideradas parte do contrato:
 
 # 29. Decisões ainda abertas
 
-As seguintes questões permanecem para o desenho detalhado:
+As seguintes perguntas permanecem para o desenho detalhado:
 
-1. capabilities exatas necessárias ao Gateway;
-2. mecanismo de acesso do Cockpit ao Podman socket;
-3. estratégia exata de alocação de CIDRs;
-4. tecnologia do Application Gateway;
-5. framework JavaScript do frontend;
-6. estratégia de backup PostgreSQL;
-7. estratégia de atualização das imagens;
-8. health checks;
-9. estratégia de logs;
-10. política de versionamento das imagens;
-11. mecanismo de certificados TLS;
-12. integração opcional com VPN;
-13. política de acesso temporário aos ambientes;
-14. mecanismo de exposição dos endpoints do Application Gateway.
+1. Quais endereços remotos reais devem substituir os exemplos no JSON, e quem mantém DNS externo e as regras do perímetro?
+2. Quais CIDRs de clientes remotos precisam de rotas de retorno via Gateway em cada rede Podman para preservar o IP de origem com DNAT-only?
+3. Quais capabilities mínimas e rotas de host/container permitem esse caminho simétrico no RHEL 9.8 / Podman 5.8.2 com SELinux Enforcing?
+4. Qual configuração SELinux permite Cockpit acessar o socket rootful sem desativar SELinux ou usar relabel amplo?
+5. Qual será a política determinística de alocação de CIDRs e prevenção de sobreposição com redes corporativas?
+6. Onde termina TLS para o Nginx HTTP/80 público, e quem provisiona/rotaciona certificados e DNS externo?
+7. Vite com JavaScript sem framework é um default aceitável para o SPA? O plano explica o tradeoff versus HTML/JS estático sem build e frameworks Vue/Svelte/React.
+8. Um schedule `daily` é um default razoável para `pg_dumpall`, configurável por instância no JSON? O storage remoto define retenção.
+9. A expansão opcional de `host_config.json` para exposições NAT requer `schema_version` 2 ou pode manter compatibilidade com a versão 1?
+10. O File Gateway separado faz parte do escopo? Se sim, quem prepara sua implantação compatível com RHEL 9.8 e SELinux Enforcing?
 
 Essas decisões não devem alterar os princípios arquiteturais deste documento sem revisão explícita.
 
@@ -1111,15 +1100,24 @@ Uma implementação do boilerplate será considerada aderente quando:
 
 - uma aplicação puder ser implantada sem alterar manualmente o host na operação normal;
 - cada aplicação possuir rede Podman independente;
+- o inventário completo de redes e as opções de serviço estiverem declarados em `config/host_config.json`;
 - o Gateway puder acessar múltiplas redes;
+- o Gateway compartilhado possuir uma interface em cada rede configurada;
+- o Gateway alcançar SSH, HTTP/80 e outros serviços em todas as redes, sem transformá-las em uma única rede;
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
 - desenvolvedores puderem acessar containers por SSH/VS Code através do gateway;
 - o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
+- endereços e portas publicados forem declarados no JSON, com Nginx em TCP/80 como default e sem fluxo extra de aprovação por serviço;
+- rotas Nginx servirem `/app` e encaminharem `/app/api/<route>` ao FastAPI;
+- DNAT preservar o IP original do cliente, sem SNAT, com rotas de retorno simétricas comprovadas;
+- deployment usar Quadlet e passar aceitação em RHEL 9.8, rootful Podman 5.8.2 e SELinux Enforcing;
 - chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment;
+- chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente; PAM permanece responsabilidade externa;
 - o próprio gateway possuir autenticação SSH independente;
 - Cockpit permitir administrar os containers;
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
+- backup `pg_dumpall` cobrir dados e estrutura de todos os bancos, com schedule e mount remoto definidos no JSON e restore manual via `psql`;
 - Application Gateway estiver separado do Gateway;
 - o acesso externo continuar controlado pela infraestrutura de segurança existente;
 - deployment puder ser repetido sem destruir dados;
@@ -1210,22 +1208,10 @@ Isso proporciona um único ponto de manutenção para os desenvolvedores sem tra
 
 # 33. Próxima etapa
 
-Depois da aprovação deste contrato arquitetural, a próxima etapa recomendada é produzir um **desenho técnico de implementação**, ainda sem necessariamente escrever o código da aplicação, contendo:
+Use os planos de implementação abaixo para decompor o contrato sem misturar acesso administrativo, tráfego de usuários e ciclo de vida das aplicações:
 
-1. topologia exata das redes Podman;
-2. portas;
-3. interfaces do Gateway;
-4. fluxo de SSH;
-5. fluxo de DNS;
-6. fluxo de NAT;
-7. integração Cockpit/Podman socket;
-8. capabilities do container;
-9. volumes;
-10. estrutura dos arquivos de deployment;
-11. ciclo de vida dos containers;
-12. fluxo de criação de uma nova aplicação;
-13. fluxo de atualização;
-14. fluxo de remoção;
-15. fluxo de recuperação de falhas.
+1. [Application Gateway](application-gateway-plan.md): entrada HTTP/HTTPS, roteamento, TLS e isolamento de rede.
+2. [Application stack](application-stack-plan.md): frontend, backend FastAPI e PostgreSQL.
+3. [Application deployment and operations](application-deployment-plan.md): configuração declarativa, secrets, volumes, atualização, recuperação e handoff de DNS.
 
-Esse desenho deverá ser validado contra as restrições reais do RHEL 9/Podman antes da implementação.
+Resolva as perguntas da seção 29 antes de implementar as decisões afetadas. Valide requisitos de Podman, Quadlet e SELinux em um host RHEL 9 descartável; não trate testes locais Debian como aceitação RHEL.
