@@ -31,7 +31,7 @@ os secrets e os critérios para a implementação.
 Gateway tem configuração, imagem Debian, startup e Quadlet versionados; a validação local passou
 em Debian 13. A aceitação em RHEL 9 com Podman rootful, Quadlet e SELinux permanece pendente. Não
 implante em host live; consulte
-[docs/plans/development-gateway-implementation.md](docs/plans/development-gateway-implementation.md).
+[docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -45,7 +45,7 @@ flowchart LR
     S[Perímetro externo<br/>VPN, firewall, ACL e autenticação]
     D[Desenvolvedores]
     U[Usuários e consumidores]
-    DG[Development Gateway compartilhado<br/>SSH, DNSMasq, NAT, diagnóstico, Cockpit]
+    DG[Gateway compartilhado<br/>SSH, DNSMasq, NAT, diagnóstico, Cockpit]
     AG[Application Gateway<br/>HTTP, HTTPS e reverse proxy]
     subgraph A[Aplicação A: rede Podman isolada]
         ABE[Backend FastAPI]
@@ -77,7 +77,7 @@ flowchart LR
 
 Componentes e limites principais:
 
-- **Development Gateway:** um container administrativo compartilhado, conectado às redes das
+- **Gateway:** um container administrativo compartilhado, conectado às redes das
   aplicações. Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico, Cockpit e
   `cockpit-podman`. Não serve tráfego de usuários.
 - **Application Gateway:** componente separado para acesso HTTP/HTTPS às aplicações. Não é canal
@@ -104,7 +104,7 @@ repository/
 │   ├── development/         # Gateway administrativo compartilhado
 │   └── application/         # Gateway de acesso às aplicações
 ├── database/                # Inicialização e recursos do PostgreSQL
-├── deploy/quadlet/           # Quadlet do Development Gateway
+├── deploy/quadlet/           # Quadlet do Gateway
 ├── config/                  # Configuração estrutural versionada
 ├── compose/                 # Definições dos serviços e redes Podman
 ├── docs/
@@ -124,7 +124,7 @@ limites de segurança definidos no contrato arquitetural devem permanecer explí
 ## Modelo de desenvolvimento
 
 O desenvolvimento cotidiano deve ocorrer pelo VS Code, usando Git, terminal, testes e ferramentas
-de debugging. O acesso remoto aos containers passa pelo Development Gateway; não exige acesso
+de debugging. O acesso remoto aos containers passa pelo Gateway; não exige acesso
 administrativo permanente ao host RHEL.
 
 O host de execução fornece Podman e armazenamento persistente. A equipe de infraestrutura realiza
@@ -151,7 +151,7 @@ Recursos, secrets, certificados, réplicas e observabilidade podem variar por am
 - Red Hat Enterprise Linux 9, rootful Podman 4.4 ou superior, systemd/Quadlet e SELinux em modo Enforcing;
 - armazenamento para volumes persistentes;
 - equipe de infraestrutura com acesso administrativo para configuração inicial e operações do host;
-- acesso SSH autorizado ao Development Gateway;
+- acesso SSH autorizado ao Gateway;
 - controles externos de rede e autenticação definidos pela organização;
 - configuração das redes e registros DNS das aplicações, além dos arquivos externos de chaves e TLS descritos abaixo.
 
@@ -170,7 +170,7 @@ O scaffold atual não inicia uma API nem um frontend. Para executar o código Py
 uv run python -m src.main
 ```
 
-O comando imprime uma mensagem de exemplo. O Development Gateway possui imagem, script de
+O comando imprime uma mensagem de exemplo. O Gateway possui imagem, script de
 deployment e testes locais; veja [Implantação e operação](#implantação-e-operação). Isso não
 significa que o stack da aplicação web esteja implementado nem que Debian seja um host suportado
 para deployment.
@@ -180,7 +180,7 @@ para deployment.
 ## Containers e redes Podman
 
 Cada aplicação terá uma rede Podman própria, com CIDR sem sobreposição. As redes não se comunicam
-entre si por padrão. O Development Gateway poderá se conectar a várias redes para manutenção, sem
+entre si por padrão. O Gateway poderá se conectar a várias redes para manutenção, sem
 unificá-las.
 
 O deployment deverá gerar ou atualizar os registros do DNSMasq para serviços de desenvolvimento
@@ -188,7 +188,7 @@ selecionados, usando nomes estáveis como `backend.project-a.dev.internal`. A co
 acompanhar a recriação dos containers; seus endereços IP não são identidades permanentes. A
 publicação de um nome DNS não concede conectividade entre redes.
 
-O SSH seguirá o mesmo limite: o Development Gateway encaminha conexões aos containers de aplicação,
+O SSH seguirá o mesmo limite: o Gateway encaminha conexões aos containers de aplicação,
 mas a autenticação acontece no destino. O acesso SSH ao próprio gateway é autenticado pelo gateway.
 Cada desenvolvedor usa sua própria chave; chaves privadas não são compartilhadas nem copiadas para o
 ambiente.
@@ -200,11 +200,11 @@ precisa alcançar o banco; o frontend não acessa PostgreSQL diretamente.
 
 ## Implantação e operação
 
-O script [`scripts/deploy-development-gateway.sh`](scripts/deploy-development-gateway.sh) valida a
+O script [`scripts/deploy-gateway.sh`](scripts/deploy-gateway.sh) valida a
 configuração, verifica pré-requisitos do host e, em `--apply`, constrói e instala o Development
 Gateway. Ele não instala pacotes no host, não provisiona aplicações ou volumes, e não remove redes
 Podman existentes. Consulte
-[docs/plans/development-gateway-implementation.md](docs/plans/development-gateway-implementation.md)
+[docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md)
 para o inventário detalhado de paths, decisões e limitações.
 
 ### Modos do script
@@ -215,22 +215,28 @@ para o inventário detalhado de paths, decisões e limitações.
 | `--check` | Faz preflight somente leitura. Exige root e host RHEL 9 suportado; não constrói imagem nem inicia serviços. |
 | `--apply` | Repete o preflight e, se aprovado, constrói a imagem, instala os arquivos gerenciados e ativa o serviço. Use apenas em host de teste RHEL 9 autorizado. |
 
-Comece ajustando `config/development-gateway.json`. Cada rede declara o nome Podman e um CIDR IPv4
-único, sem sobreposição. Cada registro DNS associa um nome `.dev.internal` a um container e a uma
-rede declarada. Exemplo de configuração preenchida:
+Comece ajustando `config/host_config.json`. `networks` declara as redes existentes no host, com
+nome Podman e CIDR IPv4 esperado. `containers` lista serviços e redes que o preflight deve conferir.
+O bloco `gateway` é opcional para o preflight geral; `gateway.networks` seleciona quais redes o
+gateway pode usar ou criar durante deployment. Cada registro DNS associa um nome `.dev.internal` a
+um container e a uma rede declarada. Exemplo:
 
 ```json
 {
   "schema_version": 1,
   "gateway": {
-    "name": "development-gateway",
+    "name": "gateway",
     "bind_address": "127.0.0.1",
     "ssh_port": 2222,
     "cockpit_port": 9090,
-    "authorized_keys_path": "/etc/development-gateway/authorized_keys"
+    "authorized_keys_path": "/etc/gateway/authorized_keys",
+    "networks": ["project-a-net"]
   },
   "networks": [
     { "name": "project-a-net", "subnet": "10.89.1.0/24" }
+  ],
+  "containers": [
+    { "name": "project-a-backend", "networks": ["project-a-net"] }
   ],
   "dns_records": [
     {
@@ -242,10 +248,22 @@ rede declarada. Exemplo de configuração preenchida:
 }
 ```
 
-Escolha CIDRs que não conflitem com as redes existentes no host. O preflight exige ao menos uma
-rede e um registro DNS. Só inclua serviços que devem ser acessíveis para desenvolvimento; bancos
-de dados não são publicados por padrão. Um container existente precisa estar ligado à rede
-declarada.
+Escolha CIDRs que não conflitem com as redes existentes no host. O preflight geral exige que cada
+rede declarada exista com o CIDR esperado e verifica os containers listados. Containers parados são
+reportados como pendentes. O deployment do gateway exige também ao menos uma rede em
+`gateway.networks` e um registro DNS.
+
+Para conferir um host com outros containers, sem exigir configuração ou credenciais do gateway:
+
+```bash
+./scripts/host-preflight.sh --validate-config config/host_config.json
+sudo ./scripts/host-preflight.sh --check config/host_config.json
+```
+
+O comando geral verifica o Podman acessível ao usuário que o executa, as subnets declaradas e os
+containers configurados. Use `sudo` quando os containers pertencerem ao Podman rootful. Ele não
+exige RHEL 9, credenciais Cockpit ou arquivos Quadlet. Os comandos de
+`scripts/deploy-gateway.sh` continuam executando as verificações estritas do deployment.
 
 ### Credenciais externas
 
@@ -254,10 +272,10 @@ precisa das chaves privadas dos desenvolvedores.
 
 | Caminho padrão | Conteúdo e requisitos |
 |---|---|
-| `/etc/development-gateway/authorized_keys` | Um ou mais registros de chaves **públicas** para login SSH no gateway; arquivo não vazio, root-owned e sem escrita para grupo/outros. |
-| `/etc/development-gateway/cockpit-password` | Uma senha em uma linha para `gateway-admin`; propriedade `root:root`, sem acesso por grupo/outros (normalmente modo `0600`). |
-| `/etc/development-gateway/tls/development-gateway.cert` | Certificado TLS válido do Cockpit. |
-| `/etc/development-gateway/tls/development-gateway.key` | Chave privada correspondente; root-owned e sem acesso por grupo/outros (normalmente modo `0600`). |
+| `/etc/gateway/authorized_keys` | Um ou mais registros de chaves **públicas** para login SSH no gateway; arquivo não vazio, root-owned e sem escrita para grupo/outros. |
+| `/etc/gateway/cockpit-password` | Uma senha em uma linha para `gateway-admin`; propriedade `root:root`, sem acesso por grupo/outros (normalmente modo `0600`). |
+| `/etc/gateway/tls/gateway.cert` | Certificado TLS válido do Cockpit. |
+| `/etc/gateway/tls/gateway.key` | Chave privada correspondente; root-owned e sem acesso por grupo/outros (normalmente modo `0600`). |
 
 Os certificados e secrets são entradas externas. O deployment os monta como somente leitura. A
 chave pública em `authorized_keys` autoriza acesso ao gateway, não aos containers de aplicação.
@@ -267,15 +285,15 @@ chave pública em `authorized_keys` autoriza acesso ao gateway, não aos contain
 Execute a validação antes de acessar o host:
 
 ```bash
-./scripts/deploy-development-gateway.sh --validate-config config/development-gateway.json
+./scripts/deploy-gateway.sh --validate-config config/host_config.json
 ```
 
 Em um host de teste **RHEL 9** autorizado, com Podman rootful, Quadlet e SELinux Enforcing,
 execute o preflight e só então aplique:
 
 ```bash
-sudo ./scripts/deploy-development-gateway.sh --check config/development-gateway.json
-sudo ./scripts/deploy-development-gateway.sh --apply config/development-gateway.json
+sudo ./scripts/deploy-gateway.sh --check config/host_config.json
+sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
 `--check` recusa sistemas que não sejam RHEL 9 e verifica as credenciais, portas, redes, containers,
@@ -284,17 +302,17 @@ em host live ou antes de aprovação operacional.
 
 ### O que o apply cria
 
-- Constrói a imagem Debian 13 `linux/amd64` `localhost/development-gateway:1`, a partir de
+- Constrói a imagem Debian 13 `linux/amd64` `localhost/gateway:1`, a partir de
   `gateway/development/Containerfile` e versões fixadas no repositório.
-- Cria `/var/lib/development-gateway/` e arquivos gerados: cópia da configuração, metadados de
+- Cria `/var/lib/gateway/` e arquivos gerados: cópia da configuração, metadados de
   entradas, registros DNS e marcador de propriedade.
 - Cria a identidade SSH Ed25519 persistente do gateway somente quando os dois arquivos da chave
   ainda não existem. Uma chave incompleta ou alterada causa falha; não há rotação automática.
 - Cria somente redes Podman declaradas que ainda não existam. Redes existentes precisam ter o CIDR
   declarado; o script nunca as exclui.
-- Renderiza `/etc/containers/systemd/development-gateway.container`, recarrega systemd e habilita
-  `development-gateway.service` para iniciar no boot.
-- Inicia o container `development-gateway`, ligado somente às redes declaradas. A unidade publica
+- Renderiza `/etc/containers/systemd/gateway.container`, recarrega systemd e habilita
+  `gateway.service` para iniciar no boot.
+- Inicia o container `gateway`, ligado somente às redes declaradas. A unidade publica
   SSH e Cockpit nos ports configurados e monta o socket rootful do Podman no container.
 
 O script não cria as credenciais externas, containers de aplicação, volumes ou dados de aplicação.
@@ -335,7 +353,7 @@ O usuário e a chave do destino precisam existir no container de aplicação; o 
 nem substitui essa autenticação. O forwarding SSH é limitado aos nomes DNS declarados e à porta 22.
 
 O Cockpit fica em `https://127.0.0.1:9090/` por padrão. Entre como `gateway-admin`, usando a senha
-de `/etc/development-gateway/cockpit-password`. Para acesso remoto, aplique as mesmas restrições de
+de `/etc/gateway/cockpit-password`. Para acesso remoto, aplique as mesmas restrições de
 bind e perímetro usadas para SSH. O `cockpit-podman` usa `/run/podman/podman.sock`: mesmo montado
 como somente leitura, esse socket concede amplo controle sobre containers rootful. Não há listener
 Podman TCP. A aprovação desse limite de autoridade não comprova compatibilidade com SELinux.
@@ -347,10 +365,19 @@ endereço antigo não é mantido. Um target em execução na rede errada causa e
 ### Diagnóstico e testes locais
 
 ```bash
-sudo systemctl status development-gateway.service
-sudo journalctl -u development-gateway.service
-sudo podman ps --filter name=development-gateway
-sudo ./scripts/deploy-development-gateway.sh --check config/development-gateway.json
+sudo systemctl status gateway.service
+sudo journalctl -u gateway.service
+sudo podman ps --filter name=gateway
+sudo ./scripts/deploy-gateway.sh --check config/host_config.json
+```
+
+Os helpers Python ficam em `scripts/gateway/`; o README do pacote
+documenta interfaces, saída, erros e comandos externos. Para instalar e executar
+os testes unitários Python:
+
+```bash
+uv sync --group dev
+uv run pytest
 ```
 
 Para validar a imagem e os scripts localmente em uma máquina com Podman, `jq`, `ssh-keygen` e
@@ -358,9 +385,9 @@ OpenSSL:
 
 ```bash
 podman build --pull=always --file gateway/development/Containerfile \
-  --tag localhost/development-gateway:1 gateway/development
-bash tests/test-development-gateway-config.sh
-bash tests/test-development-gateway-container.sh
+  --tag localhost/gateway:1 gateway/development
+bash tests/test-gateway-config.sh
+bash tests/test-gateway-container.sh
 ```
 
 O smoke test cria chaves e certificado temporários, não conecta redes nem publica portas, e remove
@@ -392,7 +419,7 @@ Princípios obrigatórios:
 - tratar o perímetro externo como responsabilidade da infraestrutura.
 
 Os caminhos externos de credenciais e os mounts do gateway estão definidos em
-[docs/plans/development-gateway-implementation.md](docs/plans/development-gateway-implementation.md).
+[docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
 As capabilities mínimas e a compatibilidade SELinux continuam pendentes de teste em RHEL 9. A
 integração com um Secret Manager e uma VPN específica fica fora da primeira versão.
 
@@ -401,10 +428,10 @@ integração com um Secret Manager e uma VPN específica fica fora da primeira v
 ## Decisões em aberto e próximas etapas
 
 A arquitetura já estabelece RHEL 9, Podman rootful, backend FastAPI, frontend JavaScript, PostgreSQL,
-um Development Gateway compartilhado, redes isoladas por aplicação, DNSMasq e secrets externos ao
+um Gateway compartilhado, redes isoladas por aplicação, DNSMasq e secrets externos ao
 Git. Permanecem em aberto:
 
-- capabilities do Development Gateway e integração Cockpit/Podman;
+- capabilities do Gateway e integração Cockpit/Podman;
 - política de alocação de CIDRs;
 - tecnologia do Application Gateway e framework JavaScript;
 - backups, health checks, logs e atualização/versionamento de imagens;

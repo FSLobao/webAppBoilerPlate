@@ -74,7 +74,7 @@ A arquitetura possui três planos distintos:
        Developer access                 User access
                │                                │
                ▼                                ▼
-       Development Gateway            Application Gateway
+       Gateway            Application Gateway
                │                                │
                ▼                                ▼
           Podman networks                App endpoints
@@ -93,7 +93,7 @@ Inclui, conforme a infraestrutura disponível:
 - autorização de acesso ao host/endpoint;
 - controle de portas de entrada.
 
-O Development Gateway assume que uma conexão que chegou até ele já passou pelos mecanismos externos de autorização.
+O Gateway assume que uma conexão que chegou até ele já passou pelos mecanismos externos de autorização.
 
 ## 3.2 Management Plane
 
@@ -122,7 +122,7 @@ Responsável por executar:
 
 Responsável por disponibilizar a aplicação aos usuários/consumidores.
 
-Esse plano é independente do Development Gateway.
+Esse plano é independente do Gateway.
 
 ---
 
@@ -130,7 +130,7 @@ Esse plano é independente do Development Gateway.
 
 O boilerplate define quatro categorias lógicas de containers.
 
-## 4.1 Development Gateway
+## 4.1 Gateway
 
 Container compartilhado entre todas as aplicações.
 
@@ -146,7 +146,7 @@ Responsabilidades:
 - Cockpit;
 - cockpit-podman.
 
-O Development Gateway é uma **unidade administrativa única**.
+O Gateway é uma **unidade administrativa única**.
 
 Não deve ser criado um gateway independente por aplicação salvo necessidade arquitetural futura claramente justificada.
 
@@ -154,7 +154,7 @@ Não deve ser criado um gateway independente por aplicação salvo necessidade a
 
 ## 4.2 Application Gateway
 
-Container independente do Development Gateway.
+Container independente do Gateway.
 
 Responsabilidade:
 
@@ -166,7 +166,7 @@ Responsabilidade:
 
 Tecnologias possíveis incluem Nginx, Caddy ou outra solução equivalente.
 
-A escolha concreta deve ser definida separadamente da arquitetura do Development Gateway.
+A escolha concreta deve ser definida separadamente da arquitetura do Gateway.
 
 O Application Gateway **não deve ser utilizado como canal de manutenção dos containers**.
 
@@ -196,11 +196,11 @@ O PostgreSQL não deve ser acessível diretamente pela rede externa de desenvolv
 
 ---
 
-# 5. Development Gateway
+# 5. Gateway
 
 ## 5.1 Composição
 
-O Development Gateway será um único container baseado em Debian minimal.
+O Gateway será um único container baseado em Debian minimal.
 
 Componentes previstos:
 
@@ -257,7 +257,7 @@ O acesso ao socket deve ser limitado aos privilégios necessários.
 
 ---
 
-# 6. Modelo de privilégios do Development Gateway
+# 6. Modelo de privilégios do Gateway
 
 O gateway necessita de capacidades de rede para:
 
@@ -283,7 +283,7 @@ A configuração final de capabilities será definida durante a implementação 
 
 # 7. Firewall
 
-O Development Gateway **não é concebido como firewall de segurança do ambiente**.
+O Gateway **não é concebido como firewall de segurança do ambiente**.
 
 O controle de acesso externo ocorre antes da chegada da conexão ao gateway.
 
@@ -320,12 +320,12 @@ Não deve existir uma rede global compartilhada entre todas as aplicações apen
 
 ---
 
-## 8.2 Development Gateway compartilhado
+## 8.2 Gateway compartilhado
 
-O Development Gateway pode estar conectado a múltiplas redes:
+O Gateway pode estar conectado a múltiplas redes:
 
 ```text
-                 Development Gateway
+                 Gateway
                   /        |        \
                  /         |         \
         project-a-net project-b-net project-c-net
@@ -347,7 +347,7 @@ project-b-net  ──X── project-c-net
 
 O acesso entre aplicações deve ser explicitamente configurado quando necessário.
 
-O fato de o Development Gateway possuir acesso às redes não implica que as redes tenham conectividade entre si.
+O fato de o Gateway possuir acesso às redes não implica que as redes tenham conectividade entre si.
 
 ---
 
@@ -355,7 +355,7 @@ O fato de o Development Gateway possuir acesso às redes não implica que as red
 
 ## 9.1 DNSMasq
 
-O Development Gateway deverá executar **DNSMasq** como serviço DNS de desenvolvimento.
+O Gateway deverá executar **DNSMasq** como serviço DNS de desenvolvimento.
 
 O objetivo é fornecer aos desenvolvedores resolução de nomes para os serviços dos containers sem exigir conhecimento ou gerenciamento manual de seus endereços IP.
 
@@ -366,7 +366,7 @@ Developer
     │
     │ DNS query
     ▼
-Development Gateway
+Gateway
     │
     ▼
 DNSMasq
@@ -452,7 +452,7 @@ backend.project-a.dev.internal
 
 ## 9.5 Escopo
 
-O Development Gateway deve disponibilizar resolução para todas as aplicações cujas redes estejam conectadas ao gateway.
+O Gateway deve disponibilizar resolução para todas as aplicações cujas redes estejam conectadas ao gateway.
 
 A existência de registros DNS não implica conectividade entre as redes das aplicações.
 
@@ -485,7 +485,7 @@ Endereços IP individuais de containers não devem ser tratados como identificad
 ---
 
 
-O Development Gateway deve fornecer ou encaminhar DNS para nomes de desenvolvimento.
+O Gateway deve fornecer ou encaminhar DNS para nomes de desenvolvimento.
 
 Os desenvolvedores não devem precisar conhecer IPs dos containers.
 
@@ -507,7 +507,7 @@ A resolução deve ser compatível com containers recriados.
 
 # 11. Acesso SSH e VS Code
 
-O Development Gateway será o ponto de entrada para acesso SSH aos containers.
+O Gateway será o ponto de entrada para acesso SSH aos containers.
 
 O objetivo é permitir utilização do:
 
@@ -517,7 +517,7 @@ ou mecanismos equivalentes.
 
 ## 11.1 Papel do gateway no SSH
 
-Para acesso aos containers das aplicações, o Development Gateway deverá atuar como **gateway de forwarding**, e não como autoridade de autenticação dos desenvolvedores.
+Para acesso aos containers das aplicações, o Gateway deverá atuar como **gateway de forwarding**, e não como autoridade de autenticação dos desenvolvedores.
 
 O gateway não deverá validar a identidade do desenvolvedor para os containers de aplicação. A autenticação SSH deverá ocorrer no próprio destino, utilizando as credenciais/chaves configuradas para aquele container.
 
@@ -528,7 +528,7 @@ Developer
    │
    │ SSH connection
    ▼
-Development Gateway
+Gateway
    │
    │ forwarding only
    ▼
@@ -541,9 +541,9 @@ Developer identity
 
 O gateway deverá, portanto, encaminhar a conexão sem substituir a autenticação SSH do destino.
 
-## 11.2 Acesso ao próprio Development Gateway
+## 11.2 Acesso ao próprio Gateway
 
-O próprio container do Development Gateway constitui uma exceção.
+O próprio container do Gateway constitui uma exceção.
 
 Quando o objetivo for administrar o gateway em si, a conexão será terminada no próprio container e sua autenticação SSH será realizada por ele.
 
@@ -629,7 +629,7 @@ O boilerplate não deve assumir uma tecnologia específica.
 
 # 13. NAT e forwarding
 
-NAT é uma função fundamental do Development Gateway.
+NAT é uma função fundamental do Gateway.
 
 Deve permitir, quando necessário:
 
@@ -644,7 +644,7 @@ O NAT não deve ser utilizado como mecanismo primário de segurança.
 
 # 14. Application Gateway
 
-O Application Gateway possui função distinta do Development Gateway.
+O Application Gateway possui função distinta do Gateway.
 
 Exemplo:
 
@@ -850,7 +850,7 @@ O repositório deve conter scripts para:
 5. preparar a estrutura de secrets;
 6. configurar chaves públicas SSH de bootstrap;
 7. criar ou atualizar containers;
-8. conectar o Development Gateway às redes das aplicações;
+8. conectar o Gateway às redes das aplicações;
 9. gerar/atualizar a configuração do DNSMasq;
 10. configurar o Application Gateway;
 11. iniciar os serviços;
@@ -870,7 +870,7 @@ A configuração inicial deverá poder incluir as chaves públicas SSH dos desen
 O mecanismo de bootstrap deverá permitir distinguir:
 
 - chaves para acesso aos containers de aplicação;
-- chaves para acesso administrativo ao próprio Development Gateway.
+- chaves para acesso administrativo ao próprio Gateway.
 
 As chaves privadas nunca deverão ser copiadas para o ambiente pelo deployment.
 
@@ -900,7 +900,7 @@ Acesso direto ao host deve ficar reservado a:
 
 # 22. Diagnóstico
 
-O Development Gateway deve incluir ferramentas suficientes para investigar rapidamente problemas de conectividade.
+O Gateway deve incluir ferramentas suficientes para investigar rapidamente problemas de conectividade.
 
 Ferramentas esperadas:
 
@@ -1033,7 +1033,7 @@ Mesmo com o controle de acesso externo, devem ser mantidos os seguintes princíp
 7. capabilities específicas quando possível;
 8. redes de aplicações isoladas;
 9. PostgreSQL não exposto externamente;
-10. Development Gateway não utilizado para servir tráfego de usuários;
+10. Gateway não utilizado para servir tráfego de usuários;
 11. Application Gateway não utilizado como canal administrativo;
 12. autenticação SSH individual, sem chaves privadas compartilhadas;
 13. chaves privadas nunca armazenadas no gateway;
@@ -1055,21 +1055,21 @@ As seguintes decisões são consideradas parte do contrato:
 | Backend | Python + FastAPI |
 | Frontend | JavaScript |
 | Database | PostgreSQL |
-| Development Gateway | Um único container compartilhado |
+| Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
-| Cockpit | Dentro do Development Gateway |
-| cockpit-podman | Dentro do Development Gateway |
+| Cockpit | Dentro do Gateway |
+| cockpit-podman | Dentro do Gateway |
 | Application Gateway | Container separado |
 | Rede por aplicação | Sim |
 | Gateway compartilhado entre redes | Sim |
-| DNS de desenvolvimento | DNSMasq no Development Gateway |
+| DNS de desenvolvimento | DNSMasq no Gateway |
 | Configuração DNS | Gerada/atualizada pelo deployment |
 | Nomes internos | Namespace DNS interno de desenvolvimento |
 | Nomes externos | Namespace/endpoints externos separados |
-| NAT | Via Development Gateway |
-| SSH | Via Development Gateway |
+| NAT | Via Gateway |
+| SSH | Via Gateway |
 | SSH para aplicações | Gateway realiza forwarding; autenticação ocorre no destino |
-| SSH para gateway | Autenticação no próprio Development Gateway |
+| SSH para gateway | Autenticação no próprio Gateway |
 | SSH keys | Individuais por desenvolvedor |
 | SSH shared keys | Não |
 | SSH Certificate Authority | Fora do boilerplate inicial |
@@ -1088,7 +1088,7 @@ As seguintes decisões são consideradas parte do contrato:
 
 As seguintes questões permanecem para o desenho detalhado:
 
-1. capabilities exatas necessárias ao Development Gateway;
+1. capabilities exatas necessárias ao Gateway;
 2. mecanismo de acesso do Cockpit ao Podman socket;
 3. estratégia exata de alocação de CIDRs;
 4. tecnologia do Application Gateway;
@@ -1111,7 +1111,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 
 - uma aplicação puder ser implantada sem alterar manualmente o host na operação normal;
 - cada aplicação possuir rede Podman independente;
-- o Development Gateway puder acessar múltiplas redes;
+- o Gateway puder acessar múltiplas redes;
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
 - desenvolvedores puderem acessar containers por SSH/VS Code através do gateway;
 - o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
@@ -1120,7 +1120,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - Cockpit permitir administrar os containers;
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
-- Application Gateway estiver separado do Development Gateway;
+- Application Gateway estiver separado do Gateway;
 - o acesso externo continuar controlado pela infraestrutura de segurança existente;
 - deployment puder ser repetido sem destruir dados;
 - diagnóstico básico de rede puder ser realizado sem acesso ao host RHEL;
@@ -1177,7 +1177,7 @@ A arquitetura lógica desejada é:
              │                                   │
              ▼                                   ▼
 ┌─────────────────────────┐           ┌─────────────────────┐
-│ Development Gateway     │           │ Application Gateway │
+│ Gateway     │           │ Application Gateway │
 │                         │           │                     │
 │ Debian                  │           │ HTTP / HTTPS        │
 │ SSH                     │           │ Reverse proxy       │
@@ -1202,7 +1202,7 @@ A arquitetura lógica desejada é:
  postgres postgres      postgres
 ```
 
-A característica central do projeto é que **o Development Gateway é compartilhado**, enquanto **as redes e os componentes de cada aplicação permanecem isolados**.
+A característica central do projeto é que **o Gateway é compartilhado**, enquanto **as redes e os componentes de cada aplicação permanecem isolados**.
 
 Isso proporciona um único ponto de manutenção para os desenvolvedores sem transformar as aplicações em uma única rede ou exigir um gateway dedicado por aplicação.
 
@@ -1214,7 +1214,7 @@ Depois da aprovação deste contrato arquitetural, a próxima etapa recomendada 
 
 1. topologia exata das redes Podman;
 2. portas;
-3. interfaces do Development Gateway;
+3. interfaces do Gateway;
 4. fluxo de SSH;
 5. fluxo de DNS;
 6. fluxo de NAT;

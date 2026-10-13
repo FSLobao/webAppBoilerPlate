@@ -1,12 +1,12 @@
-# Development Gateway Bootstrap Plan
+# Gateway Bootstrap Plan
 
 **Status:** Implementation plan derived from the approved architecture baseline
-**Scope:** Shared Development Gateway bootstrap on RHEL 9 with rootful Podman
+**Scope:** Shared Gateway bootstrap on RHEL 9 with rootful Podman
 **Deployment target:** Isolated test host only during implementation; no live-host deployment is authorized by this plan.
 
 ## 1. Goal
 
-Implement a reproducible bootstrap for the shared Development Gateway. Keep host deployment and container startup as separate responsibilities. Build the Debian image from repository sources. Read application network declarations and development DNS mappings from versioned configuration.
+Implement a reproducible bootstrap for the shared Gateway. Keep host deployment and container startup as separate responsibilities. Build the Debian image from repository sources. Read application network declarations and development DNS mappings from versioned configuration.
 
 The deployment must be repeatable without deleting application data, volumes, secrets, SSH host keys, or unrelated Podman resources. It must fail validation before changing the host or the running gateway.
 
@@ -15,7 +15,7 @@ The deployment must be repeatable without deleting application data, volumes, se
 In scope:
 
 - A Bash host deployment script for an authorized infrastructure operator.
-- A Quadlet-managed, rootful Podman Development Gateway container.
+- A Quadlet-managed, rootful Podman Gateway container.
 - A Debian image built from a repository `Containerfile`.
 - A separate Bash startup/validation script inside the image.
 - Versioned declarations for application networks, CIDRs, and development DNS mappings.
@@ -37,10 +37,10 @@ Out of scope:
 
 Implementation must preserve these invariants:
 
-- One shared Development Gateway serves multiple isolated application networks.
+- One shared Gateway serves multiple isolated application networks.
 - Each application retains its own Podman network. No global network joins applications.
-- The Development Gateway is not the Application Gateway and does not serve user traffic.
-- DNSMasq runs in the Development Gateway. Deployment generates records from the current addresses of declared containers.
+- The Gateway is not the Application Gateway and does not serve user traffic.
+- DNSMasq runs in the Gateway. Deployment generates records from the current addresses of declared containers.
 - Only services requiring development access receive DNS records. Databases remain unpublished by default.
 - SSH forwarding does not replace destination authentication. Developers authenticate to the target container with their individual keys. Access to the gateway itself has separate authentication.
 - Podman access uses a local Unix socket. No Podman API listener is exposed over TCP.
@@ -63,15 +63,19 @@ No subagent is required for this plan-only change. The implementation steps shar
 Keep source-controlled inputs separate from generated host state:
 
 ```text
-config/development-gateway.json
+config/host_config.json
 gateway/development/Containerfile
 gateway/development/startup.sh
 gateway/development/systemd/
-deploy/quadlet/development-gateway.container
-scripts/deploy-development-gateway.sh
+deploy/quadlet/gateway.container
+scripts/deploy-gateway.sh
+scripts/host-preflight.sh
 ```
 
-Use existing repository conventions if implementation reveals an established location. Do not commit generated DNS files, host-specific Quadlet output, SSH private keys, secrets, or runtime state.
+Use existing repository conventions if implementation reveals an established location. The generic
+host preflight reads declared host networks and containers without requiring gateway credentials.
+Gateway deployment adds its RHEL, credential, systemd, and Quadlet requirements. Do not commit
+generated DNS files, host-specific Quadlet output, SSH private keys, secrets, or runtime state.
 
 The host deployment script owns host prerequisites, image build, network checks, generated Quadlet installation, DNS record generation, service activation, and health verification. The container startup script owns in-container validation and service startup only. Neither script should source the other's configuration as executable shell.
 
@@ -79,12 +83,13 @@ The host deployment script owns host prerequisites, image build, network checks,
 
 Use JSON for the versioned configuration and `jq` for structured parsing. Do not parse nested configuration with `grep`, `sed`, `eval`, or shell word splitting. Declare `jq` as a host prerequisite and fail during read-only preflight if it is unavailable.
 
-The initial schema should contain:
+The host schema should contain:
 
 - `schema_version`, initially `1`.
-- Gateway identity and explicitly configured published management ports.
-- An array of application networks. Each entry declares the exact Podman network name and expected non-overlapping CIDR.
-- An array of development DNS records. Each entry declares a fully qualified internal name, target container, and application network.
+- An array of host networks. Each entry declares the exact Podman network name and expected CIDR.
+- An optional array of containers and their expected networks for host preflight checks.
+- An optional `gateway` section with identity, published management ports, and selected network names.
+- An optional array of development DNS records for gateway-managed DNS.
 - Public-key source paths or identifiers for gateway access and application destinations. Private-key paths are forbidden.
 
 Illustrative shape; finalize field names and requiredness before implementation:
@@ -93,15 +98,19 @@ Illustrative shape; finalize field names and requiredness before implementation:
 {
   "schema_version": 1,
   "gateway": {
-    "name": "development-gateway",
+    "name": "gateway",
     "ssh_port": 2222,
-    "cockpit_port": 9090
+    "cockpit_port": 9090,
+    "networks": ["project-a-net"]
   },
   "networks": [
     {
       "name": "project-a-net",
       "subnet": "10.89.1.0/24"
     }
+  ],
+  "containers": [
+    { "name": "project-a-backend", "networks": ["project-a-net"] }
   ],
   "dns_records": [
     {
@@ -115,7 +124,7 @@ Illustrative shape; finalize field names and requiredness before implementation:
 
 Validation must reject unsupported schema versions, duplicate network names, duplicate DNS names, malformed names/CIDRs, overlapping CIDRs, records referencing undeclared networks, and mappings to a container outside the declared network. Existing Podman networks must match their declared subnet; never silently recreate or mutate a mismatched network.
 
-The configuration contains logical identities, not permanent container IPs. The deployment queries Podman for each target's current address on the declared network every time it generates DNS. When a declared target is not running, report it clearly and do not publish a stale address. Decide whether absent targets are warnings or fatal preflight errors before coding; either policy must leave the active DNS configuration and gateway untouched on failure.
+The configuration contains logical identities, not permanent container IPs. The deployment queries Podman for each target's current address on the declared network every time it generates DNS. An absent declared target is a hard preflight error. Read-only `--check` reports stopped targets without starting them; `--apply` asks before starting each stopped target, then reruns preflight. If a later apply step fails, restore the stopped state of targets started by that apply. Never publish a stale address.
 
 ## 6. Host and Container Responsibilities
 
@@ -250,7 +259,7 @@ For the capability test, treat `CAP_NET_ADMIN` as a candidate for in-container f
 - If activation fails, restore the previous generated files and service definition where feasible, then report both the original and rollback errors.
 - Never remove volumes, secret files, host keys, application data, unrelated containers, or unrelated systemd/Quadlet units during apply or rollback.
 - Normal apply may create missing declared networks and attach the gateway. It must not delete networks. Network decommissioning and persistent-data deletion require separate, explicit operator procedures.
-- When a configured DNS target is absent, follow the requiredness policy fixed in Phase 0. Never retain or publish a stale IP as a fallback.
+- A configured DNS target that is absent is a hard preflight error. Read-only `--check` must not start stopped targets. `--apply` may start a stopped target only after operator confirmation and must restore its prior stopped state if deployment fails. Never retain or publish a stale IP as a fallback.
 - Keep logs free of secret content. Do not put secret values in command-line arguments, generated unit files, build arguments, or image history.
 - Report partial additive changes, such as a newly created network, if later activation fails. Do not present rollback as complete when host state remains changed.
 
@@ -261,7 +270,7 @@ Resolve and record these items without changing the architecture contract:
 1. Exact supported RHEL 9/Podman/Quadlet versions and Quadlet network-unit strategy.
 2. Rootful Podman socket authority acceptance, mount path, Cockpit integration behavior, and SELinux constraints.
 3. Exact public-key input format and host-managed SSH host-key path.
-4. Whether missing mapped containers are fatal during apply or reported as pending; either behavior must avoid stale DNS.
+4. Missing mapped containers are fatal. Stopped targets require operator confirmation before `--apply` starts them; `--check` remains read-only.
 5. Management bind addresses and ports, and the external perimeter restriction for SSH/Cockpit.
 6. Debian release/base-image digest and package update policy.
 7. Exact minimal Linux capability set established by the RHEL 9 tests.
@@ -288,10 +297,10 @@ The bootstrap is ready for review when:
 Use this prompt to start the implementation in a new coding session:
 
 ```text
-Implement the Development Gateway bootstrap in this repository.
+Implement the Gateway bootstrap in this repository.
 
 Read `docs/plans/WEB_APP_BOILERPLATE_ARCHITECTURE.md` first. Then read
-`docs/plans/development-gateway-bootstrap-plan.md` in full. Treat the architecture
+`docs/plans/gateway-bootstrap-plan.md` in full. Treat the architecture
 document as the contract and the bootstrap plan as the implementation and test
 specification. Read and follow applicable repository instructions.
 

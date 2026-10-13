@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly CONFIG=/etc/development-gateway/generated/config.json
-readonly AUTHORIZED_KEYS=/run/development-gateway/authorized_keys
+readonly CONFIG=/etc/gateway/generated/config.json
+readonly AUTHORIZED_KEYS=/run/gateway/authorized_keys
 readonly COCKPIT_PASSWORD=/run/secrets/cockpit-password
 readonly HOST_KEY=/run/ssh-host-keys/ssh_host_ed25519_key
 readonly HOST_PUBLIC_KEY=/run/ssh-host-keys/ssh_host_ed25519_key.pub
-readonly COCKPIT_CERT=/etc/cockpit/ws-certs.d/development-gateway.cert
-readonly COCKPIT_KEY=/etc/cockpit/ws-certs.d/development-gateway.key
-readonly DNS_HOSTS=/run/development-gateway/dns/hosts
+readonly COCKPIT_CERT=/etc/cockpit/ws-certs.d/gateway.cert
+readonly COCKPIT_KEY=/etc/cockpit/ws-certs.d/gateway.key
+readonly DNS_HOSTS=/run/gateway/dns/hosts
 
 fail() {
-    printf '[development-gateway] ERROR: %s\n' "$*" >&2
+    printf '[gateway] ERROR: %s\n' "$*" >&2
     exit 1
 }
 
@@ -66,7 +66,7 @@ done
 
 jq -e '
     .schema_version == 1 and
-    .gateway.name == "development-gateway" and
+    .gateway.name == "gateway" and
     (.gateway.ssh_port | type == "number") and
     (.gateway.cockpit_port | type == "number") and
     (.networks | type == "array") and
@@ -93,8 +93,8 @@ jq -r '
     [.dns_records[].name + ":22"] as $targets |
     if ($targets | length) == 0 then "PermitOpen none"
     else "PermitOpen " + ($targets | join(" ")) end
-' "$CONFIG" > /run/development-gateway/sshd_config
-cat >> /run/development-gateway/sshd_config <<EOF
+' "$CONFIG" > /run/gateway/sshd_config
+cat >> /run/gateway/sshd_config <<EOF
 Port 22
 HostKey $HOST_KEY
 PidFile /run/sshd.pid
@@ -117,7 +117,7 @@ EOF
 
 mkdir -p /run/sshd
 chmod 0755 /run/sshd
-/usr/sbin/sshd -t -f /run/development-gateway/sshd_config || fail 'OpenSSH configuration validation failed.'
+/usr/sbin/sshd -t -f /run/gateway/sshd_config || fail 'OpenSSH configuration validation failed.'
 dnsmasq --test --no-resolv --no-hosts --bind-dynamic --addn-hosts="$DNS_HOSTS" >/dev/null || \
     fail 'DNSMasq configuration or generated DNS records are invalid.'
 
@@ -138,7 +138,7 @@ shutdown() {
 }
 trap shutdown TERM INT HUP
 
-/usr/sbin/sshd -D -e -f /run/development-gateway/sshd_config &
+/usr/sbin/sshd -D -e -f /run/gateway/sshd_config &
 children+=("$!")
 dnsmasq --no-daemon --keep-in-foreground --no-resolv --no-hosts \
     --bind-dynamic --addn-hosts="$DNS_HOSTS" &
@@ -151,6 +151,6 @@ if wait -n "${children[@]}"; then
 else
     status=$?
 fi
-printf '[development-gateway] A supervised service exited with status %s.\n' "$status" >&2
+printf '[gateway] A supervised service exited with status %s.\n' "$status" >&2
 stop_children
 exit 1

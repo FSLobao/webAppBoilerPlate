@@ -22,7 +22,7 @@ Maintainers will acknowledge the report, investigate it, coordinate a fix and di
 
 - Apply least privilege and avoid `--privileged` unless a reviewed requirement makes it necessary.
 - Do not expose the Podman API over TCP; prefer the local Unix socket with restricted access.
-- Keep application containers and the administrative Development Gateway separate in responsibility.
+- Keep application containers and the administrative Gateway separate in responsibility.
 
 ### Networks and data
 

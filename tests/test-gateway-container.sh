@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly IMAGE=localhost/development-gateway:1
+readonly IMAGE=localhost/gateway:1
 readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 readonly TMP_DIR="$(mktemp -d)"
-readonly TEST_NAME="development-gateway-test-$$"
+readonly TEST_NAME="gateway-test-$$"
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
@@ -33,7 +33,7 @@ podman image exists "$IMAGE" || fail "Build the gateway image first: $IMAGE"
 if podman run --rm --network none "$IMAGE" > "$TMP_DIR/missing-mounts.log" 2>&1; then
     fail 'Container startup accepted missing runtime mounts'
 fi
-grep -Fq 'Required read-only file is missing or unsafe: /etc/development-gateway/generated/config.json' \
+grep -Fq 'Required read-only file is missing or unsafe: /etc/gateway/generated/config.json' \
     "$TMP_DIR/missing-mounts.log" || fail 'Missing-mount failure was not actionable'
 printf 'PASS: missing runtime mounts rejected\n'
 
@@ -50,15 +50,15 @@ cp -- "$TMP_DIR/ssh/developer.pub" "$TMP_DIR/ssh/authorized_keys"
 cp -- "$TMP_DIR/ssh/developer" "$TMP_DIR/client/developer"
 chmod 0600 "$TMP_DIR/client/developer"
 ssh-keygen -q -t ed25519 -N '' -f "$TMP_DIR/ssh/ssh_host_ed25519_key"
-openssl req -x509 -newkey ed25519 -keyout "$TMP_DIR/tls/development-gateway.key" \
-    -out "$TMP_DIR/tls/development-gateway.cert" -nodes -days 1 -subj /CN=localhost >/dev/null 2>&1
-chmod 0600 "$TMP_DIR/tls/development-gateway.key"
-chmod 0644 "$TMP_DIR/tls/development-gateway.cert"
+openssl req -x509 -newkey ed25519 -keyout "$TMP_DIR/tls/gateway.key" \
+    -out "$TMP_DIR/tls/gateway.cert" -nodes -days 1 -subj /CN=localhost >/dev/null 2>&1
+chmod 0600 "$TMP_DIR/tls/gateway.key"
+chmod 0644 "$TMP_DIR/tls/gateway.cert"
 printf 'test-only-password\n' > "$TMP_DIR/run/cockpit-password"
 chmod 0600 "$TMP_DIR/run/cockpit-password"
 jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24"}] |
     .dns_records = [{"name":"backend.project-a.dev.internal","container":"project-a-backend","network":"project-a-net"}]' \
-    "$REPO_ROOT/config/development-gateway.json" > "$TMP_DIR/config/config.json"
+    "$REPO_ROOT/config/host_config.json" > "$TMP_DIR/config/config.json"
 chmod 0644 "$TMP_DIR/config/config.json"
 printf '# generated test record\n192.0.2.2 backend.project-a.dev.internal\n' > "$TMP_DIR/dns/hosts"
 chmod 0644 "$TMP_DIR/dns/hosts"
@@ -66,15 +66,15 @@ printf 'nameserver 127.0.0.1\noptions attempts:1 timeout:1\n' > "$TMP_DIR/run/re
 chmod 0644 "$TMP_DIR/run/resolv.conf"
 
 podman run --detach --rm --network none --cap-drop=NET_RAW --name "$TEST_NAME" \
-    --volume "$TMP_DIR/config:/etc/development-gateway/generated:ro" \
-    --volume "$TMP_DIR/ssh/authorized_keys:/run/development-gateway/authorized_keys:ro" \
+    --volume "$TMP_DIR/config:/etc/gateway/generated:ro" \
+    --volume "$TMP_DIR/ssh/authorized_keys:/run/gateway/authorized_keys:ro" \
     --volume "$TMP_DIR/run/cockpit-password:/run/secrets/cockpit-password:ro" \
     --volume "$TMP_DIR/ssh/ssh_host_ed25519_key:/run/ssh-host-keys/ssh_host_ed25519_key:ro" \
     --volume "$TMP_DIR/ssh/ssh_host_ed25519_key.pub:/run/ssh-host-keys/ssh_host_ed25519_key.pub:ro" \
-    --volume "$TMP_DIR/tls/development-gateway.cert:/etc/cockpit/ws-certs.d/development-gateway.cert:ro" \
-    --volume "$TMP_DIR/tls/development-gateway.key:/etc/cockpit/ws-certs.d/development-gateway.key:ro" \
+    --volume "$TMP_DIR/tls/gateway.cert:/etc/cockpit/ws-certs.d/gateway.cert:ro" \
+    --volume "$TMP_DIR/tls/gateway.key:/etc/cockpit/ws-certs.d/gateway.key:ro" \
     --volume "$TMP_DIR/client:/run/test-client:ro" \
-    --volume "$TMP_DIR/dns:/run/development-gateway/dns:ro" \
+    --volume "$TMP_DIR/dns:/run/gateway/dns:ro" \
     --volume "$TMP_DIR/run/resolv.conf:/etc/resolv.conf:ro" "$IMAGE" >/dev/null || \
     fail 'Could not start the isolated gateway container'
 

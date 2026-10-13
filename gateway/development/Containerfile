@@ -26,8 +26,8 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && rm -f /usr/sbin/policy-rc.d \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/ssh/ssh_host_* \
-    && install -d -m 0755 /run/sshd /run/development-gateway/dns \
-        /etc/development-gateway/generated /etc/cockpit/ws-certs.d \
+    && install -d -m 0755 /run/sshd /run/gateway/dns \
+        /etc/gateway/generated /etc/cockpit/ws-certs.d \
     && useradd --create-home --shell /bin/bash developer \
     && useradd --create-home --shell /bin/bash gateway-admin \
     && usermod --append --groups root gateway-admin \
@@ -35,8 +35,8 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && passwd --lock gateway-admin \
     && chmod 0755 /home/developer /home/gateway-admin
 
-COPY startup.sh /usr/local/sbin/development-gateway-startup
-RUN chmod 0755 /usr/local/sbin/development-gateway-startup
+COPY startup.sh /usr/local/sbin/gateway-startup
+RUN chmod 0755 /usr/local/sbin/gateway-startup
 
 EXPOSE 22/tcp 53/tcp 53/udp 9090/tcp
-ENTRYPOINT ["/usr/local/sbin/development-gateway-startup"]
+ENTRYPOINT ["/usr/local/sbin/gateway-startup"]
