@@ -2,7 +2,7 @@
 
 **Status:** Design plan; application lifecycle is not implemented.
 **Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
-**Related plans:** [Application Gateway](application-gateway-plan.md), [Application Stack](application-stack-plan.md), [Gateway Bootstrap](gateway-bootstrap-plan.md)
+**Related plans:** [Application Gateway](application-gateway-plan.md), [Application Stack](application-stack-plan.md), [Gateway Bootstrap](gateway-plan.md)
 
 ## 1. Goal and Ownership
 
