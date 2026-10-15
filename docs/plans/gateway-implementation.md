@@ -1,6 +1,6 @@
 # Gateway Bootstrap
 
-**Status:** Gateway implementation is in progress. Required NAT-based remote service forwarding is not implemented, and host acceptance remains pending.
+**Status:** Gateway implementation is in progress. Unrestricted routed remote access is not implemented, and host acceptance remains pending.
 **Deployment authorization:** Isolated test host only. Do not deploy to a live host.
 **Qualification target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux enforcing. This target has not been tested here.
 
@@ -11,11 +11,12 @@
 - Host deployment scripts require RHEL 9.8 and rootful Podman 5.8.2, with a working Quadlet generator and SELinux enforcing. Podman's Quadlet feature floor is 4.4; it is not the supported host target. Verify package provenance and exact kernel/Quadlet behavior on a disposable host.
 - The image is Debian 13 `linux/amd64`, pinned to a base-image digest and Debian snapshot dated 2026-10-08. Package versions are pinned in the Containerfile. Update the snapshot, base digest, and package set together after security review.
 - The container does not run systemd as PID 1. Bash supervises foreground OpenSSH, DNSMasq, and Cockpit websocket processes and forwards shutdown signals. Cockpit websocket standalone flags and the process lifecycle passed a local container smoke test.
-- No extra Linux capabilities are requested; Quadlet drops unused `NET_RAW`. NAT and remote service forwarding are not implemented. Test the minimum capability set, including `CAP_NET_ADMIN` only as a candidate, on the target host before adding it.
+- No extra Linux capabilities are requested; Quadlet drops unused `NET_RAW`. OpenVPN, SSH TUN, and routed remote access are not implemented. Test TUN device access, forwarding, routes, and the minimum capability set on the target host before adding privileges.
+- The current [startup.sh](../../gateway/development/startup.sh) sets `PermitTunnel no`; it does not support the planned SSH TUN interface. Supporting SSH TUN requires an explicitly restricted tunnel account and target-host validation.
 - Missing DNS targets are hard preflight errors. Read-only `--check` reports stopped targets without starting them. `--apply` asks before starting stopped targets, reruns preflight, and restores their stopped state if a later apply step fails. A running target attached to the wrong network is a hard preflight failure.
 - The Gateway currently loads only gateway-login public keys from `/etc/gateway/authorized_keys`. Application destination keys remain unimplemented. The plan requires separate root-managed host public-key files, read-only consumption, and permission checks. Host audit records file changes; PAM and operator-session controls remain external and are not revalidated here. Private keys must never be copied to the host or containers.
 - The checked-in JSON has empty top-level and `gateway.networks` arrays. The current deployer treats an explicit empty `gateway.networks` as no Gateway attachments; it does not yet implement the all-network contract. Updating the config schema and deployer is a required future implementation step. No code changed in this plan revision.
-- The default management bind address is loopback. Remote service exposures need separately declared, infrastructure-approved host addresses and ports; do not expose SSH or Cockpit on wildcard addresses to enable NAT.
+- The default management bind address is loopback. Remote developer access will use routed tunnel interfaces, not per-service port exposures. Do not expose SSH or Cockpit on wildcard addresses merely to provide network access.
 
 ## Host Inputs and State
 
@@ -75,7 +76,7 @@ sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
-The current `--apply` refreshes DNS only; it does not install NAT forwarding rules. Do not claim remote NAT access is available. After NAT is implemented, application deployment must refresh both target mappings and DNS after the target is healthy; no background watcher is currently installed.
+The current `--apply` refreshes DNS only; it does not create tunnel interfaces, forwarding policy, or routes. Do not claim remote Layer 3 access is available. After routing is implemented, application deployment must refresh DNS after the target is healthy; routes cover network CIDRs, so target recreation does not require per-container route updates. No background watcher is currently installed.
 
 Inspect and recover with:
 
@@ -111,4 +112,4 @@ The container test uses temporary keys and a self-signed certificate, creates no
 
 ## Validation Status
 
-No RHEL 9.8 / Podman 5.8.2 host acceptance has been recorded. NAT-based remote service forwarding, DNAT-only source preservation and return routes, host apply, Quadlet lifecycle and reboot, SELinux socket/key-file access, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS/NAT refresh after target replacement, all-network attachment, peer network isolation, rollback, and minimum capabilities remain unvalidated. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on a disposable RHEL 9.8 / Podman 5.8.2 system.
+No RHEL 9.8 / Podman 5.8.2 host acceptance has been recorded. OpenVPN profile mounting and connection, SSH TUN, full-protocol forwarding, route symmetry through the external OpenVPN server, denial of new container-initiated flows, DNS over tunnel, host apply, Quadlet lifecycle and reboot, SELinux socket/key-file access, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS refresh after target replacement, all-network attachment, peer network isolation, rollback, and minimum capabilities remain unvalidated. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on a disposable RHEL 9.8 / Podman 5.8.2 system.
