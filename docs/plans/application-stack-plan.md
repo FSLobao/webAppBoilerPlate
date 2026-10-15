@@ -1,6 +1,6 @@
 # Application Stack Plan
 
-**Status:** Design plan; framework and database lifecycle decisions remain open.
+**Status:** Design plan; Vite with vanilla JavaScript and PostgreSQL 18 are selected. Container lifecycle remains unimplemented.
 **Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
 
 ## 1. Goal and Components
@@ -42,7 +42,7 @@ No application network is shared across applications. PostgreSQL has no publishe
 
 Vite is not a UI framework. It is a build tool and development server. With vanilla JavaScript, it gives ES-module development, dependency bundling, optimized static output, and a configurable asset base path without React/Vue/Svelte runtime conventions. For a handful of static pages, plain HTML and modules without Vite have fewer dependencies. For a mostly-SPA application, Vite is a pragmatic middle ground; set its base path to `/app/` so built assets work under the configured application prefix.
 
-The public route contract is `http://<domain>/app` for the frontend and `http://<domain>/app/api/<route>` for FastAPI. Nginx sends `/app/api/` to the API before applying the SPA fallback to other `/app/` paths. Local development should expose the same paths through the Vite proxy.
+The public route contract is `https://<domain>/app` for the frontend and `https://<domain>/app/api/<route>` for FastAPI; the external perimeter terminates TLS and forwards HTTP to NGINX. NGINX preserves `/app/api/` when proxying and matches it before the SPA fallback. Local development should expose the same paths through the Vite proxy.
 
 ## 4. Component Contracts
 
@@ -58,16 +58,23 @@ The public route contract is `http://<domain>/app` for the frontend and `http://
 ### Backend
 
 - Use Python and FastAPI, with dependency and interpreter versions pinned through repository-managed tooling.
-- Expose application APIs and readiness/liveness checks; do not own host, Podman, DNS, or Gateway configuration.
+- Expose application APIs under `/app/api/*` and readiness/liveness checks; do not own host, Podman, DNS, or Gateway configuration.
 - Read database credentials and other secrets from external runtime files or an approved secret mechanism. Do not place secret values in image layers, command-line arguments, or logs.
 - Run with the least container privileges practical. Do not require host networking or the Podman socket.
 
 ### PostgreSQL
 
-- Run the selected supported PostgreSQL major in its own container with a named or dedicated persistent volume.
+- Run PostgreSQL 18 by default, with the major version declared in config, in its own container with a named or dedicated persistent volume.
 - Mount credentials/configuration only into PostgreSQL and the backend that needs them. Do not publish the database port externally.
-- Define initialization, readiness, supported PostgreSQL major/client versions, full-cluster backup, and manual restore procedures before production use. The remote storage service owns backup retention.
+- Define initialization, readiness, PostgreSQL/client versions, full-cluster backup, and manual restore procedures before production use. The default backup schedule is monthly and remains configurable per instance.
+- Mount the host-managed remote backup path into the PostgreSQL container read-only at a configured path. The host backup job writes to the host path and logs an error if remote storage is unavailable; it never falls back to local-only storage.
 - Container replacement must preserve the database volume. Image rollback must not imply an unsafe data downgrade.
+
+### Optional file services
+
+- Add a TUS file-transfer container only when declared in config. NGINX publishes its route; enforce a 1 GB maximum file size in the TUS service and proxy configuration by default.
+- Add NGINX basic file sharing only when declared. Serve files read-only by default; use the TUS service for uploads.
+- Keep file data on declared persistent volumes and include their backup/restore responsibility in the application manifest.
 
 ### Backup and restore
 
@@ -77,9 +84,9 @@ The public route contract is `http://<domain>/app` for the frontend and `http://
 | `pgBackRest` or WAL-G with base backups and WAL archiving | Point-in-time recovery and lower recovery-point objectives. | Higher setup, credentials, monitoring, storage, and restore complexity. | Adopt when data value, size, or recovery objectives need PITR. |
 | Storage snapshots coordinated with PostgreSQL | Fast volume-level recovery when snapshots are crash-consistent or database-coordinated. | Storage-provider-specific; snapshots alone are not a portable logical backup. | Supplement, not the only backup, unless consistency and restore are proven. |
 
-Run unfiltered `pg_dumpall` for the complete PostgreSQL cluster: all database schemas and data, plus global roles. Write its UTF-8 SQL stream to a timestamped file on the configured remote mount, compress it, verify a checksum, then publish it atomically. The job must fail if the mount is absent or unwritable; never fall back to local-only storage. Retention is managed by the remote-storage service. Protect credentials and dump files, and keep secrets out of process arguments and logs.
+Run unfiltered `pg_dumpall` for the complete PostgreSQL cluster: all database schemas and data, plus global roles. Write its UTF-8 SQL stream to a timestamped file on the configured host-mounted remote path, compress it, verify a checksum, then publish it atomically. Log a clear error and fail the job if the mount is absent or unwritable; never fall back to local-only storage. Retention is managed by the remote-storage service. Protect credentials and dump files, and keep secrets out of process arguments and logs.
 
-Restore is a deliberate operator task, not an automatic deployment rollback. An authorized operator connects directly to PostgreSQL through an approved private route or temporary management tunnel and runs the complete SQL dump through `psql` as a PostgreSQL administrator. Do not expose the database through the Application Gateway or leave a public PostgreSQL port open. Test role and ownership restoration before acceptance.
+Restore is a manual, operator-triggered task, not an automatic deployment rollback. The initial interface is a restore script; a Cockpit tool may be added later. An authorized operator connects directly to PostgreSQL through an approved private route or temporary management tunnel and runs the complete SQL dump through `psql` as a PostgreSQL administrator. Do not expose the database through the Application Gateway or leave a public PostgreSQL port open. Test role and ownership restoration before acceptance.
 
 For a compressed `pg_dumpall` file, the manual restore shape is:
 
@@ -95,9 +102,9 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 
 ### Phase 0: Resolve the stack contract
 
-- Confirm Vite plus vanilla JavaScript as the default, or select a framework with a recorded reason; define supported Node.js build version and SPA fallback.
-- Confirm the supported PostgreSQL major and matching client image version.
-- Define the full-cluster backup schedule in JSON, the pre-mounted remote path, and the approved direct restore connection. Retention is managed by remote storage.
+- Use Vite plus vanilla JavaScript as the default. Define the supported Node.js build version and SPA fallback.
+- Use PostgreSQL 18 by default; define the matching client image version in config.
+- Set the default full-cluster backup schedule to monthly in JSON. Define the host-mounted remote path and approved direct restore connection. Retention is managed by remote storage.
 
 ### Phase 1: Define service interfaces
 
@@ -107,7 +114,7 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 ### Phase 2: Build and validate images
 
 - Build each image from repository sources with pinned dependencies and a minimal runtime surface.
-- Run containers without unnecessary capabilities and without host mounts beyond declared configuration, secrets, and persistent data.
+- Run containers without unnecessary capabilities and without host mounts beyond declared configuration, secrets, and persistent data. The qualification host has SELinux disabled by explicit decision; deployment must not change host security settings.
 - Test startup, graceful shutdown, health checks, and behavior when dependencies are unavailable.
 
 ### Phase 3: Validate data and isolation
@@ -126,10 +133,9 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 - Backend and frontend health checks detect startup failure without leaking secrets.
 - A PostgreSQL replacement preserves the data volume; a full-cluster SQL dump restores every database and global role into a disposable cluster.
 
-## 7. Open Questions
+## 7. Remaining Implementation Inputs
 
-1. Is Vite with vanilla JavaScript acceptable as the default build path for mostly-SPA applications, with plain static modules available for very small pages?
-2. Is the public path contract `/app` for the frontend and `/app/api/*` for API requests correct for all applications?
-3. Is a daily full-cluster backup schedule appropriate as the default? The schedule remains configurable per PostgreSQL instance; remote storage owns retention.
-4. Which non-root UID/GID and writable paths are compatible with the selected images and RHEL 9.8 SELinux policy?
-5. Which development services, if any, need DNS/SSH access through the Development Gateway?
+- Select the supported Node.js build version and non-root UID/GID for each image.
+- Define writable paths and verify permissions on the SELinux-disabled RHEL 9.8 host.
+- Set actual PostgreSQL network, volume, host-mounted backup path, and DNS names in config.
+- Configure the remote tunnel DNS suffixes. The Development Gateway reaches every configured service; each service must enforce its own authentication and authorization.

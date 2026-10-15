@@ -6,7 +6,7 @@
 
 ## 1. Goal and Ownership
 
-Define repeatable deployment and day-two operations for application services on the RHEL 9.8 / rootful Podman 5.8.2 qualification target. Host deployment scripts must use that baseline. Keep application lifecycle separate from the shared Development Gateway lifecycle. Use maintained, efficient Linux images for the Gateway and application containers; prefer Debian or Alpine. This plan covers networks, service definitions, volumes, external secrets, image updates, health, rollback, backups, and handoffs to the two gateways.
+Define repeatable deployment and day-two operations for application services on the RHEL 9.8 / rootful Podman 5.8.2 qualification target with SELinux disabled by explicit decision. Host deployment scripts must verify this state and must not change host security settings. Keep application lifecycle separate from the shared Development Gateway lifecycle. Use maintained, efficient Linux images for the Gateway and application containers; prefer Debian or Alpine. This plan covers networks, service definitions, volumes, external secrets, image updates, health, rollback, backups, and handoffs to the two gateways.
 
 The standalone Debian File Gateway recipe remains a reference for future containerized deployment. Its Debian host bootstrap is not for use on the RHEL host.
 
@@ -19,10 +19,10 @@ Use rootful Podman Quadlet for long-running application containers and the share
 | RHEL host, Podman, storage capacity, host security policy | Infrastructure | Developers do not need routine host administrator access. |
 | Application containers, networks, database volumes and health state, destination SSH accounts and public keys | Application deployment | Do not delete or rewrite persistent state during ordinary updates. Preserve per-developer destination authentication. |
 | Development Gateway, its SSH identity, and generated DNSMasq records | Development Gateway deployment | Application deployment must use a documented handoff; it must not edit Gateway-owned files directly. |
-| Public HTTP routes and TLS termination | Application Gateway and infrastructure, ownership to be decided | Keep user traffic separate from developer SSH/DNS access. |
+| Public HTTP routes | Application Gateway deployment | NGINX listens on configured host port `8080` by default; the external perimeter provides TLS, public DNS, and forwarding. |
 | Secret values and backup destination | Infrastructure/application owners | Keep outside Git and images; mount only into required consumers. |
 
-Keep `config/host_config.json` as the host-wide source of truth for every application and database network. Add optional service-specific sections such as `gateway`, `application_gateway`, and per-application services. Shared preflight always validates the full network inventory; service-specific preflight and apply run only for declared/enabled sections. Do not create duplicate network sources of truth.
+Keep `config/host_config.json` as the host-wide source of truth for every application and database network. Require `schema_version: 1`; keep feature sections optional and backward-compatible. The minimum config contains host settings and the Development Gateway. Add optional sections for the Application Gateway, frontend, backend, PostgreSQL, TUS file transfer, NGINX file sharing, and backups. Create only resources declared by enabled sections. Shared preflight always validates the full network inventory; service-specific preflight and apply run only for declared/enabled sections. Do not create duplicate network sources of truth.
 
 The shared Development Gateway attaches to every network in the top-level inventory, including database networks. There is no separate per-service approval workflow for Gateway reachability. This makes the Gateway a trusted, multi-network administrative component; Podman network isolation does not protect an application from a compromised Gateway. Keep application credentials separate and rely on service authentication as well as the external perimeter.
 
@@ -38,10 +38,14 @@ Use structured, versioned configuration rather than shell-sourced files or ad ho
 - secret file references, required owners/modes, and consuming services;
 - developer public-key references and the application destinations authorized to accept them;
 - public routes and development DNS/SSH exposure declarations;
-- Nginx listener address and published host port (default `80`), plus `/app` frontend and `/app/api/` backend routes;
-- a `database_backups` entry per PostgreSQL instance, with `schedule` and pre-mounted `remote_mount` path.
+- optional NGINX listener address and published host port (default `8080`, mapped to container port `80`), plus `/app` frontend and `/app/api/` backend routes;
+- DNS records for containers and Gateway DNS addresses for each Podman network, with remote split-DNS suffixes;
+- PostgreSQL major version (default `18`), configurable per instance;
+- optional TUS and NGINX file-sharing routes, with a default 1 GB maximum uploaded file size and no NGINX rate limit;
+- one root-managed public `authorized_keys` file path per SSH-enabled application container and its dedicated non-root destination account;
+- a `database_backups` entry per PostgreSQL instance, with monthly default `schedule`, host-mounted `remote_mount`, and read-only `container_path` shared with PostgreSQL.
 
-The exact file location and schema are decision gates. Configuration must contain references and metadata, not secret values or permanent container IPs.
+Configuration contains references and metadata, not secret values or permanent container IPs. The Application Gateway and application services are absent unless their optional config sections are enabled.
 
 Example service configuration; the actual top-level `networks` array must list every Podman network used by the host:
 
@@ -50,7 +54,7 @@ Example service configuration; the actual top-level `networks` array must list e
 	"application_gateway": {
 		"enabled": true,
 		"listen_address": "192.0.2.10",
-		"http_port": 80,
+		"http_port": 8080,
 		"routes": [
 			{
 				"prefix": "/app",
@@ -60,23 +64,25 @@ Example service configuration; the actual top-level `networks` array must list e
 			}
 		]
 	},
+	"postgres_major": 18,
 	"database_backups": [
 		{
 			"postgres_container": "project-a-postgres",
-			"schedule": "daily",
-			"remote_mount": "/mnt/remote-backups/project-a"
+			"schedule": "monthly",
+			"remote_mount": "/mnt/remote-backups/project-a",
+			"container_path": "/backups"
 		}
 	]
 }
 ```
 
-`schedule` uses systemd `OnCalendar` syntax and generates a host timer. `remote_mount` names a mount managed by infrastructure; deployment must confirm it is mounted and writable. The sample address is documentation-only and must be replaced with the configured host address.
+`schedule` uses systemd `OnCalendar` syntax and defaults to `monthly`. `remote_mount` names host-mounted storage. Mount it read-only in PostgreSQL at `container_path`; the host backup job writes to the host path. Deployment logs an error and fails the backup job if the mount is unavailable.
 
 ## 4. Lifecycle Contract
 
 ### Preflight
 
-- Validate schema, resource names, CIDR overlap, image references, host prerequisites, secret paths/permissions, storage paths, port binds, and existing resource compatibility before mutation.
+- Validate schema, resource names, configured CIDR overlap, image references, host prerequisites including SELinux disabled, secret paths/permissions, storage paths, port binds, and existing resource compatibility before mutation.
 - Fail on an existing network, volume, or service whose observed identity/configuration conflicts with the declaration. Do not silently recreate or take ownership.
 - Check that required secrets exist without printing their contents.
 - Keep a snapshot of service definitions and active state needed for rollback.
@@ -86,10 +92,11 @@ Example service configuration; the actual top-level `networks` array must list e
 - Build or pull pinned images, create only missing declared networks and volumes, install service definitions atomically, and start dependencies in an explicit order.
 - Wait for dependency readiness and application health before publishing routes or development DNS records.
 - Update Application Gateway routes through its supported deployment interface.
+- Configure containers to use the Development Gateway DNS address on their network. Publish split-DNS rules for configured container domains to remote OpenVPN and SSH TUN clients.
 - Notify the Development Gateway after a declared development target is ready and its current network address is known. Prefer a narrow DNS refresh operation. If the only available interface is full Gateway `--apply`, document and test its permissions, side effects, and restart behavior before using it as the handoff.
-- Load destination `authorized_keys` inputs from root-managed public-key files outside Git. Keep gateway-login and application-destination files separate, consume them read-only, and validate owner, mode, file type, key format, and SELinux access before apply. Never copy private keys to the host or containers.
+- Load destination `authorized_keys` inputs from root-managed public-key files outside Git. Default to `/etc/gateway/application-keys/<container>/authorized_keys`, with one file per SSH-enabled container and multiple public keys per file. Mount each file read-only at `/home/<account>/.ssh/authorized_keys` for a dedicated non-root destination account. Validate owner, mode, file type, and key format before apply. Never copy private keys to the host or containers.
 - Host audit records changes to the root-managed public-key files. PAM authentication and operator-session logging are provided by the host security layer and are not managed or tested by this deployment.
-- Generate a systemd timer from each `database_backups[].schedule` in JSON. Run unfiltered `pg_dumpall` for all data and structure in the PostgreSQL instance, write compressed SQL to its configured remote mount, verify a checksum, and publish atomically. Fail closed if the configured mount is unavailable. Retention is owned by remote storage; deployment never restores automatically.
+- Generate a systemd timer from each `database_backups[].schedule` in JSON, defaulting to monthly. Run unfiltered `pg_dumpall` for PostgreSQL 18, write compressed SQL to its configured host-mounted path shared with PostgreSQL, verify a checksum, and publish atomically. Log an error and fail the backup job if the mount is unavailable; never fall back to local-only storage. Retention is owned by remote storage; deployment never restores automatically.
 
 ### Failure and rollback
 
@@ -106,7 +113,7 @@ Example service configuration; the actual top-level `networks` array must list e
 
 ## 5. Secrets, Storage, and Recovery
 
-- Keep secret and public-key source files outside Git with documented owner, group, mode, rotation process, and consumer. Require root-controlled key-file writes; reject unexpected symlinks or ownership/mode changes and never overwrite source files. Host audit records key-file changes; PAM controls remain external to this plan.
+- Keep secret and public-key source files outside Git with documented owner, group, mode, rotation process, and consumer. Store app keys under `/etc/gateway/application-keys/<container>/authorized_keys` by default, with one file per SSH-enabled container and multiple public keys per file. Mount each file read-only at `/home/<account>/.ssh/authorized_keys`. Require root-controlled key-file writes; reject unexpected symlinks or ownership/mode changes and never overwrite source files. Host audit records key-file changes; PAM controls remain external to this plan.
 - Mount secrets read-only and only into services that use them. Do not copy them into images, generated public configs, or logs.
 - Document each volume's purpose, owner, mount path, backup method, remote mount, and manual restore procedure. Remote storage owns retention.
 - Test backup restoration into a disposable volume before production acceptance. A successful backup command alone is not proof of recoverability.
@@ -126,7 +133,7 @@ Example service configuration; the actual top-level `networks` array must list e
 3. Implement network, volume, and service lifecycle with idempotence and explicit ownership checks.
 4. Integrate readiness, health checks, route publication, and backup scheduling.
 5. Integrate Application Gateway route updates and Development Gateway DNS refresh without direct edits to their owned state.
-6. Validate update, failure rollback, reboot, backup/restore, secret preservation, and isolation on disposable RHEL 9.8 with rootful Podman 5.8.2 and SELinux Enforcing.
+6. Validate update, failure rollback, reboot, backup/restore, secret preservation, and isolation on the authorized disposable RHEL 9.8 / Podman 5.8.2 host with SELinux disabled. Do not change host security settings.
 
 ## 8. Acceptance Checks
 
@@ -136,17 +143,15 @@ Example service configuration; the actual top-level `networks` array must list e
 - A newly recreated development target gets a fresh DNS address only after readiness; stale records are removed according to the Gateway contract.
 - VS Code ProxyJump reaches the declared application destination, and that destination accepts or rejects the developer key independently of Gateway authentication.
 - Public routes become active only after application health passes.
-- Failure during service start, route update, DNS/NAT handoff, or backup job has documented recovery without overwriting live database data.
+- Failure during service start, route update, DNS refresh/routing handoff, or backup job has documented recovery without overwriting live database data.
 - Backup restore and decommission procedures are proven against disposable resources.
-- No application update exposes the Podman API, weakens SELinux, or removes unrelated resources.
+- No application update exposes the Podman API, changes host SELinux state, or removes unrelated resources.
 
-## 9. Questions Before Implementation
+## 9. Remaining Implementation Inputs
 
-1. Should adding NAT exposure data require `schema_version` 2, or can it be an optional backward-compatible extension to version 1?
-2. Who is authorized to run production deployment, and how is that separated from everyday developer access?
-3. Which host paths, UID/GID ownership, SELinux labels, and backup locations are approved?
-4. What remote mount protocol and availability guarantees apply to the scheduled SQL backup destination?
-5. What is the supported app DNS/NAT refresh interface, and can it update only Gateway-owned generated state without restarting DNS or the shared Gateway unnecessarily?
-6. How are public route changes and TLS certificate rotation coordinated with application releases?
-7. What root-owned host path and naming convention should hold per-user, per-destination public keys? Host audit records file changes; PAM and operator sessions remain externally managed.
-8. Which remote client CIDRs need source-preserving return routes, and can those routes be configured through every target network on RHEL 9.8 / Podman 5.8.2?
+- Name the authorized production deployment operators and their audit path.
+- Supply actual Podman network names, CIDRs, Gateway interface/DNS addresses, and configured container domains. Runtime tunnel routes must be discoverable and must not overlap these networks.
+- Select non-root UID/GID values and writable paths for each image. The qualification host requires SELinux disabled; deployment must not change that state.
+- Set the host-mounted remote backup path and confirm its protocol and write access. The path is shared with PostgreSQL; backup jobs log errors and fail if it is unavailable.
+- Implement and test a narrow Development Gateway DNS refresh handoff. Do not edit Gateway-owned DNS files directly.
+- Select the supported Node.js build version and TUS account/storage details. Keep the default 1 GB file limit configurable.

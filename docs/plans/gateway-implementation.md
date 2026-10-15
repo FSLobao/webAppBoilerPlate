@@ -1,20 +1,22 @@
 # Gateway Bootstrap
 
 **Status:** Gateway implementation is in progress. Unrestricted routed remote access is not implemented, and host acceptance remains pending.
-**Deployment authorization:** Isolated test host only. Do not deploy to a live host.
-**Qualification target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux enforcing. This target has not been tested here.
+**Deployment authorization:** Disposable test host only. The attached VS Code environment is authorized for Podman tests; do not deploy to a live host.
+**Qualification target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux disabled. No target acceptance is claimed yet.
+**Observed host (2026-10-15):** RHEL 9.8 and rootful Podman 5.8.2 match. `getenforce` reports `Enforcing`, so this host does not meet the requested SELinux-disabled target. Do not change its security state; full host acceptance needs a disposable target already running with SELinux disabled.
 
 ## Decisions and Limits
 
 - On 2026-10-08, the requester confirmed that the infrastructure owner approved Cockpit access through the rootful Podman socket. The approver's identity is not recorded here.
+- On 2026-10-15, the requester selected SELinux disabled and unrestricted container egress through normal Podman host egress with masquerading. Disabling SELinux removes mandatory access controls; tests must verify the host is already disabled and must not change its security settings.
 - Cockpit uses `/run/podman/podman.sock` at the same path inside the container. The bind mount is read-only, but the API still grants broad control over rootful containers. `gateway-admin` belongs to the container's root group to access that socket.
-- Host deployment scripts require RHEL 9.8 and rootful Podman 5.8.2, with a working Quadlet generator and SELinux enforcing. Podman's Quadlet feature floor is 4.4; it is not the supported host target. Verify package provenance and exact kernel/Quadlet behavior on a disposable host.
+- Host deployment scripts require RHEL 9.8 and rootful Podman 5.8.2, with a working Quadlet generator and SELinux disabled. Podman's Quadlet feature floor is 4.4; it is not the supported host target. Verify package provenance and exact kernel/Quadlet behavior on the authorized disposable host.
 - The image is Debian 13 `linux/amd64`, pinned to a base-image digest and Debian snapshot dated 2026-10-08. Package versions are pinned in the Containerfile. Update the snapshot, base digest, and package set together after security review.
 - The container does not run systemd as PID 1. Bash supervises foreground OpenSSH, DNSMasq, and Cockpit websocket processes and forwards shutdown signals. Cockpit websocket standalone flags and the process lifecycle passed a local container smoke test.
 - No extra Linux capabilities are requested; Quadlet drops unused `NET_RAW`. OpenVPN, SSH TUN, and routed remote access are not implemented. Test TUN device access, forwarding, routes, and the minimum capability set on the target host before adding privileges.
 - The current [startup.sh](../../gateway/development/startup.sh) sets `PermitTunnel no`; it does not support the planned SSH TUN interface. Supporting SSH TUN requires an explicitly restricted tunnel account and target-host validation.
 - Missing DNS targets are hard preflight errors. Read-only `--check` reports stopped targets without starting them. `--apply` asks before starting stopped targets, reruns preflight, and restores their stopped state if a later apply step fails. A running target attached to the wrong network is a hard preflight failure.
-- The Gateway currently loads only gateway-login public keys from `/etc/gateway/authorized_keys`. Application destination keys remain unimplemented. The plan requires separate root-managed host public-key files, read-only consumption, and permission checks. Host audit records file changes; PAM and operator-session controls remain external and are not revalidated here. Private keys must never be copied to the host or containers.
+- The Gateway currently loads only gateway-login public keys from `/etc/gateway/authorized_keys`. Application destination keys remain unimplemented. The plan requires one root-managed `authorized_keys` file per container, allowing multiple public keys, read-only consumption, and installation for a dedicated non-root destination account. Host audit records file changes; PAM and operator-session controls remain external and are not revalidated here. Private keys must never be copied to the host or containers.
 - The checked-in JSON has empty top-level and `gateway.networks` arrays. The current deployer treats an explicit empty `gateway.networks` as no Gateway attachments; it does not yet implement the all-network contract. Updating the config schema and deployer is a required future implementation step. No code changed in this plan revision.
 - The default management bind address is loopback. Remote developer access will use routed tunnel interfaces, not per-service port exposures. Do not expose SSH or Cockpit on wildcard addresses merely to provide network access.
 
@@ -25,6 +27,7 @@ Provision external inputs before `--check`. The deployment never creates or over
 | Path | Owner and mode | Purpose and responsibility |
 |---|---|---|
 | `/etc/gateway/authorized_keys` | `root`; no group/world write | OpenSSH `authorized_keys` format. Public keys for gateway login only. Infrastructure owns updates and backup. |
+| `/etc/gateway/application-keys/<container>/authorized_keys` | `root:root`, `0600` | Multiple public keys for one container's dedicated non-root destination account. The path is referenced by config and mounted read-only. Never store private keys here. |
 | `/etc/gateway/cockpit-password` | `root:root`, `0600` | One-line password for the container's `gateway-admin` Cockpit account. Keep outside Git; infrastructure owns rotation and backup. |
 | `/etc/gateway/tls/gateway.cert` | `root:root`, commonly `0644` | Cockpit TLS certificate supplied by infrastructure. |
 | `/etc/gateway/tls/gateway.key` | `root:root`, `0600` | Matching Cockpit TLS private key. Keep outside Git; infrastructure owns backup and rotation. |
@@ -33,7 +36,7 @@ Provision external inputs before `--check`. The deployment never creates or over
 | `/var/lib/gateway/generated/inputs.json` | `root:root`, `0644` | Non-secret file metadata and the SSH host-key public fingerprint. Detects credential/certificate replacement and avoids storing secret hashes or contents. |
 | `/var/lib/gateway/dns/hosts` | `root:root`, `0644` | Replaceable DNSMasq hosts input generated from current Podman addresses. |
 | `/etc/containers/systemd/gateway.container` | `root:root`, `0644` | Generated Quadlet definition. The deployment replaces it only when it matches the gateway-owned signature. |
-| `/run/podman/podman.sock` | Rootful Podman socket | Host-managed endpoint. The deployment does not expose it over TCP or relabel it. SELinux may deny container access; do not disable SELinux or apply a broad relabel workaround. |
+| `/run/podman/podman.sock` | Rootful Podman socket | Host-managed endpoint. The deployment does not expose it over TCP or change host security policy. The target requires SELinux disabled. |
 
 The generated config and DNS directories are mounted read-only. Atomic file replacement inside those directories remains visible to the running container, allowing DNSMasq to reload without retaining a bind mount to an old file inode.
 
@@ -112,4 +115,4 @@ The container test uses temporary keys and a self-signed certificate, creates no
 
 ## Validation Status
 
-No RHEL 9.8 / Podman 5.8.2 host acceptance has been recorded. OpenVPN profile mounting and connection, SSH TUN, full-protocol forwarding, route symmetry through the external OpenVPN server, denial of new container-initiated flows, DNS over tunnel, host apply, Quadlet lifecycle and reboot, SELinux socket/key-file access, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS refresh after target replacement, all-network attachment, peer network isolation, rollback, and minimum capabilities remain unvalidated. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on a disposable RHEL 9.8 / Podman 5.8.2 system.
+No RHEL 9.8 / Podman 5.8.2 host acceptance has been recorded. The attached disposable environment is authorized for tests, but no tests are claimed yet. OpenVPN profile mounting and connection, SSH TUN, full-protocol forwarding, route symmetry through the external VPN, unrestricted host egress and masquerading, split DNS, host apply, Quadlet lifecycle and reboot, SELinux-disabled state, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS refresh after target replacement, all-network attachment, peer network isolation, rollback, and minimum capabilities remain unvalidated. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on the authorized disposable RHEL 9.8 / Podman 5.8.2 system.
