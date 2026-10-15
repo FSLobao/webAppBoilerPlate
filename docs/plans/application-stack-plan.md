@@ -5,25 +5,32 @@
 
 ## 1. Goal and Components
 
-Define the per-application container stack: JavaScript frontend, Python/FastAPI backend, and PostgreSQL. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each application remains replaceable and isolated from other applications. This plan does not implement the shared Development Gateway or choose the user-facing proxy; see [Application Gateway Plan](application-gateway-plan.md).
+Define the per-application container stack: JavaScript frontend and Python/FastAPI in `webApp`, plus PostgreSQL. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each app gets a unique app-specific network, but members also connect to `shared` and require service-level authentication. This plan does not implement the shared Development Gateway or NGINX runtime; see [Application Gateway Plan](application-gateway-plan.md).
 
 ## 2. Proposed Network Shape
 
 ```text
-Application Gateway -> frontend and approved backend routes
-frontend            -> backend API through the selected application route
-backend             -> PostgreSQL on a dedicated database network
+NGINX               -> `webApp` frontend and FastAPI routes
+webApp container    -> PostgreSQL on `webApp` and `shared`
+Development Gateway -> every declared Podman network
 ```
 
-Candidate Podman membership for one application:
+Selected Podman membership:
 
-- Frontend: application network only.
-- Backend: application network and that application's dedicated database network.
-- PostgreSQL: that application's dedicated database network only.
-- Development Gateway: one interface on every configured network, including this application's database network. Treat it as a trusted administrative component with network-level reach to every service.
-- Application Gateway: attach only to application networks with declared HTTP routes; never attach it to a database-only network.
+- `webApp`: `webApp` and `shared`.
+- `postgres`: `webApp` and `shared`.
+- NGINX: `shared`.
+- Development Gateway: every declared network, including `shared` and `webApp`.
 
-No application network is shared across applications. PostgreSQL has no published host port by default. The Development Gateway can reach the database network by design; application-level database credentials still belong only to the backend and approved operator tasks.
+The `webApp` network uses `192.168.8.0/29`; `shared` uses `192.168.7.0/24`. The `/29` provides six usable addresses for the host bridge, Gateway, `webApp`, PostgreSQL, and future headroom. PostgreSQL has no published host port by default. App deployment assigns a unique, non-overlapping CIDR to each future app network, creates it, updates the Gateway network declaration, and reconciles the existing Gateway.
+
+### Shared-network security boundary
+
+The requester confirmed that all app containers, including PostgreSQL, join `shared`. That network provides direct connectivity between all its members. No routing between app-specific networks does not prevent communication over `shared`; each service must enforce its own authentication and authorization.
+
+The `webApp` container combines Vite assets and FastAPI. The latest decision supersedes the earlier separate-process choice: FastAPI serves both assets and API on port `8000` and holds PostgreSQL credentials. Browser assets do not receive those credentials; keep them out of build output and HTTP responses.
+
+The `192.168.8.0/29` subnet is reserved for this `webApp` network. Reusing it for another simultaneous Podman network is invalid; future apps require distinct CIDRs.
 
 ## 3. Frontend and API Alternatives
 
@@ -32,17 +39,17 @@ No application network is shared across applications. PostgreSQL has no publishe
 | Plain HTML/CSS and JavaScript modules, served as static files | Few dependencies, fast builds, easy to inspect and cache. | State, routing, and reusable UI patterns become application-owned as the SPA grows. | Best for a few simple pages or forms. |
 | Vite with vanilla JavaScript modules, served as static files | Adds development server, bundling, and asset hashing without choosing a UI framework. | Adds a Node.js build tool and requires SPA fallback routing. | Recommended default for a small mostly-SPA boilerplate. Start with browser History API routing only if multiple client routes are needed. |
 | Vite with a framework such as Vue, Svelte, or React | Component/state conventions and mature ecosystem for complex interactive applications. | Larger dependency surface and framework-specific learning/upgrade costs. | Adopt when reusable stateful UI or team standards justify it; no framework is required by the architecture. |
-| FastAPI serves the frontend assets and API from one container | One application endpoint and simple same-origin behavior. | Couples frontend/backend builds, scaling, cache policy, and releases; departs from the separate frontend/backend boundary. | A valid simplification for a small app, but not the default boilerplate topology. |
+| FastAPI serves frontend assets and API from one container | One application endpoint and simple same-origin behavior. | Couples frontend/backend builds, scaling, cache policy, releases, and process isolation. | Selected initial layout: one `webApp` container, with NGINX as the only HTTP provider. |
 
 | API route | Advantages | Costs and risks | Recommendation |
 |---|---|---|---|
-| Same-origin `/app/api` reverse proxy through the Application Gateway | No browser CORS setup, one public origin, backend stays private, independent frontend/backend containers remain possible. | Requires path-prefix proxy rules and SPA fallback exclusions. | Recommended default. Frontend uses relative `/app/api` URLs. |
+| Same-origin `/app/api` reverse proxy through the Application Gateway | No browser CORS setup and one public origin. | Requires path-prefix proxy rules and SPA fallback exclusions. | Selected default. NGINX sends both paths to `webApp:8000`. |
 | Separate API hostname such as `api.example.com` | Independent API origin and release/routing policy; useful for multiple clients. | Requires CORS allowlists, extra DNS/TLS, cookie and credential policy, and origin-specific testing. | Use when independent API consumers or ownership require it. |
 | Publish the backend port directly | Simple for isolated development tools. | Bypasses the Application Gateway, expands public endpoints, and couples clients to deployment ports. | Development-only when explicitly restricted; not the production default. |
 
 Vite is not a UI framework. It is a build tool and development server. With vanilla JavaScript, it gives ES-module development, dependency bundling, optimized static output, and a configurable asset base path without React/Vue/Svelte runtime conventions. For a handful of static pages, plain HTML and modules without Vite have fewer dependencies. For a mostly-SPA application, Vite is a pragmatic middle ground; set its base path to `/app/` so built assets work under the configured application prefix.
 
-The public route contract is `https://<domain>/app` for the frontend and `https://<domain>/app/api/<route>` for FastAPI; the external perimeter terminates TLS and forwards HTTP to NGINX. NGINX preserves `/app/api/` when proxying and matches it before the SPA fallback. Local development should expose the same paths through the Vite proxy.
+The public route contract is `https://<domain>/app` for frontend assets and `https://<domain>/app/api/<route>` for FastAPI; the external perimeter terminates TLS and forwards HTTP to NGINX. NGINX preserves `/app/api/`, matches it before `/app`, and proxies both paths to `webApp:8000`. Local development should expose the same paths through the Vite proxy.
 
 ## 4. Component Contracts
 
@@ -50,14 +57,14 @@ The public route contract is `https://<domain>/app` for the frontend and `https:
 
 - Default to Vite plus vanilla JavaScript ES modules, with static output served by the selected static server. Add Vue, Svelte, or React only when app complexity or team standards justify it.
 - Configure Vite's `base` to `/app/`; keep browser routes and asset URLs beneath that prefix.
-- Build static assets into a minimal serving image unless the chosen application requires a runtime server.
+- Build Vite assets into the combined `webApp` image. FastAPI serves static assets under `/app` and API routes under `/app/api/` on port `8000`; NGINX is the only host-published HTTP provider and proxies both paths.
 - Keep API endpoints configurable by environment without embedding production secrets in build output.
 - Do not connect directly to PostgreSQL or receive database credentials.
 - Define client-side route fallback and static asset cache behavior with the Application Gateway route plan.
 
 ### Backend
 
-- Use Python and FastAPI, with dependency and interpreter versions pinned through repository-managed tooling.
+- Run Python and FastAPI in the combined `webApp` container, with dependency and interpreter versions pinned through repository-managed tooling.
 - Expose application APIs under `/app/api/*` and readiness/liveness checks; do not own host, Podman, DNS, or Gateway configuration.
 - Read database credentials and other secrets from external runtime files or an approved secret mechanism. Do not place secret values in image layers, command-line arguments, or logs.
 - Run with the least container privileges practical. Do not require host networking or the Podman socket.
@@ -65,7 +72,7 @@ The public route contract is `https://<domain>/app` for the frontend and `https:
 ### PostgreSQL
 
 - Run PostgreSQL 18 by default, with the major version declared in config, in its own container with a named or dedicated persistent volume.
-- Mount credentials/configuration only into PostgreSQL and the backend that needs them. Do not publish the database port externally.
+- Mount PostgreSQL credentials only into the `webApp` container for FastAPI use. One FastAPI process serves static assets and APIs, so it holds database credentials; browser assets do not receive those credentials.
 - Define initialization, readiness, PostgreSQL/client versions, full-cluster backup, and manual restore procedures before production use. The default backup schedule is monthly and remains configurable per instance.
 - Mount the host-managed remote backup path into the PostgreSQL container read-only at a configured path. The host backup job writes to the host path and logs an error if remote storage is unavailable; it never falls back to local-only storage.
 - Container replacement must preserve the database volume. Image rollback must not imply an unsafe data downgrade.
@@ -103,7 +110,9 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 ### Phase 0: Resolve the stack contract
 
 - Use Vite plus vanilla JavaScript as the default. Define the supported Node.js build version and SPA fallback.
+- Keep frontend assets and FastAPI in the single `webApp` container on internal port `8000`. NGINX proxies both `/app` and `/app/api/` to that listener.
 - Use PostgreSQL 18 by default; define the matching client image version in config.
+- Reserve `192.168.8.0/29` for the `webApp` network. Assign each future app network a unique, non-overlapping CIDR and static Gateway address.
 - Set the default full-cluster backup schedule to monthly in JSON. Define the host-mounted remote path and approved direct restore connection. Retention is managed by remote storage.
 
 ### Phase 1: Define service interfaces
@@ -113,23 +122,24 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 
 ### Phase 2: Build and validate images
 
-- Build each image from repository sources with pinned dependencies and a minimal runtime surface.
+- Build the combined `webApp` image and separate PostgreSQL image from repository sources with pinned dependencies and a minimal runtime surface.
 - Run containers without unnecessary capabilities and without host mounts beyond declared configuration, secrets, and persistent data. The qualification host has SELinux disabled by explicit decision; deployment must not change host security settings.
 - Test startup, graceful shutdown, health checks, and behavior when dependencies are unavailable.
 
 ### Phase 3: Validate data and isolation
 
-- Prove frontend cannot reach PostgreSQL, the backend can reach only its declared database, and another application's workload cannot reach this database. Separately confirm the trusted Development Gateway can connect through its all-network attachment.
+- Verify the combined `webApp` container reaches PostgreSQL over `webApp` and `shared`. All services attached to `shared` have direct network reach to PostgreSQL; prove PostgreSQL authentication denies unauthorized workloads and only FastAPI's process can read database credentials.
+- Verify app-specific networks do not route to one another. Do not treat this as isolation between containers that share `shared`.
 - Test fresh database initialization, full `pg_dumpall` backup, manual SQL restore into an isolated cluster, and container replacement with data sentinels.
 - Test frontend-to-backend routing through the selected Application Gateway contract.
 
 ## 6. Acceptance Checks
 
-- Frontend, backend, and database have distinct images and documented interfaces.
+- The frontend and FastAPI run in one `webApp` image; PostgreSQL uses a separate image. Document each process and internal port.
 - No frontend image/config contains database credentials.
 - PostgreSQL has persistent storage and no external port publication.
-- Only the backend can reach its database under the declared network model.
-- Only the backend workload receives application database credentials and connects during normal app operation; the trusted Development Gateway has network-level reach for maintenance/restore.
+- FastAPI serves frontend assets and APIs on `webApp:8000` and holds database credentials. Verify build output and HTTP responses never expose those credentials; shared-network membership cannot enforce service authorization.
+- PostgreSQL rejects unauthorized connections from other shared-network members. The Gateway has network-level reach but receives no database credentials.
 - Backend and frontend health checks detect startup failure without leaking secrets.
 - A PostgreSQL replacement preserves the data volume; a full-cluster SQL dump restores every database and global role into a disposable cluster.
 

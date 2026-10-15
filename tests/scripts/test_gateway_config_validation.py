@@ -6,6 +6,7 @@ import pytest
 
 from scripts.gateway.config_validation import (
     validate_address_declarations,
+    validate_application_gateway_networks,
     validate_config_file,
 )
 
@@ -14,7 +15,11 @@ def test_accepts_ipv4_address_and_disjoint_networks() -> None:
     """Accept canonical, non-overlapping IPv4 declarations."""
     validate_address_declarations(
         {
-            "gateway": {"bind_address": "127.0.0.1"},
+            "gateway": {
+                "bind_address": "127.0.0.1",
+                "ssh_bind_address": "0.0.0.0",
+                "cockpit_bind_address": "127.0.0.1",
+            },
             "networks": [
                 {"name": "project-a", "subnet": "10.89.1.0/24"},
                 {"name": "project-b", "subnet": "10.89.2.0/24"},
@@ -30,12 +35,82 @@ def test_accepts_host_networks_without_gateway() -> None:
     )
 
 
+def test_accepts_static_gateway_addresses_inside_networks() -> None:
+    """Accept usable, in-subnet addresses for Gateway interfaces."""
+    validate_address_declarations(
+        {
+            "networks": [
+                {
+                    "name": "shared",
+                    "subnet": "192.168.7.0/24",
+                    "gateway_address": "192.168.7.2",
+                },
+                {
+                    "name": "webApp",
+                    "subnet": "192.168.8.0/29",
+                    "gateway_address": "192.168.8.2",
+                },
+            ]
+        }
+    )
+
+
+def test_accepts_application_gateway_upstreams_on_shared_network() -> None:
+    """Accept NGINX routes when both upstreams share a declared network."""
+    validate_application_gateway_networks(
+        {
+            "containers": [
+                {"name": "nginx", "networks": ["shared"]},
+                {"name": "webApp", "networks": ["webApp", "shared"]},
+            ],
+            "application_gateway": {
+                "enabled": True,
+                "routes": [{"frontend": "webApp", "backend": "webApp"}],
+            },
+        }
+    )
+
+
+def test_rejects_application_gateway_upstream_without_shared_network() -> None:
+    """Reject NGINX routes that cannot reach their configured upstream."""
+    with pytest.raises(ValueError, match="shares no network"):
+        validate_application_gateway_networks(
+            {
+                "containers": [
+                    {"name": "nginx", "networks": ["shared"]},
+                    {"name": "webApp", "networks": ["webApp"]},
+                ],
+                "application_gateway": {
+                    "enabled": True,
+                    "routes": [{"frontend": "webApp", "backend": "webApp"}],
+                },
+            }
+        )
+
+
 @pytest.mark.parametrize(
     ("config", "message"),
     [
         (
             {"gateway": {"bind_address": "::1"}, "networks": []},
             "gateway.bind_address must be an IPv4 address",
+        ),
+        (
+            {
+                "gateway": {
+                    "bind_address": "127.0.0.1",
+                    "ssh_bind_address": "::1",
+                },
+                "networks": [],
+            },
+            "gateway.ssh_bind_address must be an IPv4 address",
+        ),
+        (
+            {
+                "application_gateway": {"listen_address": "::1"},
+                "networks": [],
+            },
+            "application_gateway.listen_address must be an IPv4 address",
         ),
         (
             {
@@ -50,6 +125,54 @@ def test_accepts_host_networks_without_gateway() -> None:
                 "networks": [{"name": "project-a", "subnet": "2001:db8::/64"}],
             },
             "subnet must be IPv4",
+        ),
+        (
+            {
+                "networks": [
+                    {
+                        "name": "project-a",
+                        "subnet": "10.89.1.0/24",
+                        "gateway_address": "10.89.2.2",
+                    }
+                ]
+            },
+            "is outside subnet",
+        ),
+        (
+            {
+                "networks": [
+                    {
+                        "name": "project-a",
+                        "subnet": "10.89.1.0/24",
+                        "gateway_address": "10.89.1.0",
+                    }
+                ]
+            },
+            "not a usable host address",
+        ),
+        (
+            {
+                "networks": [
+                    {
+                        "name": "project-a",
+                        "subnet": "10.89.1.0/24",
+                        "gateway_address": "10.89.1.255",
+                    }
+                ]
+            },
+            "not a usable host address",
+        ),
+        (
+            {
+                "networks": [
+                    {
+                        "name": "project-a",
+                        "subnet": "10.89.1.0/24",
+                        "gateway_address": "2001:db8::2",
+                    }
+                ]
+            },
+            "gateway_address must be IPv4",
         ),
         (
             {

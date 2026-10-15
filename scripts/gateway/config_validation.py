@@ -15,7 +15,7 @@ from typing import Any
 
 
 def validate_address_declarations(config: dict[str, Any]) -> None:
-    """Validate an optional gateway IPv4 address and non-overlapping subnets.
+    """Validate Gateway bind addresses, optional interface IPs, and subnets.
 
     Args:
         config: Parsed host configuration. The ``gateway`` section is optional.
@@ -23,19 +23,58 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
     Raises:
         KeyError: A required address or subnet field is missing.
         TypeError: A field has an unsupported type.
-        ValueError: An address is not IPv4, a subnet is non-canonical, or two
-            declared subnets overlap.
+        ValueError: An address is invalid or outside its subnet, a subnet is
+            non-canonical, or two declared subnets overlap.
     """
     if "gateway" in config:
-        bind_address = ipaddress.ip_address(config["gateway"]["bind_address"])
+        for field in (
+            "bind_address",
+            "ssh_bind_address",
+            "cockpit_bind_address",
+        ):
+            if field in config["gateway"]:
+                bind_address = ipaddress.ip_address(config["gateway"][field])
+                if bind_address.version != 4:
+                    raise ValueError(
+                        f"gateway.{field} must be an IPv4 address"
+                    )
+    if "application_gateway" in config:
+        bind_address = ipaddress.ip_address(
+            config["application_gateway"]["listen_address"]
+        )
         if bind_address.version != 4:
-            raise ValueError("gateway.bind_address must be an IPv4 address")
+            raise ValueError("application_gateway.listen_address must be an IPv4 address")
 
     networks = []
+    gateway_addresses: set[ipaddress.IPv4Address] = set()
     for entry in config["networks"]:
         subnet = ipaddress.ip_network(entry["subnet"], strict=True)
         if subnet.version != 4:
             raise ValueError(f"network '{entry['name']}' subnet must be IPv4")
+        if "gateway_address" in entry:
+            raw_address = entry["gateway_address"]
+            if not isinstance(raw_address, str):
+                raise ValueError(
+                    f"network '{entry['name']}' gateway_address must be an IPv4 address"
+                )
+            address = ipaddress.ip_address(raw_address)
+            if address.version != 4:
+                raise ValueError(
+                    f"network '{entry['name']}' gateway_address must be IPv4"
+                )
+            if address not in subnet:
+                raise ValueError(
+                    f"network '{entry['name']}' gateway_address {address} "
+                    f"is outside subnet {subnet}"
+                )
+            if address in (subnet.network_address, subnet.broadcast_address):
+                raise ValueError(
+                    f"network '{entry['name']}' gateway_address {address} "
+                    f"is not a usable host address in subnet {subnet}"
+                )
+            if address in gateway_addresses:
+                raise ValueError(f"duplicate Gateway address {address}")
+            gateway_addresses.add(address)
         for known_name, known_subnet in networks:
             if subnet.overlaps(known_subnet):
                 raise ValueError(
@@ -43,6 +82,36 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
                     f"network '{known_name}' subnet {known_subnet}"
                 )
         networks.append((entry["name"], subnet))
+
+
+def validate_application_gateway_networks(config: dict[str, Any]) -> None:
+    """Require NGINX and each enabled upstream to share a declared network."""
+    application_gateway = config.get("application_gateway")
+    if not application_gateway or not application_gateway["enabled"]:
+        return
+
+    containers = {
+        entry["name"]: set(entry["networks"])
+        for entry in config.get("containers", [])
+    }
+    nginx_networks = containers.get("nginx")
+    if nginx_networks is None:
+        raise ValueError(
+            "application_gateway requires an 'nginx' container declaration"
+        )
+
+    for route in application_gateway["routes"]:
+        for upstream in (route["frontend"], route["backend"]):
+            upstream_networks = containers.get(upstream)
+            if upstream_networks is None:
+                raise ValueError(
+                    f"application_gateway upstream '{upstream}' is not declared"
+                )
+            if not nginx_networks.intersection(upstream_networks):
+                raise ValueError(
+                    f"application_gateway upstream '{upstream}' shares no network "
+                    "with 'nginx'"
+                )
 
 
 def validate_config_file(config_path: str | Path) -> None:
@@ -59,6 +128,7 @@ def validate_config_file(config_path: str | Path) -> None:
     with Path(config_path).open(encoding="utf-8") as config_file:
         config = json.load(config_file)
     validate_address_declarations(config)
+    validate_application_gateway_networks(config)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -24,15 +24,32 @@ expect_invalid() {
     printf 'PASS: %s rejected\n' "$label"
 }
 
-jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24"}] |
+jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24","gateway_address":"10.89.1.2"}] |
     .gateway.networks = ["project-a-net"] |
+    .containers = [
+        {"name":"nginx","networks":["project-a-net"]},
+        {"name":"project-a-backend","networks":["project-a-net"]}
+    ] |
+    .application_gateway = {
+        "enabled":true,
+        "listen_address":"0.0.0.0",
+        "http_port":8080,
+        "routes":[{
+            "prefix":"/app",
+            "frontend":"project-a-backend",
+            "frontend_port":8000,
+            "api_prefix":"/app/api/",
+            "backend":"project-a-backend",
+            "backend_port":8000
+        }]
+    } |
     .dns_records = [{"name":"backend.project-a.dev.internal","container":"project-a-backend","network":"project-a-net"}]' \
     "$SAMPLE_CONFIG" > "$TMP_DIR/valid.json"
 "$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 "$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 printf 'PASS: valid configuration accepted\n'
 
-jq 'del(.gateway) | .networks = [{"name":"database","subnet":"10.90.0.0/24"}] |
+jq 'del(.gateway, .application_gateway) | .networks = [{"name":"database","subnet":"10.90.0.0/24"}] |
     .containers = [{"name":"postgres","networks":["database"]}] | .dns_records = []' \
     "$SAMPLE_CONFIG" > "$TMP_DIR/generic-host.json"
 "$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/generic-host.json" >/dev/null
@@ -76,6 +93,26 @@ expect_invalid 'duplicate DNS name' "$TMP_DIR/duplicate-dns.json"
 jq '.networks += [{"name":"project-b-net","subnet":"10.89.1.128/25"}]' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/overlapping-cidr.json"
 expect_invalid 'overlapping CIDRs' "$TMP_DIR/overlapping-cidr.json"
+
+jq '.networks[0].gateway_address = 123' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/non-string-gateway-address.json"
+expect_invalid 'non-string Gateway address' "$TMP_DIR/non-string-gateway-address.json"
+
+jq '.gateway.cockpit_bind_address = "::1"' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-cockpit-bind.json"
+expect_invalid 'non-IPv4 Cockpit bind address' "$TMP_DIR/invalid-cockpit-bind.json"
+
+jq '.application_gateway.http_port = 70000' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-application-gateway-port.json"
+expect_invalid 'invalid Application Gateway port' "$TMP_DIR/invalid-application-gateway-port.json"
+
+jq '.application_gateway.routes[0].api_prefix = "/api/"' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-api-prefix.json"
+expect_invalid 'API prefix outside application prefix' "$TMP_DIR/invalid-api-prefix.json"
+
+jq '.containers |= map(select(.name != "nginx"))' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/missing-nginx-container.json"
+expect_invalid 'Application Gateway without NGINX container' "$TMP_DIR/missing-nginx-container.json"
 
 jq '.networks[0].subnet = "10.89.1.7/24"' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/noncanonical-cidr.json"

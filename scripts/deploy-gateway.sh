@@ -97,15 +97,22 @@ generate_input_metadata() {
 
 render_quadlet_candidate() {
     local config_path=$1 output_path=$2
-    local authorized_keys_path bind_address ssh_port cockpit_port network_lines published_lines template
+    local authorized_keys_path ssh_bind_address cockpit_bind_address ssh_port cockpit_port
+    local network_lines published_lines template
 
     authorized_keys_path=$(jq -r '.gateway.authorized_keys_path' "$config_path")
-    bind_address=$(jq -r '.gateway.bind_address' "$config_path")
+    ssh_bind_address=$(jq -r '.gateway.ssh_bind_address // .gateway.bind_address' "$config_path")
+    cockpit_bind_address=$(jq -r '.gateway.cockpit_bind_address // .gateway.bind_address' "$config_path")
     ssh_port=$(jq -r '.gateway.ssh_port' "$config_path")
     cockpit_port=$(jq -r '.gateway.cockpit_port' "$config_path")
-    network_lines=$(jq -r '(.gateway.networks // [.networks[].name])[] | "Network=" + .' "$config_path")
+    network_lines=$(jq -r '
+        (.gateway.networks // [.networks[].name])[] as $network |
+        .networks[] | select(.name == $network) |
+        "Network=" + .name +
+            (if has("gateway_address") then ":ip=" + .gateway_address else "" end)
+    ' "$config_path")
     published_lines=$(printf 'PublishPort=%s:%s:22\nPublishPort=%s:%s:9090' \
-        "$bind_address" "$ssh_port" "$bind_address" "$cockpit_port")
+        "$ssh_bind_address" "$ssh_port" "$cockpit_bind_address" "$cockpit_port")
     template=$(<"$UNIT_TEMPLATE")
     template=${template//@@CONFIG_FILE@@/$GENERATED_CONFIG}
     template=${template//@@AUTHORIZED_KEYS@@/$authorized_keys_path}
@@ -262,8 +269,8 @@ test_dns_candidate() {
 }
 
 check_gateway_health() {
-    local config_path=$1 dns_file=$2 bind_address ssh_port cockpit_port expected_networks attached_networks
-    local resolved expected_address dns_name
+    local config_path=$1 dns_file=$2 ssh_bind_address cockpit_bind_address ssh_port cockpit_port expected_networks attached_networks
+    local resolved expected_address dns_name network actual_address
 
     systemctl is-active --quiet "$UNIT_NAME" || fail "Gateway unit is not active: $UNIT_NAME"
     [[ "$(podman inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == true ]] || \
@@ -275,6 +282,17 @@ check_gateway_health() {
     jq -e --argjson expected "$expected_networks" 'keys | sort == $expected' <<< "$attached_networks" >/dev/null || \
         fail 'Gateway network attachments differ from the declared application networks.'
 
+    while IFS=' ' read -r network expected_address; do
+        [[ -n "$network" && -n "$expected_address" ]] || continue
+        actual_address=$(jq -r --arg network "$network" '.[$network].IPAddress // ""' <<< "$attached_networks")
+        [[ "$actual_address" == "$expected_address" ]] || \
+            fail "Gateway address on network '$network' is '$actual_address'; expected '$expected_address'."
+    done < <(jq -r '
+        (.gateway.networks // [.networks[].name])[] as $name |
+        .networks[] | select(.name == $name and has("gateway_address")) |
+        "\(.name) \(.gateway_address)"
+    ' "$config_path")
+
     podman exec "$CONTAINER_NAME" /usr/sbin/sshd -t -f /run/gateway/sshd_config || \
         fail 'OpenSSH health check failed.'
     podman exec "$CONTAINER_NAME" dnsmasq --test --no-resolv --no-hosts --bind-dynamic \
@@ -282,13 +300,15 @@ check_gateway_health() {
     [[ "$(podman exec --user gateway-admin "$CONTAINER_NAME" podman info --format '{{.Host.Security.Rootless}}')" == false ]] || \
         fail 'Cockpit Podman socket health check did not reach rootful Podman.'
 
-    bind_address=$(jq -r '.gateway.bind_address' "$config_path")
+    ssh_bind_address=$(jq -r '.gateway.ssh_bind_address // .gateway.bind_address' "$config_path")
+    cockpit_bind_address=$(jq -r '.gateway.cockpit_bind_address // .gateway.bind_address' "$config_path")
     ssh_port=$(jq -r '.gateway.ssh_port' "$config_path")
     cockpit_port=$(jq -r '.gateway.cockpit_port' "$config_path")
-    if [[ "$bind_address" == 0.0.0.0 ]]; then bind_address=127.0.0.1; fi
-    ssh-keyscan -T 5 -p "$ssh_port" "$bind_address" >/dev/null 2>&1 || fail 'SSH readiness check failed.'
+    if [[ "$ssh_bind_address" == 0.0.0.0 ]]; then ssh_bind_address=127.0.0.1; fi
+    if [[ "$cockpit_bind_address" == 0.0.0.0 ]]; then cockpit_bind_address=127.0.0.1; fi
+    ssh-keyscan -T 5 -p "$ssh_port" "$ssh_bind_address" >/dev/null 2>&1 || fail 'SSH readiness check failed.'
     curl --silent --show-error --fail --insecure --max-time 5 \
-        "https://$bind_address:$cockpit_port/" >/dev/null || fail 'Cockpit HTTPS readiness check failed.'
+        "https://$cockpit_bind_address:$cockpit_port/" >/dev/null || fail 'Cockpit HTTPS readiness check failed.'
 
     while IFS=' ' read -r expected_address dns_name; do
         [[ -n "$expected_address" && "$expected_address" != \#* ]] || continue

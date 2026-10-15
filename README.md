@@ -230,6 +230,8 @@ um container e a uma rede declarada. Exemplo:
   "gateway": {
     "name": "gateway",
     "bind_address": "127.0.0.1",
+    "ssh_bind_address": "0.0.0.0",
+    "cockpit_bind_address": "127.0.0.1",
     "ssh_port": 2222,
     "cockpit_port": 9090,
     "authorized_keys_path": "/etc/gateway/authorized_keys",
@@ -350,8 +352,9 @@ Host backend.project-a.dev.internal
     IdentitiesOnly yes
 ```
 
-Com o bind padrão, use essa configuração no host ou por um túnel SSH aprovado. Para conexão remota
-direta, substitua `HostName` por um endereço alcançável e configure o `bind_address` correspondente.
+Com `ssh_bind_address` em `0.0.0.0`, encaminhe a porta SSH do host pelo perímetro externo. O
+`cockpit_bind_address` permanece em `127.0.0.1`; o Cockpit não fica exposto externamente. Se os
+binds forem alterados, atualize cada campo separadamente.
 O usuário e a chave do destino precisam existir no container de aplicação; o gateway não provisiona
 nem substitui essa autenticação. O forwarding SSH é limitado aos nomes DNS declarados e à porta 22.
 

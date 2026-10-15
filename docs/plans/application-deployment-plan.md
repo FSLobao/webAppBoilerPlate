@@ -26,6 +26,14 @@ Keep `config/host_config.json` as the host-wide source of truth for every applic
 
 The shared Development Gateway attaches to every network in the top-level inventory, including database networks. There is no separate per-service approval workflow for Gateway reachability. This makes the Gateway a trusted, multi-network administrative component; Podman network isolation does not protect an application from a compromised Gateway. Keep application credentials separate and rely on service authentication as well as the external perimeter.
 
+### Requested initial topology (contract conflict pending resolution)
+
+The current config declares `shared` (`192.168.7.0/24`) and `webApp` (`192.168.8.0/29`). Gateway attaches to both networks; NGINX uses `shared`; the combined `webApp` container and PostgreSQL use both networks. This matches the all-networks Gateway contract. The requester accepts direct communication among shared-network members and relies on service authentication.
+
+Application deployment owns creating each unique app network. It then adds the network to the global inventory and `gateway.networks`, and reconciles the existing Gateway rather than creating another one. Future app deployments must find and reuse the Gateway and existing networks. The host preflight requires declared networks and containers to exist before a full Gateway check can pass; application lifecycle and NGINX deployment are not implemented yet.
+
+The v1 validator accepts `application_gateway` routes and static `gateway_address` fields. The approved initial addresses are `192.168.7.2` and `192.168.8.2`. NGINX runtime deployment and target-host Quadlet acceptance remain unimplemented.
+
 ## 3. Desired-State Declaration
 
 Use structured, versioned configuration rather than shell-sourced files or ad hoc text parsing. Candidate fields:
@@ -53,14 +61,16 @@ Example service configuration; the actual top-level `networks` array must list e
 {
 	"application_gateway": {
 		"enabled": true,
-		"listen_address": "192.0.2.10",
+		"listen_address": "0.0.0.0",
 		"http_port": 8080,
 		"routes": [
 			{
 				"prefix": "/app",
-				"frontend": "project-a-frontend",
+				"frontend": "webApp",
+				"frontend_port": 8000,
 				"api_prefix": "/app/api/",
-				"backend": "project-a-backend"
+				"backend": "webApp",
+				"backend_port": 8000
 			}
 		]
 	},
@@ -77,6 +87,8 @@ Example service configuration; the actual top-level `networks` array must list e
 ```
 
 `schedule` uses systemd `OnCalendar` syntax and defaults to `monthly`. `remote_mount` names host-mounted storage. Mount it read-only in PostgreSQL at `container_path`; the host backup job writes to the host path. Deployment logs an error and fails the backup job if the mount is unavailable.
+
+The frontend and API route to the same `webApp` container. NGINX needs separate internal frontend and FastAPI ports; values remain unprovided.
 
 ## 4. Lifecycle Contract
 
@@ -152,6 +164,7 @@ Example service configuration; the actual top-level `networks` array must list e
 - Name the authorized production deployment operators and their audit path.
 - Supply actual Podman network names, CIDRs, Gateway interface/DNS addresses, and configured container domains. Runtime tunnel routes must be discoverable and must not overlap these networks.
 - Select non-root UID/GID values and writable paths for each image. The qualification host requires SELinux disabled; deployment must not change that state.
+- Set the Application Gateway bind address and the frontend/FastAPI ports within the combined `webApp` container. Keep database credentials readable only by the FastAPI process.
 - Set the host-mounted remote backup path and confirm its protocol and write access. The path is shared with PostgreSQL; backup jobs log errors and fail if it is unavailable.
 - Implement and test a narrow Development Gateway DNS refresh handoff. Do not edit Gateway-owned DNS files directly.
 - Select the supported Node.js build version and TUS account/storage details. Keep the default 1 GB file limit configurable.

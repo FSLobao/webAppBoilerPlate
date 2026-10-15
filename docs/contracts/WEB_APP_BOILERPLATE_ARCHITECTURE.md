@@ -16,7 +16,7 @@ O boilerplate deve privilegiar:
 - simplicidade operacional;
 - reprodutibilidade;
 - baixo esforço administrativo;
-- isolamento entre aplicações;
+- redes app-specific únicas e autenticação de serviço; a rede `shared` oferece conectividade direta aos seus membros;
 - desenvolvimento remoto por VS Code;
 - manutenção direta dos containers;
 - deployment reproduzível a partir do host;
@@ -182,7 +182,7 @@ Cada aplicação pode possuir:
 - scheduler;
 - serviços auxiliares.
 
-Os serviços devem ser independentes e substituíveis.
+Na configuração inicial, os assets frontend e FastAPI serão servidos pelo mesmo processo no container `webApp`; PostgreSQL permanece em container separado. Serviços auxiliares podem usar containers próprios.
 
 As imagens do Gateway e das aplicações devem usar uma distribuição Linux eficiente e mantida,
 preferencialmente Debian ou Alpine. A distribuição do container é independente do host RHEL.
@@ -196,6 +196,8 @@ PostgreSQL deve ser executado em container.
 O banco deve possuir armazenamento persistente através de volume dedicado.
 
 PostgreSQL não recebe porta publicada diretamente no host. Desenvolvedores com acesso roteado ao Gateway podem alcançar a rede do banco; PostgreSQL deve aplicar sua própria autenticação e autorização.
+
+PostgreSQL conecta-se a `webApp` e `shared`. Todos os containers em `shared`, inclusive NGINX e Gateway, têm alcance de rede ao banco. A rede não isola frontend e backend quando ambos compartilham o container `webApp`; o deployment deve limitar credenciais à identidade de processo do FastAPI. A viabilidade desse limite permanece um gate.
 
 ---
 
@@ -306,7 +308,7 @@ O uso de `firewalld` não é requisito da arquitetura.
 
 ## 8.1 Princípio
 
-Cada aplicação deve possuir uma rede Podman própria.
+Cada aplicação deve possuir uma rede Podman própria com CIDR exclusivo.
 
 Exemplo:
 
@@ -316,15 +318,13 @@ project-b-net
 project-c-net
 ```
 
-As redes são independentes.
-
-Não deve existir uma rede global compartilhada entre todas as aplicações apenas para facilitar o acesso administrativo.
+As redes app-specific não roteiam entre si. A topologia inicial também conecta todos os containers de aplicação e PostgreSQL à rede `shared`; essa rede fornece conectividade direta e exige autenticação/autorização em cada serviço.
 
 ---
 
 ## 8.2 Gateway compartilhado
 
-O Gateway compartilhado deve possuir uma interface Podman para cada rede no inventário global `networks` de `config/host_config.json`. Ele não mantém uma lista seletiva de redes por serviço:
+O Gateway compartilhado possui uma interface Podman para cada rede no inventário global `networks` de `config/host_config.json`, incluindo `shared`. Ele não mantém uma lista seletiva de redes por serviço:
 
 ```text
                  Gateway
@@ -333,9 +333,11 @@ O Gateway compartilhado deve possuir uma interface Podman para cada rede no inve
         project-a-net project-b-net project-c-net
 ```
 
-O gateway funciona como ponto comum de administração, sem transformar as redes das aplicações em uma única rede.
+O Gateway administra todas as redes declaradas sem rotear entre redes app-specific. A rede `shared` é uma exceção explícita: seus membros podem comunicar-se diretamente na mesma rede.
 
 O JSON declara o endereço da interface do Gateway em cada rede. Esse endereço atende DNSMasq para os containers conectados à rede.
+
+A configuração solicitada declara `shared` e `webApp` em `gateway.networks`, mantendo o Gateway conectado a todas as redes do inventário. Aplicações futuras devem adicionar cada rede nova à configuração do Gateway existente.
 
 ---
 
@@ -349,11 +351,11 @@ project-a-net  ──X── project-c-net
 project-b-net  ──X── project-c-net
 ```
 
-O acesso entre aplicações deve ser explicitamente configurado quando necessário.
+Não há roteamento entre redes específicas de aplicações. A rede `shared`, porém, conecta diretamente todos os containers associados a ela. A topologia selecionada inclui `webApp` e PostgreSQL; por isso, esses serviços podem iniciar conexões uns com os outros sem atravessar o Gateway.
 
-O fato de o Gateway possuir acesso às redes não implica que as redes tenham conectividade entre si.
+O Gateway também conecta-se a todas as redes e pode alcançar todos os containers, inclusive bancos. Nem redes específicas nem `shared` protegem esses serviços de um Gateway comprometido. Mantenha autenticação nos destinos e trate o Gateway como componente administrativo de alto privilégio.
 
-O Gateway é a exceção confiável: conectado a todas as redes, ele pode iniciar conexões para todos os containers, inclusive bancos. O isolamento entre redes de aplicação não protege esses serviços de um Gateway comprometido. Mantenha autenticação nos destinos e trate o container Gateway como componente administrativo de alto privilégio.
+Como frontend e FastAPI compartilham o container `webApp`, a rede não separa os processos. O deployment deve limitar as credenciais PostgreSQL à identidade de processo do FastAPI.
 
 ---
 
@@ -464,7 +466,7 @@ backend.project-a.dev.internal
 
 O Gateway deve disponibilizar resolução para todas as aplicações cujas redes estejam conectadas ao gateway.
 
-A existência de registros DNS não implica conectividade entre as redes das aplicações.
+Registros DNS não criam conectividade; ela depende das interfaces declaradas. Serviços em redes app-specific distintas não têm rota entre si, mas os membros de `shared` comunicam-se diretamente.
 
 ## 9.6 Serviços publicados no DNS
 
@@ -647,7 +649,7 @@ O backend será implementado em:
 - Python;
 - FastAPI;
 - ambiente Python versionado;
-- container próprio.
+- processo no container combinado `webApp`.
 
 Responsabilidades:
 
@@ -673,6 +675,8 @@ O frontend deve ser servido por:
 - servidor estático apropriado;
 - ou mecanismo equivalente.
 
+Os assets Vite residem no container `webApp` e FastAPI os serve em `/app`; FastAPI também serve `/app/api/*` no listener interno TCP `8000`. NGINX faz proxy de ambas as rotas para esse listener. Não há processo frontend separado no modo selecionado.
+
 Use Vite com módulos JavaScript sem framework, gerados como arquivos estáticos. Para aplicações muito pequenas, HTML/CSS/JavaScript sem build também é válido; adote Vue, Svelte ou React somente quando complexidade de estado, componentes reutilizáveis ou padrão da equipe justificar. Configure o asset base como `/app/`.
 
 O padrão de API recomendado é mesma origem e prefixo por aplicação: `/app` serve o frontend e `/app/api/<route>` encaminha ao FastAPI. Um hostname separado para a API permanece uma alternativa futura para consumidores independentes, mas exige CORS, DNS e TLS adicionais.
@@ -687,24 +691,19 @@ Características:
 
 - container independente;
 - volume persistente;
-- rede de banco dedicada;
-- acesso normalmente permitido somente ao backend;
+- interfaces nas redes `webApp` e `shared`;
+- autenticação própria do PostgreSQL; `shared` permite alcance de rede por NGINX, Gateway e demais containers conectados;
 - credenciais fora do código-fonte;
 - backup tratado como preocupação de infraestrutura.
 
 Topologia recomendada:
 
 ```text
-backend
-   │
-   ▼
-database network
-   │
-   ▼
-PostgreSQL
+shared:  NGINX, Gateway, webApp, PostgreSQL
+webApp:  webApp, PostgreSQL
 ```
 
-Frontend não deve acessar PostgreSQL diretamente.
+Frontend JavaScript executado no browser não recebe credenciais PostgreSQL; FastAPI em `webApp:8000` possui essas credenciais. O processo FastAPI serve também os assets estáticos, então não há isolamento de processo entre frontend server e backend.
 
 
 O backup obrigatório executa `pg_dumpall` sem filtros para salvar dados, estrutura de todos os bancos e objetos globais do cluster. O schedule mensal padrão e os caminhos do mount host/container são configurados por instância no JSON; um timer systemd é gerado a partir do schedule. O armazenamento remoto é montado no host e compartilhado somente para leitura com PostgreSQL. O job registra erro e falha se o mount não estiver disponível; não usa fallback local. Restore é uma ação manual do operador, inicialmente por script: conexão direta e privada ao PostgreSQL, seguida da execução do SQL completo via `psql`. Não exponha PostgreSQL pelo Application Gateway nem restaure automaticamente durante deployment.
@@ -1010,7 +1009,7 @@ Mesmo com o controle de acesso externo, devem ser mantidos os seguintes princíp
 6. containers com filesystem mínimo;
 7. evitar `--privileged`;
 8. capabilities específicas quando possível;
-9. redes de aplicações isoladas;
+9. redes app-specific sem roteamento entre si; a rede `shared` fornece conectividade direta intencional e exige autenticação nos serviços;
 10. PostgreSQL não exposto externamente;
 11. Gateway não utilizado para servir tráfego de usuários;
 12. Application Gateway não utilizado como canal administrativo;
@@ -1037,6 +1036,7 @@ As seguintes decisões são consideradas parte do contrato:
 | Frontend | Vite com JavaScript sem framework por padrão; HTML/JS estático para páginas pequenas |
 | Rota frontend/API | `/app` e `/app/api/<route>` no mesmo domínio |
 | Database | PostgreSQL 18 por padrão, versão configurável por instância |
+| Container de aplicação | `webApp` combina frontend e FastAPI; PostgreSQL permanece separado |
 | Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
 | Cockpit | Dentro do Gateway |
@@ -1049,6 +1049,7 @@ As seguintes decisões são consideradas parte do contrato:
 | Gateway compartilhado entre redes | Sim; uma interface Podman para cada rede no inventário global `networks` |
 | Acesso do Gateway | A todas as redes e serviços Podman, sem aprovação individual por serviço; componente administrativo confiável |
 | Inventário de redes | `config/host_config.json` declara todas as redes; blocos opcionais configuram serviços do host |
+| Redes iniciais | `shared` `192.168.7.0/24`; `webApp` `192.168.8.0/29`; cada app futuro recebe CIDR único |
 | DNS de desenvolvimento | DNSMasq no Gateway |
 | Configuração DNS | Gerada/atualizada pelo deployment |
 | Nomes internos | DNSMasq resolve nomes para endereços atuais de containers; clientes usam rotas aos CIDRs Podman |
@@ -1058,6 +1059,7 @@ As seguintes decisões são consideradas parte do contrato:
 | SSH | ProxyJump e SSH TUN (`ssh -w`) via Gateway |
 | SSH para aplicações | ProxyJump encaminha TCP; TUN fornece rede IP; autenticação ocorre no destino |
 | SSH para gateway | Autenticação no próprio Gateway |
+| Bind de gestão | SSH em `0.0.0.0` sob ACL do perímetro; Cockpit em `127.0.0.1` |
 | SSH keys | Individuais por desenvolvedor |
 | SSH shared keys | Não |
 | SSH Certificate Authority | Fora do boilerplate inicial |
@@ -1079,16 +1081,17 @@ As seguintes decisões são consideradas parte do contrato:
 
 # 29. Inputs e gates de implementação
 
-As escolhas arquiteturais abaixo foram confirmadas. Os valores operacionais permanecem como inputs de deployment:
+As decisões de topologia confirmadas estão registradas na seção 34. Os valores operacionais e testes abaixo permanecem como inputs de deployment:
 
-1. Declarar em `config/host_config.json` os nomes, CIDRs e endereços DNS/Gateway de cada rede Podman. Validar conflitos com as rotas descobertas nas sessões externas.
+1. Definir endereços estáticos do Gateway em cada rede e validar conflitos com CIDRs externos descobertos nas sessões VPN.
 2. Provisionar o perfil OpenVPN privado e as rotas externas. O deployment não configura o servidor VPN; falha se as sessões não expuserem dados suficientes para rotas simétricas.
 3. Definir o pool de endereços SSH TUN, a conta dedicada e a política restrita de `PermitTunnel`.
 4. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
-5. Definir operadores autorizados de produção, UIDs/GIDs, paths de dados e o mount host/container para backup.
-6. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
-7. Definir os nomes DNS internos e validar o handoff de atualização DNS entre deployment da aplicação e Development Gateway.
-8. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
+5. Definir operadores autorizados de produção, UIDs/GIDs, identidades de processo no container `webApp`, paths de dados e mount host/container para backup.
+6. Definir host bind address do NGINX, método de servir os assets e ports frontend/API do container `webApp`.
+7. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
+8. Definir os nomes DNS internos e validar o handoff de atualização DNS entre deployment da aplicação e Development Gateway.
+9. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
 
 SELinux desativado é uma decisão de segurança explícita. O deployment valida o estado, mas não altera a política do host.
 
@@ -1098,6 +1101,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 
 - uma aplicação puder ser implantada sem alterar manualmente o host na operação normal;
 - cada aplicação possuir rede Podman independente;
+- containers de aplicação e PostgreSQL também poderem compartilhar `shared`; essa conectividade direta é intencional e protegida por autenticação de serviço, não por roteamento;
 - o inventário completo de redes e as opções de serviço estiverem declarados em `config/host_config.json`;
 - o Gateway puder acessar múltiplas redes;
 - o Gateway compartilhado possuir uma interface em cada rede configurada;
@@ -1107,6 +1111,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
 - endpoints NGINX forem opcionais e declarados no JSON, com host TCP/8080 mapeado ao container TCP/80;
 - NGINX servir `/app` e encaminhar `/app/api/<route>` ao FastAPI preservando o prefixo;
+- frontend e FastAPI executarem no container `webApp`, com portas upstream configuradas separadamente;
 - OpenVPN e SSH TUN permitirem tráfego IP remoto sem NAT, preservando a origem e com rotas de retorno simétricas;
 - egress de containers alcançar destinos externos pela saída normal do Podman no host, usando masquerading quando necessário;
 - deployment usar Quadlet e passar aceitação em RHEL 9.8 / Podman rootful 5.8.2 com SELinux desativado;
@@ -1117,6 +1122,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
 - PostgreSQL 18 possuir armazenamento persistente e backup `pg_dumpall` mensal por padrão, com schedule e mount remoto definidos no JSON e restore manual por script via `psql`;
+- somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
 - seções opcionais do JSON permanecerem compatíveis com `schema_version: 1`;
 - Application Gateway estiver separado do Gateway;
@@ -1167,43 +1173,26 @@ software customizado
 A arquitetura lógica desejada é:
 
 ```text
-                         EXTERNAL SECURITY
-                    VPN / Firewall / ACL / Auth
-                               │
-             ┌─────────────────┴─────────────────┐
-             │                                   │
-             ▼                                   ▼
-     Development access                  Application access
-             │                                   │
-             ▼                                   ▼
-┌─────────────────────────┐           ┌─────────────────────┐
-│ Gateway     │           │ Application Gateway │
-│                         │           │                     │
-│ Debian                  │           │ HTTP host 8080       │
-│ SSH                     │           │ Reverse proxy       │
-│ DNS                     │           │                     │
-│ OpenVPN / SSH TUN       │           └──────────┬──────────┘
-│ Routing / egress        │                      │
-│ Diagnostics             │                      │
-│ Cockpit                 │                      │
-│ cockpit-podman          │                      │
-└───────────┬─────────────┘                      │
-            │                                    │
-            │ Podman API                         │
-            │                                    │
-     ┌──────┼──────────────┐                     │
-     │      │              │                     │
-     ▼      ▼              ▼                     ▼
-  App A   App B          App C               Applications
-  network network        network
-     │      │              │
-     │      │              │
- backend  backend       backend
- frontend frontend      frontend
- postgres postgres      postgres
+External security perimeter provides TLS, DNS, VPN, firewall, and ACL
+                      │
+           ┌──────────┴──────────┐
+           │                     │
+           ▼                     ▼
+Development access          User HTTP access
+           │                     │
+           ▼                     ▼
+       Development Gateway     NGINX :8080 -> :80
+           │                     │
+           └─────────┬───────────┘
+                     │
+shared 192.168.7.0/24: Gateway, NGINX, webApp, PostgreSQL
+                     │
+webApp 192.168.8.0/29: webApp, PostgreSQL
 ```
 
-A característica central do projeto é que **o Gateway é compartilhado**, enquanto **as redes e os componentes de cada aplicação permanecem isolados**.
+The `webApp` container runs frontend and FastAPI. PostgreSQL is separate. All four services join `shared`, so they have direct network reach to each other. Future app networks use unique, non-overlapping CIDRs and attach their app services to the existing Gateway.
+
+A característica central continua sendo um Gateway compartilhado. As redes app-specific não roteiam entre si, mas os containers ligados a `shared` têm conectividade direta e dependem de autenticação por serviço.
 
 Isso proporciona um único ponto de manutenção para os desenvolvedores sem transformar as aplicações em uma única rede ou exigir um gateway dedicado por aplicação.
 
@@ -1218,3 +1207,28 @@ Use os planos de implementação abaixo para decompor o contrato sem misturar ac
 3. [Application deployment and operations](application-deployment-plan.md): configuração declarativa, secrets, volumes, atualização, recuperação e handoff de DNS.
 
 Resolva os inputs restantes da seção 29 antes da implementação. Valide Podman, Quadlet, roteamento, DNS, egress e SELinux desativado no host descartável autorizado RHEL 9.8 com Podman rootful 5.8.2. Testes locais de containers não substituem a aceitação do host.
+
+# 34. Topologia selecionada e inputs pendentes
+
+`config/host_config.json` declara a topologia selecionada:
+
+| Rede Podman | CIDR | IP do Gateway | Membros declarados |
+|---|---|---|---|
+| `shared` | `192.168.7.0/24` | `192.168.7.2` | Gateway, NGINX, `webApp` e `postgres` |
+| `webApp` | `192.168.8.0/29` | `192.168.8.2` | `webApp` e `postgres` |
+
+O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `.2` foram aprovados para as duas interfaces do Gateway.
+
+`192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza o inventário e `gateway.networks`, e reconcilia o Gateway existente. Não deve criar outro Gateway.
+
+O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços estáticos do Gateway. O validador aceita `gateway_address` e `application_gateway`; o deployment de NGINX ainda não foi implementado.
+
+Inputs e gates restantes:
+
+1. Validar no host-alvo a atribuição Quadlet dos IPs aprovados `192.168.7.2` e `192.168.8.2`.
+2. NGINX usa `0.0.0.0:8080`, mapeado ao TCP `80` do container. A rede externa encaminha tráfego para o IP DHCP atual do host.
+3. `/app` e `/app/api/` apontam ao mesmo `webApp:8000`; FastAPI serve os assets Vite e a API.
+4. Decisão confirmada: FastAPI serve assets e API no mesmo processo `webApp:8000` e mantém credenciais PostgreSQL. Browser assets não são processos do container; teste que build output e respostas HTTP nunca exponham essas credenciais.
+5. Implementar deployment NGINX e atualização idempotente do Gateway quando novas redes forem adicionadas.
+6. Verificar que os CIDRs escolhidos não conflitam com redes existentes ou rotas externas de VPN antes de deployment.
+7. SSH do Gateway usa bind `0.0.0.0` para forwarding externo sob controle do perímetro; Cockpit permanece em `127.0.0.1`.

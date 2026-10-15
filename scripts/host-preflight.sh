@@ -73,12 +73,32 @@ validate_config() {
                     test("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")));
         def port:
             type == "number" and floor == . and . >= 1 and . <= 65535;
+        def route_prefix:
+            type == "string" and
+            test("^/[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$");
+        def api_prefix($prefix):
+            type == "string" and
+            startswith($prefix + "/") and endswith("/") and
+            test("^/[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*/$");
+        def routes_disjoint($routes):
+            all($routes[]; . as $route |
+                all($routes[]; . as $other |
+                    ($route.prefix == $other.prefix) or
+                    (((($route.prefix | startswith($other.prefix + "/")) or
+                       ($other.prefix | startswith($route.prefix + "/")))) | not)
+                )
+            );
         (. as $config |
-        object_with_allowed_keys(["schema_version", "networks"]; ["gateway", "containers", "dns_records"]) and
+        object_with_allowed_keys(
+            ["schema_version", "networks"];
+            ["gateway", "application_gateway", "containers", "dns_records"]
+        ) and
         $config.schema_version == 1 and
         ($config.networks | type == "array") and
-        all($config.networks[]; object_with_keys(["name", "subnet"]) and
-            (.name | podman_name) and (.subnet | type == "string")) and
+        all($config.networks[];
+            object_with_allowed_keys(["name", "subnet"]; ["gateway_address"]) and
+            (.name | podman_name) and (.subnet | type == "string") and
+            (if has("gateway_address") then (.gateway_address | type == "string") else true end)) and
         ([$config.networks[].name] | length == (unique | length)) and
         (($config.containers // []) | type == "array") and
         all(($config.containers // [])[];
@@ -87,6 +107,42 @@ validate_config() {
             (.networks | type == "array" and length > 0 and
                 all(.[]; podman_name) and length == (unique | length))) and
         ([($config.containers // [])[] | .name] | length == (unique | length)) and
+        (if ($config | has("application_gateway")) then
+            ($config.application_gateway as $application_gateway |
+                ($application_gateway | object_with_keys(
+                    ["enabled", "listen_address", "http_port", "routes"]
+                )) and
+                ($application_gateway.enabled | type == "boolean") and
+                ($application_gateway.listen_address | type == "string" and length > 0) and
+                ($application_gateway.http_port | port) and
+                ($application_gateway.routes | type == "array") and
+                (if $application_gateway.enabled then
+                    ($application_gateway.routes | length > 0)
+                else true end) and
+                all($application_gateway.routes[];
+                    object_with_keys([
+                        "prefix", "frontend", "frontend_port",
+                        "api_prefix", "backend", "backend_port"
+                    ]) and
+                    (.prefix | route_prefix) and
+                    (.frontend | podman_name) and
+                    (.frontend_port | port) and
+                    (.backend | podman_name) and
+                    (.backend_port | port) and
+                    (. as $route | .api_prefix | api_prefix($route.prefix))
+                ) and
+                ([$application_gateway.routes[].prefix] | length == (unique | length)) and
+                routes_disjoint($application_gateway.routes) and
+                (if $application_gateway.enabled then
+                    any(($config.containers // [])[]; .name == "nginx") and
+                    all($application_gateway.routes[];
+                        . as $route |
+                        any(($config.containers // [])[]; .name == $route.frontend) and
+                        any(($config.containers // [])[]; .name == $route.backend)
+                    )
+                else true end)
+            )
+        else true end) and
         (($config.dns_records // []) | type == "array") and
         all(($config.dns_records // [])[]; object_with_keys(["name", "container", "network"]) and
             (.name | dns_name) and (.container | podman_name) and (.network | podman_name)) and
@@ -97,9 +153,14 @@ validate_config() {
             all(($config.dns_records // [])[]; .network as $network | $network_names | index($network) != null) and
             (if ($config | has("gateway")) then
                 ($config.gateway |
-                    object_with_allowed_keys(["name", "bind_address", "ssh_port", "cockpit_port", "authorized_keys_path"]; ["networks"]) and
+                    object_with_allowed_keys(
+                        ["name", "bind_address", "ssh_port", "cockpit_port", "authorized_keys_path"];
+                        ["networks", "ssh_bind_address", "cockpit_bind_address"]
+                    ) and
                     (.name | podman_name) and .name == "gateway" and
                     (.bind_address | type == "string" and length > 0) and
+                    (if has("ssh_bind_address") then (.ssh_bind_address | type == "string" and length > 0) else true end) and
+                    (if has("cockpit_bind_address") then (.cockpit_bind_address | type == "string" and length > 0) else true end) and
                     (.ssh_port | port) and
                     (.cockpit_port | port) and
                     .ssh_port != .cockpit_port and
@@ -125,6 +186,7 @@ check_gateway_host_preflight() {
     local config_path=${1:-$DEFAULT_CONFIG}
     local os_id os_version podman_version podman_rootless selinux_mode
     local authorized_keys_path ssh_port cockpit_port listener mode owner bind_address
+    local ssh_bind_address cockpit_bind_address
     local source_asset
     local gateway_managed=0 host_private_key="$HOST_KEYS_DIR/ssh_host_ed25519_key"
     local host_public_key="$HOST_KEYS_DIR/ssh_host_ed25519_key.pub" certificate_public_key private_public_key
@@ -286,12 +348,15 @@ check_gateway_host_preflight() {
         gateway_managed=1
     fi
 
-    bind_address=$(jq -r '.gateway.bind_address' "$config_path")
-    if [[ "$bind_address" != 127.0.0.1 ]]; then
-        ip -j -4 address show | jq -e --arg address "$bind_address" \
-            'any(.[].addr_info[]; .local == $address)' >/dev/null || \
-            fail "Configured management bind address is not assigned to this host: $bind_address"
-    fi
+    ssh_bind_address=$(jq -r '.gateway.ssh_bind_address // .gateway.bind_address' "$config_path")
+    cockpit_bind_address=$(jq -r '.gateway.cockpit_bind_address // .gateway.bind_address' "$config_path")
+    for bind_address in "$ssh_bind_address" "$cockpit_bind_address"; do
+        if [[ "$bind_address" != 127.0.0.1 && "$bind_address" != 0.0.0.0 ]]; then
+            ip -j -4 address show | jq -e --arg address "$bind_address" \
+                'any(.[].addr_info[]; .local == $address)' >/dev/null || \
+                fail "Configured management bind address is not assigned to this host: $bind_address"
+        fi
+    done
 
     ssh_port=$(jq -r '.gateway.ssh_port' "$config_path")
     cockpit_port=$(jq -r '.gateway.cockpit_port' "$config_path")

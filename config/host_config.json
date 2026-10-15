@@ -3,12 +3,79 @@
     "gateway": {
         "name": "gateway",
         "bind_address": "127.0.0.1",
+        "ssh_bind_address": "0.0.0.0",
+        "cockpit_bind_address": "127.0.0.1",
         "ssh_port": 2222,
         "cockpit_port": 9090,
         "authorized_keys_path": "/etc/gateway/authorized_keys",
-        "networks": []
+        "networks": [
+            "shared",
+            "webApp"
+        ]
     },
-    "networks": [],
-    "containers": [],
+    "application_gateway": {
+        "enabled": true,
+        "listen_address": "0.0.0.0",
+        "http_port": 8080,
+        "routes": [
+            {
+                "prefix": "/app",
+                "frontend": "webApp",
+                "frontend_port": 8000,
+                "api_prefix": "/app/api/",
+                "backend": "webApp",
+                "backend_port": 8000
+            }
+        ]
+    },
+    "application_gateway": {
+        "enabled": true,
+        "listen_address": "0.0.0.0",
+        "http_port": 8080,
+        "routes": [
+            {
+                "prefix": "/app",
+                "frontend": "webApp",
+                "frontend_port": 8000,
+                "api_prefix": "/app/api/",
+                "backend": "webApp",
+                "backend_port": 8000
+            }
+        ]
+    },
+    "networks": [
+        {
+            "name": "shared",
+            "subnet": "192.168.7.0/24",
+            "gateway_address": "192.168.7.2"
+        },
+        {
+            "name": "webApp",
+            "subnet": "192.168.8.0/29",
+            "gateway_address": "192.168.8.2"
+        }
+    ],
+    "containers": [
+        {
+            "name": "nginx",
+            "networks": [
+                "shared"
+            ]
+        },
+        {
+            "name": "webApp",
+            "networks": [
+                "webApp",
+                "shared"
+            ]
+        },
+        {
+            "name": "postgres",
+            "networks": [
+                "webApp",
+                "shared"
+            ]
+        }
+    ],
     "dns_records": []
 }

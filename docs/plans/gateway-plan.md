@@ -86,6 +86,23 @@ DNSMasq must listen on each configured Gateway network address and active tunnel
 - **WireGuard client:** A smaller tunnel implementation may reduce Gateway package and process complexity. It requires a compatible external server and a new server-side decision, so it is not selected.
 - **SSH local, remote, or dynamic forwarding:** Easier for individual TCP services, but cannot provide unrestricted IP protocol and port access. It does not meet this plan's acceptance target. SSH TUN (`ssh -w`) remains the supported SSH option.
 
+### 3.4 Requested initial network layout (pending contract resolution)
+
+The requested [host configuration](../../config/host_config.json) declares:
+
+| Podman network | Subnet | Gateway address | Requested members |
+|---|---|---|---|
+| `shared` | `192.168.7.0/24` | `192.168.7.2` | Gateway, NGINX, `webApp`, and `postgres` |
+| `webApp` | `192.168.8.0/29` | `192.168.8.2` | `webApp` and `postgres` |
+
+The Gateway is configured on both declared networks, matching the existing all-networks contract. Each app container also joins `shared`; the requester accepts direct connectivity between shared-network members and assigns authentication to each service. This still means “no routing between app networks” does not isolate services attached to `shared`.
+
+Remaining inputs and implementation gates:
+
+1. Validate Quadlet assignment of `192.168.7.2` and `192.168.8.2` on the target host.
+2. Implement application deployment so it creates each unique app network, updates the global inventory and `gateway.networks`, then reconciles the existing Gateway. Do not create a second Gateway.
+3. Validate the configured CIDRs against active external VPN routes and existing Podman networks before deployment.
+
 
 ## 4. Proposed Repository Artifacts
 
@@ -118,7 +135,7 @@ The host schema should contain:
 - A required `networks` array containing every Podman network on the host, with exact name, expected CIDR, and non-overlapping Gateway interface address. This is the global inventory; the Development Gateway attaches to every listed network.
 - Optional service-specific sections such as `gateway`, `application_gateway`, and per-application declarations. Feature sections are optional and backward-compatible under required `schema_version: 1`.
 - An optional array of containers and their expected networks for generic host preflight checks.
-- An optional `gateway` section with identity, management bind address/ports, and tunnel settings. Do not use it to select only some top-level networks.
+- An optional `gateway` section with identity, separate SSH/Cockpit bind addresses and ports, and tunnel settings. Keep `bind_address` as the backward-compatible fallback for both listeners. Do not use it to select only some top-level networks.
 - Optional `gateway.remote_access.openvpn` settings with an enable flag and a host path to the external, private client profile. Discover pushed routes and client ranges from the active tunnel.
 - Optional `gateway.remote_access.ssh_tun` settings with an enable flag, a configured tunnel address pool, and dedicated-account policy. Discover active session addresses at runtime.
 - Both tunnel interfaces may be enabled concurrently. Validate discovered routes and addresses against configured Podman CIDRs before installing state.
@@ -134,7 +151,9 @@ Illustrative shape; finalize field names and requiredness before implementation:
   "schema_version": 1,
   "gateway": {
     "name": "gateway",
-    "bind_address": "192.0.2.10",
+    "bind_address": "127.0.0.1",
+    "ssh_bind_address": "0.0.0.0",
+    "cockpit_bind_address": "127.0.0.1",
     "ssh_port": 2222,
     "cockpit_port": 9090,
     "remote_access": {
@@ -237,7 +256,7 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 - Record the requester's approval for unrestricted protocol/port access to every configured network, including databases. Authentication remains service-owned; external perimeter controls are assumed.
 - Record the qualification baseline as RHEL 9.8, rootful Podman 5.8.2, Quadlet, SELinux disabled, required host packages, and image base digest. Verify the installed build and repository/vendor support without changing host security settings.
 - Confirm that active OpenVPN and SSH TUN sessions expose routes and addresses needed for symmetric replies. The private OpenVPN profile and server routes remain externally managed.
-- Confirm whether the OpenVPN profile uses inline certificate/key blocks, SSH TUN client address allocation, tunnel account policy, management bind addresses/ports, host key storage, public-key input format, and whether Cockpit is reachable only through the external management perimeter.
+- Confirm whether the OpenVPN profile uses inline certificate/key blocks, SSH TUN client address allocation, tunnel account policy, host key storage, public-key input format, and whether external perimeter rules restrict SSH bound to `0.0.0.0`. Cockpit remains loopback-only.
 - Confirm the in-container service/process model and initial capability hypothesis.
 - Stop implementation if a decision requires changing an architecture invariant; document the conflict for explicit approval first.
 
