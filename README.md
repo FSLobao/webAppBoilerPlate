@@ -24,13 +24,12 @@ operacional do host.
 
 O contrato arquitetural está em
 [docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
-Ele descreve o ambiente-alvo RHEL 9, os gateways, as redes, o acesso SSH, o DNS de desenvolvimento,
-os secrets e os critérios para a implementação.
+Ele descreve o host-alvo RHEL 9.8 com Podman rootful 5.8.2, os gateways, as redes, o acesso SSH,
+o DNS de desenvolvimento, os secrets e os critérios para a implementação.
 
 **Estado atual:** o código da aplicação ainda é um scaffold Python. O bootstrap do Development
-Gateway tem configuração, imagem Debian, startup e Quadlet versionados; a validação local passou
-em Debian 13. A aceitação em RHEL 9 com Podman rootful, Quadlet e SELinux permanece pendente. Não
-implante em host live; consulte
+Gateway tem configuração, imagem Debian, startup e Quadlet versionados. A aceitação em RHEL 9.8
+com Podman rootful 5.8.2, Quadlet e SELinux permanece pendente. Não implante em host live; consulte
 [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
@@ -148,17 +147,21 @@ Recursos, secrets, certificados, réplicas e observabilidade podem variar por am
 
 ### Ambiente remoto
 
-- Red Hat Enterprise Linux 9, rootful Podman 4.4 ou superior, systemd/Quadlet e SELinux em modo Enforcing;
+- Red Hat Enterprise Linux 9.8, rootful Podman 5.8.2, systemd/Quadlet e SELinux em modo Enforcing;
 - armazenamento para volumes persistentes;
 - equipe de infraestrutura com acesso administrativo para configuração inicial e operações do host;
 - acesso SSH autorizado ao Gateway;
 - controles externos de rede e autenticação definidos pela organização;
 - configuração das redes e registros DNS das aplicações, além dos arquivos externos de chaves e TLS descritos abaixo.
 
+Scripts de deployment do host devem exigir esse baseline RHEL/Podman. Imagens do Gateway e das
+aplicações devem usar uma distribuição Linux eficiente e mantida, preferencialmente Debian ou
+Alpine; a distribuição do container é independente do host.
+
 O script verifica as dependências de host, incluindo `jq`, Python 3, Podman, systemd, Quadlet,
 OpenSSH e ferramentas de diagnóstico. O contrato arquitetural não exige acesso administrativo
 diário dos desenvolvedores ao host. As capabilities mínimas e a compatibilidade com SELinux ainda
-precisam ser confirmadas em um host RHEL 9 descartável.
+precisam ser confirmadas em um host RHEL 9.8 / Podman 5.8.2 descartável.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -212,8 +215,8 @@ para o inventário detalhado de paths, decisões e limitações.
 | Modo | Uso e efeito |
 |---|---|
 | `--validate-config` | Valida o JSON localmente. Não exige root e não altera o host. |
-| `--check` | Faz preflight somente leitura. Exige root e host RHEL 9 suportado; não constrói imagem nem inicia serviços. |
-| `--apply` | Repete o preflight e, se aprovado, constrói a imagem, instala os arquivos gerenciados e ativa o serviço. Use apenas em host de teste RHEL 9 autorizado. |
+| `--check` | Faz preflight somente leitura. Exige root e RHEL 9.8 com Podman 5.8.2; não constrói imagem nem inicia serviços. |
+| `--apply` | Repete o preflight e, se aprovado, constrói a imagem, instala os arquivos gerenciados e ativa o serviço. Use apenas em host de teste RHEL 9.8 / Podman 5.8.2 autorizado. |
 
 Comece ajustando `config/host_config.json`. `networks` declara as redes existentes no host, com
 nome Podman e CIDR IPv4 esperado. `containers` lista serviços e redes que o preflight deve conferir.
@@ -288,15 +291,15 @@ Execute a validação antes de acessar o host:
 ./scripts/deploy-gateway.sh --validate-config config/host_config.json
 ```
 
-Em um host de teste **RHEL 9** autorizado, com Podman rootful, Quadlet e SELinux Enforcing,
-execute o preflight e só então aplique:
+Em um host de teste **RHEL 9.8** autorizado, com Podman rootful 5.8.2, Quadlet e SELinux
+Enforcing, execute o preflight e só então aplique:
 
 ```bash
 sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
-`--check` recusa sistemas que não sejam RHEL 9 e verifica as credenciais, portas, redes, containers,
+`--check` exige RHEL 9.8 e Podman 5.8.2 e verifica as credenciais, portas, redes, containers,
 socket rootful e ferramentas exigidas. Não contorne essa verificação nem rode `--apply` em Debian,
 em host live ou antes de aprovação operacional.
 
@@ -391,11 +394,12 @@ bash tests/scripts/test-gateway-container.sh
 ```
 
 O smoke test cria chaves e certificado temporários, não conecta redes nem publica portas, e remove
-seu container e arquivos temporários ao terminar. Passar esses testes em Debian valida apenas os
-testes locais; não é aceitação do deployment em RHEL 9.
+seu container e arquivos temporários ao terminar. Passar esses testes localmente não é aceitação
+do deployment em RHEL 9.8 / Podman 5.8.2.
 
-Ainda exigem um RHEL 9 descartável: `--apply`, reboot, socket/SELinux, capabilities, isolamento de
-rede, forwarding/NAT e autenticação SSH no destino. Não declare aceitação RHEL 9 antes desses gates.
+Ainda exigem um RHEL 9.8 / Podman 5.8.2 descartável: `--apply`, reboot, socket/SELinux,
+capabilities, isolamento de rede, forwarding/NAT e autenticação SSH no destino. Não declare
+aceitação antes desses gates.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -420,15 +424,15 @@ Princípios obrigatórios:
 
 Os caminhos externos de credenciais e os mounts do gateway estão definidos em
 [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
-As capabilities mínimas e a compatibilidade SELinux continuam pendentes de teste em RHEL 9. A
-integração com um Secret Manager e uma VPN específica fica fora da primeira versão.
+As capabilities mínimas e a compatibilidade SELinux continuam pendentes de teste em RHEL 9.8 /
+Podman 5.8.2. A integração com um Secret Manager e uma VPN específica fica fora da primeira versão.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
 ## Decisões em aberto e próximas etapas
 
-A arquitetura já estabelece RHEL 9, Podman rootful, backend FastAPI, frontend JavaScript, PostgreSQL,
-um Gateway compartilhado, redes isoladas por aplicação, DNSMasq e secrets externos ao
+A arquitetura já estabelece RHEL 9.8, Podman rootful 5.8.2, backend FastAPI, frontend JavaScript,
+PostgreSQL, um Gateway compartilhado, redes isoladas por aplicação, DNSMasq e secrets externos ao
 Git. Permanecem em aberto:
 
 - capabilities do Gateway e integração Cockpit/Podman;
@@ -437,10 +441,10 @@ Git. Permanecem em aberto:
 - backups, health checks, logs e atualização/versionamento de imagens;
 - certificados TLS, VPN opcional e exposição dos endpoints de aplicação.
 
-Próxima etapa do gateway: executar os gates de aceitação em um host RHEL 9 descartável e registrar
-os resultados de Quadlet, reboot, SELinux, capabilities, forwarding e Cockpit/Podman. Não use um
-host live para essa validação. As decisões restantes da aplicação e do Application Gateway devem
-ser tratadas separadamente.
+Próxima etapa do gateway: executar os gates de aceitação em um host RHEL 9.8 / Podman 5.8.2
+descartável e registrar os resultados de Quadlet, reboot, SELinux, capabilities, forwarding e
+Cockpit/Podman. Não use um host live para essa validação. As decisões restantes da aplicação e do
+Application Gateway devem ser tratadas separadamente.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 

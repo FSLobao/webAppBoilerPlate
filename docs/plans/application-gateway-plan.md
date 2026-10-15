@@ -5,7 +5,7 @@
 
 ## 1. Goal and Boundary
 
-Provide HTTP/HTTPS access to application services through a component separate from the Development Gateway. The Application Gateway handles user traffic only. It does not provide SSH, Cockpit, Podman administration, or developer maintenance access.
+Provide HTTP/HTTPS access to application services through a component separate from the Development Gateway. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use a maintained, efficient Linux image for the Gateway, preferably Debian or Alpine; keep container image selection independent from the host distribution. The Application Gateway handles user traffic only. It does not provide SSH, Cockpit, Podman administration, or developer maintenance access.
 
 The external security perimeter remains responsible for network reachability and organizational access controls. Application-level authentication and authorization remain the responsibility of each application unless an explicitly approved gateway policy says otherwise.
 
@@ -67,7 +67,7 @@ Use the repository-pinned Nginx image and configure all published addresses, por
 - Attach Nginx only to application networks needed by declared routes. Do not attach it to database-only networks or enable general routing between application networks.
 - Add readiness and health behavior that distinguishes proxy failure from unavailable upstreams.
 
-### Phase 3: RHEL 9 acceptance
+### Phase 3: RHEL 9.8 / Podman 5.8.2 acceptance
 
 - Validate image provenance/pinning, Quadlet behavior, SELinux mounts, restart/reboot behavior, and external bind addresses on a disposable RHEL 9.8 / Podman 5.8.2 host.
 - Verify malformed route configuration fails without changing active routes or service state.

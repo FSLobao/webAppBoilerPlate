@@ -5,7 +5,7 @@
 
 ## 1. Goal and Components
 
-Define the per-application container stack: JavaScript frontend, Python/FastAPI backend, and PostgreSQL. Each application remains replaceable and isolated from other applications. This plan does not implement the shared Development Gateway or choose the user-facing proxy; see [Application Gateway Plan](application-gateway-plan.md).
+Define the per-application container stack: JavaScript frontend, Python/FastAPI backend, and PostgreSQL. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each application remains replaceable and isolated from other applications. This plan does not implement the shared Development Gateway or choose the user-facing proxy; see [Application Gateway Plan](application-gateway-plan.md).
 
 ## 2. Proposed Network Shape
 

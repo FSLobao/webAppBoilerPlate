@@ -1,13 +1,13 @@
 # Gateway Bootstrap Plan
 
-**Status:** Base Gateway bootstrap and local Debian smoke tests complete; NAT-based remote service forwarding is not implemented and blocks completion. RHEL acceptance remains pending.
-**Scope:** Shared Gateway bootstrap on RHEL 9 with rootful Podman
+**Status:** Gateway implementation is in progress; NAT-based remote service forwarding is not implemented. Host acceptance remains pending.
+**Scope:** Shared Gateway bootstrap on RHEL 9.8 with rootful Podman 5.8.2
 **Acceptance target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux enforcing. Verify the installed package source and support status on the disposable target host.
 **Deployment target:** Isolated test host only during implementation; no live-host deployment is authorized by this plan.
 
 ## 1. Goal
 
-Implement a reproducible bootstrap for the shared Gateway. Keep host deployment and container startup as separate responsibilities. Build the Debian image from repository sources. Read application network declarations and development DNS mappings from versioned configuration.
+Implement a reproducible bootstrap for the shared Gateway. Run host deployment scripts only on RHEL 9.8 with rootful Podman 5.8.2. Keep host deployment and container startup as separate responsibilities. Use a maintained, efficient Linux distribution for the Gateway and application images, preferably Debian or Alpine. Select container bases independently from the host distribution.
 
 The deployment must be repeatable without deleting application data, volumes, secrets, SSH host keys, or unrelated Podman resources. It must fail validation before changing the host or the running gateway.
 
@@ -246,7 +246,7 @@ For each path, document owner, mode, SELinux label expectations, mount mode, and
 - Verify the gateway can see/manage intended rootful containers while Podman has no TCP listener and SELinux remains enforcing.
 - Document the socket authority, exposed management ports, external perimeter assumptions, and operator-only recovery path.
 
-### Phase 6: RHEL 9 acceptance and handover
+### Phase 6: RHEL 9.8 / Podman 5.8.2 acceptance and handover
 
 - Run the complete matrix in section 9 on a disposable RHEL 9.8 system using rootful Podman 5.8.2 and SELinux enforcing. Do not use a live host.
 - Record OS, Podman, Quadlet, kernel, SELinux, and capability results with test commands and expected output.
@@ -270,7 +270,7 @@ For each path, document owner, mode, SELinux label expectations, mount mode, and
 | SSH forwarding policy | Test allowed destination ports and an unrelated host/network. Inspect effective `sshd` settings. | Only documented forwarding behavior is enabled. No unintended agent, tunnel, or gateway-port exposure is introduced. |
 | Reboot recovery | Reboot the disposable RHEL 9.8 host with Podman 5.8.2, declared networks, Quadlet, DNS, and NAT exposures. | Quadlet restores every declared Gateway interface; DNSMasq and NAT rules recover without manual container entry. Persistent keys and application data survive. |
 | Cockpit Podman access | Through Cockpit, inspect and perform a controlled lifecycle operation on a disposable rootful test container. Inspect host listening sockets and socket mounts. | cockpit-podman accesses the intended rootful Podman service through the Unix socket. No Podman API listens on TCP. Socket authority is documented. |
-| Capabilities | On RHEL 9, test each required feature with a minimal capability baseline, then add candidate capabilities one at a time. Inspect effective capabilities and test routing, forwarding/NAT, diagnostics, low ports, systemd, SSH, and Cockpit. | Exact required capabilities are recorded. No `--privileged`, `CAP_SYS_ADMIN`, or other broad capability is retained without evidence and explicit approval. Removing a required capability causes a specific test failure. |
+| Capabilities | On RHEL 9.8 with rootful Podman 5.8.2, test each required feature with a minimal capability baseline, then add candidate capabilities one at a time. Inspect effective capabilities and test routing, forwarding/NAT, diagnostics, low ports, systemd, SSH, and Cockpit. | Exact required capabilities are recorded. No `--privileged`, `CAP_SYS_ADMIN`, or other broad capability is retained without evidence and explicit approval. Removing a required capability causes a specific test failure. |
 | SELinux | Run the same lifecycle, socket, mount, and DNS tests with SELinux enforcing. Inspect AVC denials. | No global SELinux disable or broad relabel workaround is required. Any narrow policy or labeling requirement is documented and reviewed. |
 | Quadlet behavior | Validate generated systemd units, dependencies, start/stop/restart behavior, and reboot enablement on RHEL 9.8 / Podman 5.8.2. | Quadlet owns the Gateway lifecycle; deployment does not leave unmanaged duplicate containers or stale units. |
 
@@ -288,7 +288,7 @@ For the capability test, treat `CAP_NET_ADMIN` as a candidate for in-container f
 - Keep logs free of secret content. Do not put secret values in command-line arguments, generated unit files, build arguments, or image history.
 - Report partial additive changes, such as a newly created network, if later activation fails. Do not present rollback as complete when host state remains changed.
 
-## 11. Remaining RHEL 9 Acceptance Gates
+## 11. Remaining RHEL 9.8 / Podman 5.8.2 Acceptance Gates
 
 Implementation decisions and locally validated behavior are recorded in [gateway-implementation.md](gateway-implementation.md). The following questions remain open; answer them with evidence from a disposable RHEL 9.8 host using rootful Podman 5.8.2 before claiming acceptance:
 
@@ -323,4 +323,4 @@ The bootstrap is ready for review when:
 
 ## 13. Current Status
 
-The base source implementation and local Debian 13 smoke tests are complete. NAT-based remote service access is a required missing implementation phase; the Gateway is not complete until declared external endpoints reach the correct current container targets on RHEL 9.8 / Podman 5.8.2. SELinux socket access, exact capabilities, NAT/return-path behavior, reboot recovery, and end-to-end SSH remain acceptance gates. Use [gateway-implementation.md](gateway-implementation.md) for the current operator workflow and validation record. Do not deploy to a live host.
+The Gateway implementation remains in progress, and no RHEL 9.8 / Podman 5.8.2 host acceptance is claimed. NAT-based remote service access is a required missing implementation phase; the Gateway is not complete until declared external endpoints reach the correct current container targets. SELinux socket access, exact capabilities, NAT/return-path behavior, reboot recovery, and end-to-end SSH remain acceptance gates. Use [gateway-implementation.md](gateway-implementation.md) for the current operator workflow and validation record. Do not deploy to a live host.

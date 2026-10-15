@@ -18,22 +18,26 @@ from typing import Any
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 
+TARGET_HOST_OS_ID = "rhel"
+TARGET_HOST_OS_VERSION = "9.8"
+TARGET_PODMAN_VERSION = "5.8.2"
 
-def podman_version_supported(version: str) -> bool:
-    """Return whether a Podman version is at least 4.4.
+
+def host_platform_matches_target(os_id: str, os_version: str) -> bool:
+    """Return whether the host matches the RHEL 9.8 deployment target."""
+    return os_id == TARGET_HOST_OS_ID and os_version == TARGET_HOST_OS_VERSION
+
+
+def podman_version_matches_target(version: str) -> bool:
+    """Return whether a Podman version matches the 5.8.2 deployment target.
 
     Args:
         version: Podman's client version, optionally prefixed with ``v``.
 
     Returns:
-        True when the first two numeric version components are at least 4.4.
-        Malformed versions return False.
+        True only for version 5.8.2. Other or malformed versions return False.
     """
-    try:
-        parts = tuple(int(part) for part in version.lstrip("v").split(".")[:2])
-    except ValueError:
-        return False
-    return parts >= (4, 4)
+    return version.removeprefix("v") == TARGET_PODMAN_VERSION
 
 
 def cockpit_password_is_valid(password_path: str | pathlib.Path) -> bool:
@@ -205,8 +209,13 @@ def main(argv: list[str] | None = None) -> int:
     """Run a host-preflight check and return its process status."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="check", required=True)
+    host_parser = commands.add_parser(
+        "host-platform", help="check host matches RHEL 9.8"
+    )
+    host_parser.add_argument("os_id", help="host operating-system ID")
+    host_parser.add_argument("os_version", help="host operating-system version")
     version_parser = commands.add_parser(
-        "podman-version", help="check Podman client version is at least 4.4"
+        "podman-version", help="check Podman client version is 5.8.2"
     )
     version_parser.add_argument("version", help="Podman client version")
     password_parser = commands.add_parser(
@@ -224,8 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.check == "host-platform":
+        return 0 if host_platform_matches_target(args.os_id, args.os_version) else 1
     if args.check == "podman-version":
-        return 0 if podman_version_supported(args.version) else 1
+        return 0 if podman_version_matches_target(args.version) else 1
     if args.check == "password-file":
         return 0 if cockpit_password_is_valid(args.path) else 1
 

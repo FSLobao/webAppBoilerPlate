@@ -1,6 +1,6 @@
 # File Gateway: nginx + tusd on Podman (rootful, Quadlet) – Debian
 
-> Scope: This is a standalone file-transfer service recipe. It is not the Application Gateway defined in the boilerplate architecture. It targets Debian with SELinux absent or disabled, so it is not an approved deployment recipe for the RHEL 9 / SELinux-enforcing host. Confirm its owner and target environment before deployment or integration.
+> Scope: This is a standalone Debian file-transfer recipe, separate from the Application Gateway. Keep it as a reference for future containerized deployment. Its host bootstrap targets Debian with SELinux absent or disabled; do not run it on the RHEL 9.8 / SELinux-enforcing host.
 
 Single HTTP endpoint on port **8080**:
 

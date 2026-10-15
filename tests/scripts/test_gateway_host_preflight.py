@@ -7,18 +7,55 @@ import pytest
 
 from scripts.gateway.host_preflight import (
     cockpit_password_is_valid,
-    podman_version_supported,
+    host_platform_matches_target,
+    main,
+    podman_version_matches_target,
     validate_podman_state,
 )
 
 
 @pytest.mark.parametrize(
-    ("version", "supported"),
-    [("v4.4.0", True), ("5.0.1", True), ("4.3.9", False), ("invalid", False)],
+    ("os_id", "os_version", "matches"),
+    [
+        ("rhel", "9.8", True),
+        ("rhel", "9.7", False),
+        ("rhel", "9.9", False),
+        ("rocky", "9.8", False),
+    ],
 )
-def test_podman_version_requirement(version: str, supported: bool) -> None:
-    """Accept Podman 4.4 or newer and reject older or malformed versions."""
-    assert podman_version_supported(version) is supported
+def test_host_platform_requirement(os_id: str, os_version: str, matches: bool) -> None:
+    """Accept only RHEL 9.8 as the host deployment target."""
+    assert host_platform_matches_target(os_id, os_version) is matches
+
+
+@pytest.mark.parametrize(
+    ("version", "matches"),
+    [
+        ("v5.8.2", True),
+        ("5.8.2", True),
+        ("5.8.1", False),
+        ("5.9.0", False),
+        ("5.8.2-dev", False),
+        ("invalid", False),
+    ],
+)
+def test_podman_version_requirement(version: str, matches: bool) -> None:
+    """Accept only Podman 5.8.2 for host deployment."""
+    assert podman_version_matches_target(version) is matches
+
+
+@pytest.mark.parametrize(
+    ("arguments", "status"),
+    [
+        (["host-platform", "rhel", "9.8"], 0),
+        (["host-platform", "rhel", "9.9"], 1),
+        (["podman-version", "5.8.2"], 0),
+        (["podman-version", "5.8.1"], 1),
+    ],
+)
+def test_target_cli_checks(arguments: list[str], status: int) -> None:
+    """Return success only for the configured host and Podman targets."""
+    assert main(arguments) == status
 
 
 @pytest.mark.parametrize(

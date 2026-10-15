@@ -1,6 +1,6 @@
 # Gateway Bootstrap
 
-**Status:** Base Gateway bootstrap and local Debian 13 smoke tests complete. Required NAT-based remote service forwarding is not implemented, so the Gateway is not complete. Host acceptance remains pending.
+**Status:** Gateway implementation is in progress. Required NAT-based remote service forwarding is not implemented, and host acceptance remains pending.
 **Deployment authorization:** Isolated test host only. Do not deploy to a live host.
 **Qualification target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux enforcing. This target has not been tested here.
 
@@ -8,7 +8,7 @@
 
 - On 2026-10-08, the requester confirmed that the infrastructure owner approved Cockpit access through the rootful Podman socket. The approver's identity is not recorded here.
 - Cockpit uses `/run/podman/podman.sock` at the same path inside the container. The bind mount is read-only, but the API still grants broad control over rootful containers. `gateway-admin` belongs to the container's root group to access that socket.
-- The host script's existing feature floor is Podman 4.4, not a compatibility claim. The requested qualification target is RHEL 9.8 with rootful Podman 5.8.2, a working Quadlet generator, and SELinux enforcing. Verify the installed package provenance and exact kernel/Quadlet behavior on a disposable host.
+- Host deployment scripts require RHEL 9.8 and rootful Podman 5.8.2, with a working Quadlet generator and SELinux enforcing. Podman's Quadlet feature floor is 4.4; it is not the supported host target. Verify package provenance and exact kernel/Quadlet behavior on a disposable host.
 - The image is Debian 13 `linux/amd64`, pinned to a base-image digest and Debian snapshot dated 2026-10-08. Package versions are pinned in the Containerfile. Update the snapshot, base digest, and package set together after security review.
 - The container does not run systemd as PID 1. Bash supervises foreground OpenSSH, DNSMasq, and Cockpit websocket processes and forwards shutdown signals. Cockpit websocket standalone flags and the process lifecycle passed a local container smoke test.
 - No extra Linux capabilities are requested; Quadlet drops unused `NET_RAW`. NAT and remote service forwarding are not implemented. Test the minimum capability set, including `CAP_NET_ADMIN` only as a candidate, on the target host before adding it.
@@ -68,7 +68,7 @@ containers listed in `containers` or `dns_records`. Stopped containers are repor
 They do not require gateway credentials, RHEL 9, or Quadlet. The gateway deployment commands below
 retain those stricter checks.
 
-On the isolated RHEL 9 test host, run read-only preflight, then apply only after it passes:
+On a disposable RHEL 9.8 host with rootful Podman 5.8.2, run read-only preflight, then apply only after it passes:
 
 ```bash
 sudo ./scripts/deploy-gateway.sh --check config/host_config.json
@@ -111,6 +111,4 @@ The container test uses temporary keys and a self-signed certificate, creates no
 
 ## Validation Status
 
-Validated locally on Debian 13, x86_64: JSON validation cases, pinned image build, absence of image-baked SSH host keys, missing-mount diagnostics, foreground service startup/SIGTERM shutdown, DNS address reload after atomic replacement, `NET_RAW` removal, and Quadlet generator dry-run.
-
-Not validated: NAT-based remote service forwarding, DNAT-only source preservation and return routes, rootful RHEL 9.8 apply, Podman 5.8.2 Quadlet lifecycle/reboot, SELinux socket/key-file access, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS/NAT refresh after target replacement, all-network attachment, peer network isolation, rollback, or minimum capabilities. The available environment is Debian 13 and has no authorized isolated RHEL 9.8 host. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until remaining gates pass on a disposable RHEL 9.8 system.
+No RHEL 9.8 / Podman 5.8.2 host acceptance has been recorded. NAT-based remote service forwarding, DNAT-only source preservation and return routes, host apply, Quadlet lifecycle and reboot, SELinux socket/key-file access, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS/NAT refresh after target replacement, all-network attachment, peer network isolation, rollback, and minimum capabilities remain unvalidated. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on a disposable RHEL 9.8 / Podman 5.8.2 system.

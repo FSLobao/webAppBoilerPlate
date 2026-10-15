@@ -20,7 +20,7 @@ O boilerplate deve privilegiar:
 - desenvolvimento remoto por VS Code;
 - manutenção direta dos containers;
 - deployment reproduzível a partir do host;
-- mínimo de dependências no host RHEL 9;
+- mínimo de dependências no host RHEL 9.8 com Podman rootful 5.8.2;
 - separação entre acesso administrativo e prestação do serviço;
 - configuração versionada no Git;
 - utilização preferencial de componentes maduros em vez de software administrativo desenvolvido especificamente para o boilerplate.
@@ -180,6 +180,9 @@ Cada aplicação pode possuir:
 
 Os serviços devem ser independentes e substituíveis.
 
+As imagens do Gateway e das aplicações devem usar uma distribuição Linux eficiente e mantida,
+preferencialmente Debian ou Alpine. A distribuição do container é independente do host RHEL.
+
 ---
 
 ## 4.4 Database
@@ -273,7 +276,7 @@ Particularmente, deve-se evitar, sem justificativa:
 - execução `--privileged` quando capacidades específicas forem suficientes;
 - exposição remota do Podman socket.
 
-A configuração final de capabilities será definida durante a implementação e validada no RHEL 9.
+A configuração final de capabilities será definida durante a implementação e validada em RHEL 9.8 com Podman rootful 5.8.2.
 
 ---
 
@@ -1038,6 +1041,7 @@ As seguintes decisões são consideradas parte do contrato:
 |---|---|
 | Alvo de qualificação do host | RHEL 9.8 com SELinux Enforcing |
 | Runtime de containers | Podman 5.8.2 rootful |
+| Imagens de containers | Distribuição Linux eficiente e mantida; preferir Debian ou Alpine |
 | Ciclo de vida dos containers | Quadlet para containers persistentes |
 | Podman mode | Rootful |
 | Backend | Python + FastAPI |
@@ -1090,7 +1094,7 @@ As seguintes perguntas permanecem para o desenho detalhado:
 7. Vite com JavaScript sem framework é um default aceitável para o SPA? O plano explica o tradeoff versus HTML/JS estático sem build e frameworks Vue/Svelte/React.
 8. Um schedule `daily` é um default razoável para `pg_dumpall`, configurável por instância no JSON? O storage remoto define retenção.
 9. A expansão opcional de `host_config.json` para exposições NAT requer `schema_version` 2 ou pode manter compatibilidade com a versão 1?
-10. O File Gateway separado faz parte do escopo? Se sim, quem prepara sua implantação compatível com RHEL 9.8 e SELinux Enforcing?
+10. Qual responsável converterá a receita Debian separada do File Gateway em uma implantação containerizada? Seu bootstrap de host não deve ser executado no RHEL 9.8.
 
 Essas decisões não devem alterar os princípios arquiteturais deste documento sem revisão explícita.
 
@@ -1214,4 +1218,4 @@ Use os planos de implementação abaixo para decompor o contrato sem misturar ac
 2. [Application stack](application-stack-plan.md): frontend, backend FastAPI e PostgreSQL.
 3. [Application deployment and operations](application-deployment-plan.md): configuração declarativa, secrets, volumes, atualização, recuperação e handoff de DNS.
 
-Resolva as perguntas da seção 29 antes de implementar as decisões afetadas. Valide requisitos de Podman, Quadlet e SELinux em um host RHEL 9 descartável; não trate testes locais Debian como aceitação RHEL.
+Resolva as perguntas da seção 29 antes de implementar as decisões afetadas. Valide requisitos de Podman, Quadlet e SELinux em um host descartável RHEL 9.8 com Podman rootful 5.8.2. Testes locais de containers não são aceitação do host.

@@ -141,8 +141,8 @@ check_gateway_host_preflight() {
     source /etc/os-release
     os_id=${ID:-unknown}
     os_version=${VERSION_ID:-unknown}
-    [[ "$os_id" == rhel && ( "$os_version" == 9 || "$os_version" == 9.* ) ]] || \
-        fail "Host deployment requires RHEL 9; found $os_id $os_version."
+    run_python_module scripts.gateway.host_preflight host-platform "$os_id" "$os_version" || \
+        fail "Host deployment requires RHEL 9.8; found $os_id $os_version."
 
     local tool path expected_mode
     for tool in podman systemctl ss ssh-keygen getenforce stat openssl curl ip install cmp; do
@@ -155,7 +155,7 @@ check_gateway_host_preflight() {
 
     podman_version=$(podman version --format '{{.Client.Version}}') || fail 'Cannot query rootful Podman version.'
     run_python_module scripts.gateway.host_preflight podman-version "$podman_version" || \
-        fail "Podman $podman_version is unsupported; Quadlet requires Podman 4.4 or newer."
+        fail "Host deployment requires Podman 5.8.2; found $podman_version."
 
     podman_rootless=$(podman info --format '{{.Host.Security.Rootless}}') || fail 'Cannot query Podman host security state.'
     [[ "$podman_rootless" == false ]] || fail 'Rootful Podman is required.'

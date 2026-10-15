@@ -6,7 +6,9 @@
 
 ## 1. Goal and Ownership
 
-Define repeatable deployment and day-two operations for application services on the RHEL 9.8 / rootful Podman 5.8.2 qualification target. Keep application lifecycle separate from the shared Development Gateway lifecycle. This plan covers networks, service definitions, volumes, external secrets, image updates, health, rollback, backups, and handoffs to the two gateways.
+Define repeatable deployment and day-two operations for application services on the RHEL 9.8 / rootful Podman 5.8.2 qualification target. Host deployment scripts must use that baseline. Keep application lifecycle separate from the shared Development Gateway lifecycle. Use maintained, efficient Linux images for the Gateway and application containers; prefer Debian or Alpine. This plan covers networks, service definitions, volumes, external secrets, image updates, health, rollback, backups, and handoffs to the two gateways.
+
+The standalone Debian File Gateway recipe remains a reference for future containerized deployment. Its Debian host bootstrap is not for use on the RHEL host.
 
 Use rootful Podman Quadlet for long-running application containers and the shared gateways. Keep host timers and one-shot maintenance jobs as explicit systemd units managed by the same deployment, rather than introducing Compose as a second lifecycle system.
 
@@ -148,4 +150,3 @@ Example service configuration; the actual top-level `networks` array must list e
 6. How are public route changes and TLS certificate rotation coordinated with application releases?
 7. What root-owned host path and naming convention should hold per-user, per-destination public keys? Host audit records file changes; PAM and operator sessions remain externally managed.
 8. Which remote client CIDRs need source-preserving return routes, and can those routes be configured through every target network on RHEL 9.8 / Podman 5.8.2?
-9. Is the separate Debian file-transfer recipe in [file-gateway-deploy.md](../recipes/file-gateway-deploy.md) an intended product component? If yes, who owns its RHEL 9.8/SELinux-compatible deployment plan?
