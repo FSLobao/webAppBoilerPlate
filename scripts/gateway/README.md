@@ -6,6 +6,15 @@ DNS data. Bash keeps workflow order, host mutations, and file staging.
 Each CLI is invoked by the shell scripts with the repository root on
 `PYTHONPATH`; helpers use only the Python standard library.
 
+These helpers do not implement OpenVPN, SSH TUN, route discovery/allocation,
+forwarding, or route mutation. Those are planned behaviors, not current helper
+interfaces. The confirmed Layer 3 contract, route ownership/reconciliation,
+multi-session allocation, and acceptance requirements are in
+[`docs/plans/gateway-plan.md`](../../docs/plans/gateway-plan.md) and
+[`docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md`](../../docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
+Tunnel-runtime acceptance must remain pending; base Gateway bootstrap is planned
+to remain container-independent and offline before tunnel activation.
+
 ## Modules
 
 | Module | Public interface | Output and failures | External effects |

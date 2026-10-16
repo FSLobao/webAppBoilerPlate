@@ -1,6 +1,6 @@
 # Gateway Bootstrap Plan
 
-**Status:** Gateway implementation is in progress; unrestricted routed remote access is not implemented. Host acceptance remains pending. The approved deployment order is Gateway first, then application services and NGINX; current scripts do not yet implement this clean-host contract.
+**Status:** Gateway implementation is in progress. The routed Layer 3 contract below is confirmed but not implemented; host acceptance remains pending. The approved deployment order is Gateway first, then application services and NGINX; current scripts do not yet implement this clean-host contract.
 **Scope:** Shared Gateway bootstrap on RHEL 9.8 with rootful Podman 5.8.2
 **Acceptance target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux disabled. Disabling SELinux removes mandatory access controls; preflight must verify the requested state and must not change host security settings.
 **Deployment target:** Isolated test host only during implementation; no live-host deployment is authorized by this plan.
@@ -21,7 +21,7 @@ In scope:
 - A separate Bash startup/validation script inside the image.
 - Versioned declarations for application networks, CIDRs, and development DNS mappings.
 - Runtime DNS generation from current container addresses.
-- Unrestricted routed remote access from developer clients to every configured container network through OpenVPN client and OpenSSH TUN interfaces, with both interfaces allowed concurrently.
+- Full routed Layer 3 split-tunnel access from developer clients to every configured Podman CIDR through the Gateway OpenVPN client and OpenSSH TUN sessions. Multiple SSH TUN developers and both transports may be active concurrently; the two transport pools are distinct.
 - Unrestricted container-initiated egress to externally routable destinations through the host's normal Podman egress path.
 - Runtime DNS generation from current container addresses and instructions for remote clients to query DNSMasq through a tunnel.
 - Client setup documentation for OpenVPN and OpenSSH TUN, including routes and DNS configuration.
@@ -32,8 +32,8 @@ In scope:
 Out of scope:
 
 - HTTP proxy implementation or application/backend/database deployment.
-- OpenVPN server provisioning or configuration. This project installs and configures only the Gateway's OpenVPN client.
-- External firewall, VPN identity policy, corporate authentication, DNS, or TLS policy. External VPN routing and developer-client route distribution remain prerequisites.
+- OpenVPN server deployment/provisioning or configuration. The external OpenVPN server is retained and allocates OpenVPN client addresses; this project plans only the Gateway's OpenVPN client.
+- External firewall, VPN identity policy, corporate authentication, DNS, or TLS policy. The external owner provisions routes for Podman CIDRs via the Gateway's OpenVPN client and distributes the appropriate split routes to developers.
 - Live-host deployment or changes to a production RHEL host.
 - Podman API exposure over TCP.
 - `--privileged`, broad host filesystem mounts, or changing the host's SELinux mode during deployment.
@@ -67,17 +67,29 @@ Cockpit administration of rootful Podman through its Unix socket grants broad co
 
 The infrastructure owner's approval is recorded in [gateway-implementation.md](gateway-implementation.md). The requester selected SELinux disabled for this host. This removes SELinux mandatory access controls and weakens host confinement. Preflight must verify that the host is already disabled; deployment must not change its security mode. Do not resolve socket issues by exposing the API over TCP or using `--privileged`.
 
-### 3.2 Routed remote-access contract
+### 3.2 Routed remote-access contract (confirmed; implementation pending)
 
-OpenVPN and SSH TUN are client-to-Gateway transports. The Gateway forwards packets between each active tunnel and every configured application network. It allows all IP protocols and ports from remote clients to configured container CIDRs, plus stateful reply traffic. It denies forwarding between application networks. New container-initiated egress uses the host's normal Podman egress path and masquerading.
+This is full routed Layer 3 split-tunnel access, not per-service forwarding. OpenVPN is an external server with the Gateway running an OpenVPN **client**; the server allocates OpenVPN client addresses from a dedicated VPN pool. SSH uses OpenSSH point-to-point TUN (`ssh -w`), with multiple simultaneous developers on unique, non-overlapping session interfaces and address pairs from a separate SSH TUN pool. Both transports may be active concurrently. No VPN server is deployed by this project. No DHCP, Ethernet bridging, TAP, or per-service forwarding is required.
 
-The Gateway must preserve remote client source addresses and provide symmetric return routes. Discover client routes from the active OpenVPN profile/session and SSH TUN sessions. Before mutation, compare discovered routes and tunnel addresses with every configured Podman CIDR; reject overlaps. If the active tunnel does not expose enough route information to install symmetric return routes, fail preflight and keep acceptance blocked. The host must route discovered client ranges through the Gateway interface on each application network. The Gateway must route every application CIDR through each active tunnel. The external VPN must route application CIDRs to the Gateway and deliver remote-client traffic to that client. External route provisioning remains an infrastructure prerequisite.
+Route direction and ownership are explicit:
+
+- The external OpenVPN owner configures routes for each Podman application CIDR toward the Gateway's OpenVPN client. Developer clients receive split routes only for configured Podman destinations; their normal default route, unrelated container egress, and source addresses remain unchanged.
+- OpenVPN client addresses are allocated by the external server from its dedicated remote-client pool. The external owner provisions and maintains the server-side route to each Podman CIDR via the Gateway VPN client.
+- On the Gateway, each configured Podman CIDR is reached over its already-connected Podman interface. Do **not** route an application CIDR back through either developer tunnel. For each remote client prefix, install/retain a route through the tunnel that owns that prefix/session.
+- Containers reply through their normal Podman path to the host. The host return route for each remote client prefix uses one deterministic Gateway next hop/interface, not conflicting copies of that same prefix via every Podman network. If target-host tests prove policy routing is necessary, use explicit, separately owned policy tables/rules with deterministic selection; do not silently install competing routes.
+- The Gateway forwards from active developer tunnels to configured Podman CIDRs and stateful replies only. It never forwards between application networks. Ordinary container-initiated egress continues through normal rootful Podman host egress/masquerading, not through a developer tunnel.
+
+The Gateway preserves client source addresses and uses no DNAT or SNAT for developer access. Split routes are limited to explicitly configured Podman destinations; they do not replace or hijack the developer's default route. Static configured routes and connected Podman routes are allowed when they are the intended managed routes. Reject address/prefix overlap between OpenVPN and SSH pools/endpoints, Podman ranges, and relevant host, developer-LAN, or corporate routes. Do not blanket-reject default routes or necessary connected tunnel ranges. Validate active route/address data before mutation; if the information needed for a symmetric return path is unavailable or ambiguous, fail closed.
 
 SSH TUN uses OpenSSH point-to-point tunnel devices (`ssh -w`) and provides routed IP connectivity. It requires a dedicated tunnel account, a restricted `PermitTunnel` policy, TUN device access, session address assignment, and client routes. ProxyJump and `ssh -L`, `ssh -R`, and `ssh -D` remain TCP-only access paths; they do not provide general routed access or client DNS. Support both TUN and ProxyJump.
 
-The OpenVPN profile path is declared in `config/host_config.json` and refers to a root-managed, private file outside Git, uniquely assigned to this Gateway. The profile is mounted read-only. OpenVPN's standard inline certificate/key blocks may appear inside that profile. Do not assume a Quadlet `InlineFile` directive; use a supported file mount and verify it on the qualification host.
+Each SSH TUN session must receive a unique interface and non-overlapping point-to-point address pair from the dedicated SSH pool. A restricted tunnel account and session setup/teardown mechanism own allocation, route installation, collision checks, and cleanup on normal exit and failed/disconnected sessions. Reject duplicate or ambiguous client prefixes across transports unless an explicit policy defines ownership; do not invent automatic multihoming or select a tunnel based on metrics. Do not add a generic background watcher. Protocol lifecycle hooks may reconcile only the session they own and must be documented separately from Gateway bootstrap.
+
+The OpenVPN profile path is declared in `config/host_config.json` and refers to a root-managed, private file outside Git, uniquely assigned to this Gateway. The profile is mounted read-only. OpenVPN's standard inline certificate/key blocks may appear inside that profile. On reconnect, treat pushed route/address changes as a candidate: validate all candidate routes and addresses against current managed and external route state before activation; reject invalid changes without replacing the last valid forwarding state. Do not assume a Quadlet `InlineFile` directive; use a supported file mount and verify it on the qualification host.
 
 DNSMasq must listen on each configured Gateway network address and active tunnel address. Containers use their Gateway network address for DNS; DNSMasq forwards other queries to the host's configured upstream resolvers. Remote VPN and SSH TUN clients use split-DNS rules for configured container domains. ProxyJump alone cannot carry DNS queries. If split DNS is unavailable, static client `hosts` entries are a limited fallback and require refresh after container recreation.
+
+Route state has explicit ownership and reconciliation rules: compute and validate a complete candidate before installation; modify only routes/rules tagged or otherwise unambiguously owned by this Gateway/session; make repeated reconciliation idempotent; retain unrelated administrator routes; and roll back only candidate-owned changes if activation fails. Invalid candidates make no route, forwarding, DNS, or service mutation. Reconcile routes on protocol lifecycle events, not through an unrelated generic watcher. A repeated client prefix observed on two transports is rejected by default and fails closed unless a separately approved explicit policy resolves ownership.
 
 ### 3.3 Alternatives considered
 
@@ -86,22 +98,23 @@ DNSMasq must listen on each configured Gateway network address and active tunnel
 - **WireGuard client:** A smaller tunnel implementation may reduce Gateway package and process complexity. It requires a compatible external server and a new server-side decision, so it is not selected.
 - **SSH local, remote, or dynamic forwarding:** Easier for individual TCP services, but cannot provide unrestricted IP protocol and port access. It does not meet this plan's acceptance target. SSH TUN (`ssh -w`) remains the supported SSH option.
 
-### 3.4 Requested initial network layout (pending contract resolution)
+### 3.4 Selected initial network layout
 
-The requested [host configuration](../../config/host_config.json) declares:
+The selected [host configuration](../../config/host_config.json) declares:
 
 | Podman network | Subnet | Gateway address | Requested members |
 |---|---|---|---|
 | `shared` | `192.168.7.0/24` | `192.168.7.2` | Gateway, NGINX, `webApp`, and `postgres` |
 | `webApp` | `192.168.8.0/29` | `192.168.8.2` | `webApp` and `postgres` |
 
-The Gateway is configured on both declared networks, matching the existing all-networks contract. Each app container also joins `shared`; the requester accepts direct connectivity between shared-network members and assigns authentication to each service. This still means “no routing between app networks” does not isolate services attached to `shared`.
+The Gateway is configured on both declared networks, matching the existing all-networks contract. Each app container also joins `shared`; direct connectivity between shared-network members is accepted and authentication belongs to each service. This still means “no routing between app networks” does not isolate services attached to `shared`.
 
-Remaining inputs and implementation gates:
+Deployment inputs and implementation gates (not architecture decisions):
 
 1. Validate Quadlet assignment of `192.168.7.2` and `192.168.8.2` on the target host.
 2. Implement application deployment so it creates each unique Podman app network, adds it only to the global top-level `networks` inventory, then reconciles the existing Gateway, which attaches to every declared network. Do not create a second Gateway or maintain a separate Gateway network list.
-3. Validate the configured CIDRs against active external VPN routes and existing Podman networks before deployment.
+3. Supply the real external OpenVPN profile, assigned VPN client pool/routes, SSH TUN pool/session policy, client OS details, and external server routing as deployment inputs. Do not choose or assume their CIDRs in architecture documentation.
+4. Validate configured Podman, tunnel, host, developer-LAN, and corporate route ranges on the target before installation.
 
 
 ## 4. Proposed Repository Artifacts
@@ -136,9 +149,9 @@ The host schema should contain:
 - Optional service-specific sections such as `gateway`, `http_proxy`, direct service-publication declarations, and per-application declarations. Feature sections are optional and backward-compatible under required `schema_version: 1`.
 - An optional array of containers and their expected networks for generic host preflight checks.
 - An optional `gateway` section with identity and separate SSH/Cockpit bind addresses and ports. Keep `bind_address` as the backward-compatible fallback for both listeners; Gateway attachment is derived from the top-level `networks` inventory, not a Gateway-specific network list.
-- Pending optional `gateway.remote_access.openvpn` design settings with an enable flag and a host path to the external, private client profile. Discover pushed routes and client ranges from the active tunnel; those external routes do not belong in the Podman network inventory.
-- Pending optional `gateway.remote_access.ssh_tun` design settings with an enable flag, a configured tunnel address pool, and dedicated-account policy. Discover active session addresses at runtime; the tunnel pool is not a Podman network declaration.
-- Both tunnel interfaces may be enabled concurrently. Validate discovered routes and addresses against configured Podman CIDRs before installing state.
+- Planned `gateway.remote_access.openvpn` settings reference the external, private client profile. The external OpenVPN server allocates remote client addresses; validate pushed routes and session addresses without adding external routes/pools to the Podman network inventory.
+- Planned `gateway.remote_access.ssh_tun` settings identify the dedicated SSH tunnel account and SSH TUN address pool. Allocate a unique point-to-point address pair and interface per session. The pool is not a Podman network declaration.
+- OpenVPN client and multiple SSH TUN sessions may be active concurrently. Validate candidate routes/addresses against Podman CIDRs, other tunnel pools/endpoints, and relevant host/developer/corporate routes before installing state. Exact real profiles and CIDRs remain deployment inputs.
 - Optional DNS records that map names to a target container and declared network. DNS records contain no protocol or port exposure declarations.
 - Host paths for public `authorized_keys` files, including one file per application container. Private-key paths are forbidden.
 
@@ -165,7 +178,7 @@ Illustrative shape; finalize field names and requiredness before implementation:
       },
       "ssh_tun": {
         "enabled": true,
-        "address_pool": "10.253.0.0/24"
+        "address_pool": "REPLACE_WITH_DEPLOYMENT_ASSIGNED_SSH_TUN_POOL"
       }
     }
   },
@@ -192,7 +205,7 @@ Public SSH keys must be supplied from root-managed host files outside Git, separ
 
 For each path, document owner, mode, mount mode, and backup/restore responsibility. SELinux is expected to be disabled by host policy; deployment must not change that policy.
 
-`schema_version` is required and remains `1`; optional service sections and feature fields must remain backward-compatible. Validation must reject unsupported schema versions, duplicate network names, duplicate DNS names, malformed names/CIDRs, overlapping configured Podman networks, runtime tunnel routes or addresses that overlap those networks, records referencing undeclared networks, and DNS records for a container outside the declared network. Existing Podman networks must match their declared subnet; never silently recreate or mutate a mismatched network. A missing declared Podman network is valid before apply and is reported as planned creation by read-only `--check`; apply creates it only after complete validation. An existing incompatible network or overlap with another Podman network is a hard error before any mutation. If OpenVPN is enabled, validate the external profile path, ownership, mode, client configuration, and discoverable routes before mutation.
+`schema_version` is required and remains `1`; optional service sections and feature fields must remain backward-compatible. Validation must reject unsupported schema versions, duplicate network names, duplicate DNS names, malformed names/CIDRs, overlapping configured Podman networks, tunnel pools/endpoints or discovered routes that conflict with Podman or relevant host/developer/corporate routes, records referencing undeclared networks, and DNS records for a container outside the declared network. Permit intended exact managed routes and the connected Podman/tunnel routes needed for operation; do not reject default routes or necessary connected tunnel ranges wholesale. Existing Podman networks must match their declared subnet; never silently recreate or mutate a mismatched network. A missing declared Podman network is valid before apply and is reported as planned creation by read-only `--check`; apply creates it only after complete validation. An existing incompatible network or overlap with another Podman network is a hard error before any mutation. Validate the external OpenVPN profile path, ownership, mode, client configuration, assigned address, and candidate pushed routes before activation or reconnect.
 
 The configuration contains logical identities, not permanent container IPs. Gateway bootstrap and preflight do not require DNS targets to exist or be running. At DNS publication or refresh, application deployment first confirms service readiness; the Gateway then re-inspects Podman and uses only a current address on the declared network. A configured target that is absent, stopped, or not ready is reported as pending, contributes no DNS record, and is never started by Gateway deployment. A running target without a valid address on the declared network also remains unpublished until application deployment resolves readiness. Invalid configuration and undeclared references remain hard errors. Never retain a previous address as a fallback.
 
@@ -219,7 +232,7 @@ DNS A/AAAA records point directly to current target addresses on their declared 
 The host script should:
 
 1. Require rootful Podman access and qualify the configured RHEL 9.8 / Podman 5.8.2 / Quadlet target. Verify package provenance and compatibility; do not install packages or alter host security policy implicitly.
-2. Run a read-only preflight before any host mutation. Validate configuration, Gateway tools, paths, permissions, management-port availability, tunnel CIDRs and routes, existing network definitions, OpenVPN profile and key inputs, TUN-device availability, Podman socket availability, SELinux mode, and Gateway service state. Do not require application containers or DNS targets.
+2. Run a read-only preflight before any host mutation. Validate configuration, Gateway tools, paths, permissions, management-port availability, existing network definitions, key inputs, Podman socket availability, SELinux mode, and Gateway service state. Tunnel profile/session, route, and TUN-device checks are activation-scoped: they do not block the container-independent, offline base Gateway before tunnel activation is enabled.
 3. Offer a validation-only mode that performs no writes, image builds, network changes, service restarts, or file creation. Any invalid input or unmet hard prerequisite must exit non-zero before mutation.
 4. Build the Debian image from the checked-out repository `Containerfile`, with an explicitly versioned/pinned base image and reproducible package inputs. Never bake secrets or public-key data into image layers.
 5. Create only missing networks in the global Podman inventory during apply, or verify existing Podman networks match their declared CIDRs before mutation. Read-only `--check` reports missing networks as planned creation. Do not connect application networks to one another.
@@ -227,8 +240,8 @@ The host script should:
 7. Install/update the rootful Quadlet definition under the supported system location, reload systemd, and enable/start the generated service. Avoid restarting or recreating the gateway when desired configuration and image are unchanged.
 8. Attach the Gateway to every network in the global `networks` array. Do not create links or routing between those networks; never delete an application network as part of normal deployment.
 9. Mount the Podman Unix socket only at the path Cockpit Podman actually uses. Do not claim that a read-only socket mount restricts API authority. Verify SELinux is disabled; do not change its state or relabel the host socket.
-10. Start and supervise each enabled tunnel interface. Configure forwarding and symmetric routes between each active tunnel and every declared application network, without forwarding between application networks. Provide a revision-scoped DNS refresh interface for the application deployment handoff after readiness; no background watcher is in scope.
-11. Verify Gateway tunnel readiness, DNS syntax and current ready-target answers when targets are available, protocol- and port-independent routing, source-address preservation, symmetric replies, host-masqueraded container egress, SSH target authentication, Cockpit/Podman visibility, one interface per configured network, and Gateway service state. Missing application targets do not fail Gateway bootstrap. On failed checks, restore prior Quadlet, DNS, route, and firewall state where feasible.
+10. Start and supervise each explicitly enabled tunnel. Use connected Podman routes for application CIDRs, routes through each owning tunnel for remote client prefixes, and a single deterministic host return next hop per prefix (or explicit tested policy tables). Preserve client source addresses and split routes; never forward between application networks. Provide a revision-scoped DNS refresh interface for the application deployment handoff after readiness; no generic background watcher is in scope.
+11. Verify tunnel readiness only when activated, DNS syntax and current ready-target answers when targets are available, protocol- and port-independent forwarding, source-address preservation, symmetric replies, deterministic return routing, host-masqueraded container egress, SSH target authentication, Cockpit/Podman visibility, one interface per configured network, and Gateway service state. Missing application targets or pending tunnel runtime do not fail base Gateway bootstrap. On failed checks, restore prior Quadlet, DNS, route, and forwarding state where feasible.
 12. Print a concise result with changed resources, planned network creations during check, pending DNS targets, Gateway service status, and recovery instructions. Never print secret contents or report pending application readiness as success.
 
 The deployment must not use `podman system prune`, `podman volume prune`, blanket `rm -rf`, or equivalent cleanup. It must not overwrite existing host keys, secret files, application data, or unrelated Quadlet units.
@@ -266,13 +279,13 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 
 ## 8. Implementation Phases
 
-### Phase 0: Resolve prerequisites and security gate
+### Phase 0: Confirm prerequisites and security gate
 
 - Confirm the infrastructure owner's acceptance of the rootful Podman socket authority described in section 3.1.
 - Record the requester's approval for unrestricted protocol/port access to every configured network, including databases. Authentication remains service-owned; external perimeter controls are assumed.
 - Record the qualification baseline as RHEL 9.8, rootful Podman 5.8.2, Quadlet, SELinux disabled, required host packages, and image base digest. Verify the installed build and repository/vendor support without changing host security settings.
-- Confirm that active OpenVPN and SSH TUN sessions expose routes and addresses needed for symmetric replies. The private OpenVPN profile and server routes remain externally managed.
-- Confirm whether the OpenVPN profile uses inline certificate/key blocks, SSH TUN client address allocation, tunnel account policy, host key storage, public-key input format, and whether external perimeter rules restrict SSH bound to `0.0.0.0`. Cockpit remains loopback-only.
+- The Layer 3 transport decisions are confirmed in section 3.2. Obtain deployment inputs: external OpenVPN profile and allocated client pool/routes, SSH TUN pool and restricted account/session policy, client OS, and external routes via the Gateway VPN client. No VPN server is deployed.
+- Verify that active sessions expose enough addresses/routes for candidate validation and symmetric replies. Confirm whether the external profile uses inline certificate/key blocks, host-key storage, public-key input format, and whether perimeter rules restrict SSH bound to `0.0.0.0`. Cockpit remains loopback-only.
 - Confirm the in-container service/process model and initial capability hypothesis.
 - Stop implementation if a decision requires changing an architecture invariant; document the conflict for explicit approval first.
 
@@ -280,8 +293,8 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 
 - Add the versioned JSON schema and representative non-secret configuration.
 - Implement strict schema/value validation and human-readable errors.
-- Add shared read-only checks for the RHEL 9.8 / Podman 5.8.2 baseline, Quadlet, `jq`, source tree, every declared network/CIDR, disabled SELinux state, enabled tunnel profiles, discovered tunnel routes, TUN device, routes, Podman socket, and host-wide prerequisites. Run service-specific checks only for enabled config sections.
-- Prove invalid configuration, missing required files, occupied ports, and mismatched existing networks fail before any state changes.
+- Add shared read-only checks for the RHEL 9.8 / Podman 5.8.2 baseline, Quadlet, `jq`, source tree, every declared network/CIDR, disabled SELinux state, tunnel profile/session candidates, discovered routes, TUN device, route ownership, Podman socket, and host-wide prerequisites. Do not make pending tunnel-runtime checks block base Gateway bootstrap before a tunnel is enabled for activation.
+- Prove invalid configuration, missing required files, occupied ports, conflicting route candidates, and mismatched existing networks fail before any state changes.
 
 ### Phase 2: Debian image and container startup
 
@@ -297,7 +310,7 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 - Use Bash to render/install only configuration that cannot be expressed safely as a static Quadlet file.
 - Create or verify declared networks without joining application networks together.
 - Enable the generated systemd service and prove a second deployment produces no unnecessary container replacement or service restart.
-- Install host return routes for active tunnel client ranges through the Gateway interface on every configured application network. Preserve existing host routes and roll back only Gateway-owned routes.
+- Install one deterministic host return route per remote client prefix via a single selected Gateway next hop/interface; do not install conflicting copies of the same prefix via every application network. Preserve unrelated routes and roll back only route state owned by the Gateway/session. Validate whether policy tables are required on the target before adopting them.
 - Prove adding/removing a declared gateway attachment does not delete the underlying application network or volume.
 - Prove every configured network receives a Gateway interface, while removing a network from the global inventory never deletes the underlying network or volume.
 
@@ -306,15 +319,18 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 - Resolve each configured target address with Podman network inspection, scoped to its declared network.
 - Verify one Gateway interface exists on every network in the global top-level `networks` inventory. Never bridge application networks together.
 - Connect the OpenVPN client to the externally managed server using the configured read-only profile. Do not change or install OpenVPN server configuration.
-- Support OpenSSH TUN (`ssh -w`) concurrently with OpenVPN. Enable it only for the dedicated tunnel account and configure per-client tunnel addresses and routes. Do not treat `ssh -L`, `ssh -R`, or `ssh -D` as a substitute.
-- Enable forwarding from each active tunnel to every configured application network and back. Permit any IP protocol and port for developer-initiated flows and their replies. Do not add protocol/port filters, DNAT, or SNAT on this path. Do not forward between application networks.
-- Discover active client routes and session addresses, reject overlap with configured Podman CIDRs, and configure host return routes through the Gateway interface on each application network. Configure Gateway routes for every application CIDR through each active tunnel. Preserve developer source addresses.
-- Require external VPN routing to deliver traffic for all application CIDRs to the Gateway client. Stop acceptance if required external routes are absent.
+- Run the Gateway as an OpenVPN client of the externally owned server. The server allocates OpenVPN client addresses from its dedicated pool and the external owner routes each application CIDR to the Gateway VPN client.
+- Support multiple simultaneous OpenSSH point-to-point TUN (`ssh -w`) sessions alongside OpenVPN. Restrict tunnel creation to a dedicated account. A session lifecycle hook allocates a unique interface/address pair, checks collisions, installs only that session's routes, and cleans up on disconnect/exit. Ordinary Gateway accounts cannot create tunnels.
+- Enable forwarding from active remote tunnels to each configured application CIDR and stateful replies only. Podman-connected routes deliver application CIDRs over the attached Podman interfaces; route each remote-client prefix back through its owning tunnel. Permit every IP protocol and port, preserve client source addresses, and do not add DNAT/SNAT or application-to-application forwarding.
+- Give developers split routes only for configured Podman destinations; preserve their normal default route, unrelated egress, and source address. Install a deterministic host return path via one Gateway next hop per client prefix. If target testing requires policy routing, use explicit owned policy tables/rules rather than conflicting same-prefix host routes via every Podman network.
+- Reject overlaps among tunnel pools/endpoints, Podman CIDRs, and relevant host, developer-LAN, or corporate routes, while allowing intended exact managed routes and connected Podman/tunnel routes. Do not blanket-reject default routes or necessary connected tunnel ranges. Reject ambiguous client-prefix ownership across transports unless a separately approved explicit policy exists; do not auto-multihome.
+- Validate OpenVPN pushed route/address changes on reconnect as a candidate before activation. Invalid candidates cause no route, forwarding, DNS, or service mutation and leave the last valid active state intact.
+- Require the external owner to route every application CIDR via the Gateway VPN client. Stop acceptance if those routes are absent.
 - Permit new container-initiated egress to externally routable destinations through the normal Podman host route and masquerading. Verify external targets see the host egress address; do not route ordinary egress through the Development Gateway VPN.
 - Generate DNSMasq records from current target addresses. Listen for container and remote DNS queries on configured Gateway network and tunnel addresses. Configure attached containers to use Gateway DNS and clients to use split DNS for declared container domains.
-- Validate the candidate DNS, route, and forwarding state before atomic installation. Preserve the last known-good state when validation fails.
-- Install and replace only Gateway-owned routes and forwarding rules. Reload DNSMasq and apply tunnel routes only when generated content changes.
-- Test from remote clients on OpenVPN and SSH TUN, including concurrent use. Resolve declared names through split DNS, connect using arbitrary ports and protocols, and verify source-address preservation and replies. Test ProxyJump separately as TCP-only destination SSH. From containers, test unrestricted external egress and confirm destinations see the host egress address. Inspect forwarding rules for app-to-app isolation and absence of L4 filters on developer access. Recreate a target and verify DNS updates without changing network routes.
+- Validate complete candidate DNS, route, forwarding, and session-allocation state before atomic installation. Preserve the last known-good state when validation fails; rollback only Gateway/session-owned state and retain unrelated administrator routes.
+- Reconcile state idempotently on explicit apply and protocol lifecycle events. Do not install a generic background watcher. Do not tear down routes owned by another session or transport.
+- Test two or more simultaneous SSH TUN developers, each with unique interfaces/address pairs, while OpenVPN is connected; test each transport separately and both concurrently. Verify one session's exit cleans only its own allocation/routes. Resolve declared names using split DNS, reach arbitrary IP protocols/ports, preserve source addresses, and receive symmetric replies. Test ProxyJump separately as TCP-only. From containers, test normal external egress and host masquerading. Inspect app-to-app isolation, route selection, no L4 filters, and no source NAT. Recreate a target and verify DNS updates without changing route ownership.
 
 ### Phase 5: SSH, Cockpit, and socket integration
 
@@ -341,6 +357,7 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 | Missing networks | Declare valid Podman networks that do not yet exist, with no application containers present. Run `--check`, snapshot host/network state, then apply. | Check changes nothing and reports planned network creation. Apply creates each network with its declared subnet and attaches Gateway. A second check/apply is idempotent. An existing same-name incompatible network or overlapping Podman network fails before any mutation. |
 | Failure before change | Snapshot service state, Quadlet files, DNS files, network definitions, volume IDs, key/secret hashes, and data sentinels. Run malformed config, duplicate names, undeclared references, overlapping CIDRs, missing required Gateway credentials, unavailable tools, occupied Gateway ports, and incompatible existing networks. | Each hard validation failure exits non-zero before modifying host files, networks, containers, service state, volume IDs, secrets, keys, or sentinels. Absent application targets alone are not a hard failure. |
 | Validation-only mode | Run the documented check mode against valid and invalid configurations, including absent networks and declared DNS targets. | It performs no writes, builds, network changes, container existence/state/health/address probes, restarts, or file creation. It reports planned network creation and marks declared DNS records pending readiness/unverified without claiming target absence. |
+| Offline base bootstrap | Run Gateway validation/bootstrap with tunnel activation disabled and without an OpenVPN profile or live TUN sessions. | Base Gateway checks remain container-independent and do not require network access or tunnel runtime state. Missing tunnel runtime prerequisites remain explicitly pending; they block only the corresponding tunnel activation, not base Gateway bootstrap. |
 | Idempotence | Apply the same valid configuration twice. Compare container ID/start time, unit content, generated DNS content, network IDs, volume IDs, key/secret hashes, and data sentinels. | Second apply makes no unnecessary changes or restart. No persistent content changes. |
 | Persistence | Seed a database/application volume and external secret/key files. Rebuild/recreate the gateway and rerun deployment. | Volume identity/data, secret bytes, SSH host keys, and permissions remain intact. Gateway image replacement does not own or delete app data. |
 | Readiness-scoped DNS handoff | With optional DNS declarations present, run read-only `--check` before any app containers exist; then separately exercise the DNS refresh handoff with a target absent, stopped, or not ready, and after it passes app readiness. Include an undeclared name/network reference in a separate invalid configuration. | `--check` marks declarations pending readiness/unverified from config alone without probing containers. The separate refresh re-inspects actual Podman state, leaves absent/stopped/not-ready targets pending with no record, and publishes only the current valid network address after readiness. Gateway never starts a target. Invalid schema and undeclared references fail before mutation. |
@@ -350,10 +367,14 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 | Network isolation | Attempt direct app-to-app traffic without an explicit connection, excluding traffic initiated by the multi-homed Gateway. | Application networks remain separate and do not gain direct peer connectivity merely because the Gateway attaches to both. |
 | Routed remote access | From clients on OpenVPN and SSH TUN, reach services on every configured network using varied ports and IP protocols, including TCP, UDP, and ICMP. Inspect forwarding rules. | Any IP protocol and port can pass from developer clients to all configured container CIDRs. Reply traffic works. Rules contain no L4 protocol or port matches. Source addresses remain unchanged. |
 | Flow direction | From each remote transport, initiate flows to containers. Test replies for supported IP protocols. From containers, initiate flows to external targets. | Remote-initiated flows preserve source addresses and receive replies. Container egress works through host masquerading; external targets see the host address. |
-| Route symmetry | Inspect routes on Gateway, host, OpenVPN server, developer clients, and target container return paths. Trace packets in both directions. | Routes discovered from active tunnels reach every container network through the Gateway; replies return through the same tunnel path. No SNAT or DNAT is present on developer access. |
+| Route direction and symmetry | Inspect routes on Gateway, host, external OpenVPN server, developer clients, and target container return paths. Trace packets in both directions. | The external server routes Podman CIDRs to the Gateway OpenVPN client; OpenVPN developers receive those split routes through the server, while SSH TUN developers route them through their assigned SSH session. Gateway uses connected Podman routes for application CIDRs and routes each remote client prefix through its owning tunnel. The host has one deterministic return next hop per client prefix (or explicitly tested policy tables), with no duplicate conflicting same-prefix routes via every Podman network. No SNAT/DNAT is present. |
+| Concurrent SSH TUN allocation | Keep at least two SSH TUN developers connected simultaneously and connect/disconnect sessions in varying orders while OpenVPN is active. Inspect interfaces, point-to-point pairs, and routes before and after each lifecycle event. | Each session receives unique non-overlapping addresses/interfaces and owns only its routes. Collision checks fail closed. Teardown removes that session's state only, including abnormal disconnect handling; other SSH sessions and OpenVPN remain usable. |
+| Route/pool conflict rejection | Present candidate overlaps between OpenVPN and SSH pools/endpoints, a Podman CIDR, and relevant host/developer-LAN/corporate routes. Also test intended exact managed routes, connected tunnel/Podman routes, and default routes. | Conflicting candidates are rejected before mutation. Intended exact managed/connected routes and default routes are not blanket-rejected. Existing unrelated routes are preserved. |
+| OpenVPN reconnect candidate | Reconnect with unchanged routes, then with a changed valid pushed route, and finally with an overlapping/ambiguous pushed route. | Unchanged and valid candidates reconcile idempotently. The invalid candidate does not activate or alter current routes, forwarding, DNS, or service state; the last valid session remains in place or the tunnel fails closed without publishing unsafe routes. |
+| Invalid route candidate rollback | Snapshot route tables, policy rules, forwarding rules, DNS, and active sessions; submit malformed, overlapping, or ambiguously owned route candidates. | Candidate validation occurs before any mutation. Rollback removes only candidate-owned changes and leaves unrelated administrator routes and other sessions unchanged. |
 | Application-network isolation | Attempt direct forwarding between two application networks through the Gateway. | Gateway does not forward application-to-application traffic. Remote developer clients retain access to every configured network. |
 | SSH forwarding | Connect using the documented VS Code Remote-SSH/ProxyJump configuration. Use separate gateway and destination keys. Attempt access with a valid gateway key but invalid destination key, then with valid destination credentials. | Forwarding succeeds. Target accepts/rejects based on its own credentials. Private keys remain on the developer workstation. Gateway public-key setup is distinct. |
-| SSH TUN policy | Establish an `ssh -w` tunnel with the dedicated account. Attempt tunnel setup with an ordinary gateway account and inspect effective `sshd` settings. | Only the dedicated account can create TUN sessions. Client routes and DNS work. No unintended agent, tunnel, or gateway-management exposure is introduced. |
+| SSH TUN policy | Establish concurrent `ssh -w` tunnels with the dedicated account. Attempt tunnel setup with an ordinary gateway account and inspect effective `sshd` settings. | Only the dedicated tunnel account can create TUN sessions. Each client has a unique allocation, routes, and split DNS; ordinary Gateway login cannot create tunnels. No unintended agent, tunnel, or gateway-management exposure is introduced. |
 | Reboot recovery | Reboot the disposable RHEL 9.8 host with Podman 5.8.2, declared networks, Quadlet, DNS, and OpenVPN enabled. Reconnect SSH TUN clients. | Quadlet restores every declared Gateway interface. OpenVPN reconnects and restores only validated routes. SSH TUN clients can reconnect. DNS works after tunnel recovery. Persistent keys and application data survive. |
 | Cockpit Podman access | Through Cockpit, inspect and perform a controlled lifecycle operation on a disposable rootful test container. Inspect host listening sockets and socket mounts. | cockpit-podman accesses the intended rootful Podman service through the Unix socket. No Podman API listens on TCP. Socket authority is documented. |
 | Capabilities | On RHEL 9.8 with rootful Podman 5.8.2, test each required feature with a minimal capability baseline, then add candidates individually. Inspect effective capabilities and test routing, TUN, forwarding, diagnostics, low ports, systemd, SSH, and Cockpit. | Exact required capabilities and device access are recorded. No `--privileged`, `CAP_SYS_ADMIN`, or other broad capability remains without evidence and explicit approval. Removing a required capability causes a specific test failure. |
@@ -370,6 +391,9 @@ For the capability test, treat `CAP_NET_ADMIN` and `/dev/net/tun` access as cand
 - If activation fails, restore the previous generated files and service definition where feasible, then report both the original and rollback errors.
 - Never remove volumes, secret files, host keys, application data, unrelated containers, or unrelated systemd/Quadlet units during apply or rollback.
 - Normal apply may create missing declared networks and attach the gateway. It must not delete networks. Network decommissioning and persistent-data deletion require separate, explicit operator procedures.
+- Compute and validate each tunnel/session candidate before changing routes or forwarding. Invalid candidates perform no route, forwarding, DNS, or service mutation; activation failures roll back only candidate-owned state and keep unrelated/admin routes and other sessions.
+- Maintain explicit ownership for OpenVPN configuration/routes, each SSH TUN session's interface/address/routes, and the single deterministic host return route (or explicitly designed policy table). Repeated reconciliation is idempotent. A session teardown removes only that session's state; it must not remove another SSH client's or OpenVPN's routes.
+- Do not add a generic background route watcher. OpenVPN reconnect and SSH TUN setup/teardown hooks are protocol lifecycle events with narrowly scoped ownership and validation.
 - An absent, stopped, or not-ready declared DNS target is pending, not a Gateway preflight/apply error, and Gateway must never start it. DNS refresh publishes only current ready-target addresses and removes records for unavailable targets; it never retains a previous address as fallback. Preserve last-known-good generated state on unrelated activation failure only for records whose targets are still current and ready.
 - Keep logs free of secret content. Do not put secret values in command-line arguments, generated unit files, build arguments, or image history.
 - Report partial additive changes, such as a newly created network, if later activation fails. Do not present rollback as complete when host state remains changed.
@@ -380,11 +404,12 @@ Implementation decisions and locally validated behavior are recorded in [gateway
 
 1. Does the RHEL 9.8 / Podman 5.8.2 target pass vendor/package support and lifecycle tests? Record the exact kernel, Quadlet generator, package source, and SELinux state.
 2. Can Cockpit access the approved rootful Podman socket on the target with SELinux disabled?
-3. Can the Gateway run OpenVPN and SSH TUN concurrently with the documented TUN device and minimum capabilities?
-4. Do active tunnel sessions expose enough routes and addresses for conflict checks and symmetric return routing?
-5. Do external VPN routes deliver traffic for every configured application CIDR to the Gateway client?
-6. Does ordinary Podman host egress support unrestricted container egress with the expected host masquerading?
-7. Do tunnel recovery, split DNS, DNS refresh after container recreation, failure rollback, and health checks pass on the target platform?
+3. Can the Gateway run as an OpenVPN client while multiple SSH TUN developer sessions operate concurrently, with the minimum required device access/capabilities?
+4. Do active tunnel sessions expose enough addresses/routes for conflict checks, unique SSH allocations, deterministic host return routing, and cleanup?
+5. Does the external owner route every Podman CIDR via the Gateway VPN client, with developer split routes limited to those destinations?
+6. Does the target support a single deterministic host next hop for container return traffic, or is explicit policy routing required?
+7. Does ordinary Podman host egress support unrestricted container egress with the expected host masquerading?
+8. Do OpenVPN route changes/reconnect, multiple SSH session lifecycle events, split DNS, DNS refresh after container recreation, failure rollback, and health checks pass on the target platform?
 
 Do not treat resolved configuration details, such as stopped-target handling or key-file paths, as open decisions. Do not claim a test passed unless it ran on the stated target.
 
@@ -396,12 +421,16 @@ The bootstrap is ready for review when:
 - Quadlet controls the rootful Gateway lifecycle on RHEL 9.8 with rootful Podman 5.8.2.
 - The Debian image builds from repository sources and contains no secrets.
 - Network and DNS declarations come from versioned JSON configuration.
-- OpenVPN client and SSH TUN can operate concurrently. The OpenVPN profile is referenced from JSON and mounted read-only from outside Git.
+- The external OpenVPN server remains externally managed and allocates its client addresses; the Gateway is an OpenVPN client. Multiple SSH TUN developers have unique simultaneous sessions from a separate pool. No VPN server deployment, DHCP, TAP, Ethernet bridging, or per-service forwarding is introduced.
+- OpenVPN client and SSH TUN can operate concurrently. The OpenVPN profile is referenced from JSON and mounted read-only from outside Git. External routing directs Podman CIDRs to the Gateway VPN client; Gateway application routes use connected Podman interfaces, and remote client prefixes return through their owning tunnel.
+- Host/container return routing is deterministic and does not install conflicting same-prefix routes via every Podman network. Any required policy tables are explicit, owned, and validated on the qualification host.
+- Route pools/endpoints and relevant host/developer/corporate routes are conflict-checked. OpenVPN reconnect candidates are revalidated before activation. Per-session SSH allocation, route ownership, idempotent reconciliation, cleanup, and rollback are verified without a generic background watcher.
 - Every configured developer CIDR has routed access to every configured container CIDR through the Gateway, for any IP protocol and port.
 - Developer-initiated traffic receives symmetric replies with source addresses preserved. Container egress reaches externally routable destinations through host masquerading.
 - Application networks remain isolated from each other; the Gateway does not forward between them.
 - DNSMasq resolves declared names to current container addresses, and clients can query it through either tunnel.
 - No DNAT, SNAT, or per-service port/protocol allowlist is used for remote developer access.
+- Developer clients receive only configured Podman split destinations; their default route, normal container egress, and client source addresses remain unchanged. Ambiguous same-prefix ownership across transports fails closed unless an explicit approved policy exists.
 - Invalid input fails before host or service changes.
 - Repeated deployment preserves application data, secrets, SSH host identity, and volumes.
 - SSH forwarding preserves destination authentication.

@@ -507,9 +507,9 @@ project-c → 10.89.3.0/24
 
 Os CIDRs não podem se sobrepor.
 
-O mecanismo de deployment deve validar os CIDRs declarados no JSON contra as redes externas disponíveis. Rotas e endereços de clientes são descobertos nas sessões ativas de OpenVPN e SSH TUN; compare-os com os CIDRs Podman antes de instalar rotas e falhe em caso de sobreposição.
+Os endereços de desenvolvedores vêm de pools de túnel dedicados, nunca dos CIDRs Podman. O servidor OpenVPN externo aloca os endereços de seus clientes; o pool SSH TUN é uma entrada de deployment e aloca pares ponto-a-ponto distintos por sessão. Descubra os endereços/rotas ativos e compare-os com redes Podman e rotas relevantes do host, da LAN dos desenvolvedores e corporativas antes de instalar estado.
 
-O pool de endereços do SSH TUN é declarado no JSON. O perfil OpenVPN permanece externo, privado e exclusivo do Gateway.
+O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Os valores reais de perfil, CIDRs, pool e sistema operacional cliente são inputs de deployment, não decisões arquiteturais pendentes.
 
 Endereços IP individuais de containers não devem ser tratados como identificadores permanentes.
 
@@ -521,7 +521,7 @@ Endereços IP individuais de containers não devem ser tratados como identificad
 
 # 11. Acesso SSH e VS Code
 
-O Gateway será o ponto de entrada para acesso SSH aos containers. ProxyJump encaminha conexões SSH TCP ao destino, onde ocorre a autenticação. SSH TUN (`ssh -w`) fornece conectividade IP roteada e também permite consultas DNS do cliente ao Gateway.
+O Gateway será o ponto de entrada para acesso SSH aos containers. ProxyJump encaminha conexões SSH TCP ao destino, onde ocorre a autenticação. SSH TUN (`ssh -w`) fornece conectividade IP roteada completa e também permite consultas DNS do cliente ao Gateway. São caminhos diferentes: ProxyJump não exige nem substitui o túnel.
 
 O objetivo é permitir utilização do:
 
@@ -553,9 +553,18 @@ Application container
 Developer identity
 ```
 
-O gateway deverá, portanto, encaminhar a conexão sem substituir a autenticação SSH do destino.
+O gateway deverá, portanto, encaminhar a conexão sem substituir a autenticação SSH do destino. O servidor SSH do destino, a conta de desenvolvedor, a chave pública de destino e os pré-requisitos do VS Code Server precisam existir no container/host de destino; o Gateway não os provisiona por ProxyJump.
 
-ProxyJump é um caminho TCP para SSH; não substitui o túnel IP SSH TUN. Os dois caminhos são suportados.
+ProxyJump é um caminho TCP para SSH; não substitui o túnel IP SSH TUN, não fornece DNS do cliente e não altera suas rotas. Os dois caminhos são suportados.
+
+### 11.6 Caminhos do VS Code Remote-SSH
+
+Há dois caminhos documentados, com aliases SSH distintos:
+
+- **Direto por SSH TUN:** depois que `ssh -w` estiver ativo e as rotas split do CIDR Podman estiverem instaladas, o VS Code conecta-se diretamente ao endereço/DNS do container. Esse caminho usa roteamento IP e não depende do host ter portas SSH publicadas.
+- **ProxyJump sem SSH TUN:** o VS Code conecta-se ao Gateway e usa `ProxyJump` para encaminhar TCP/22 ao destino. Isso não fornece conectividade Layer 3, DNS do cliente nem acesso a protocolos/portas arbitrários.
+
+Use identidade privada de Gateway somente no alias Gateway e a chave de destino autorizada no servidor de destino. Mantenha verificação de chave de host habilitada (`StrictHostKeyChecking yes`) e entradas conhecidas separadas por destino/alias; não desative verificação nem reutilize uma identidade de host pública entre destinos diferentes. O servidor SSH e a conta de desenvolvedor do destino, a chave pública correspondente e os requisitos de instalação/execução do VS Code Server são pré-requisitos externos ao Gateway.
 
 ## 11.2 Acesso ao próprio Gateway
 
@@ -611,22 +620,33 @@ O conteúdo das chaves públicas poderá ser fornecido externamente ao repositó
 
 O host RHEL não deve ser requisito para a conexão diária do desenvolvedor.
 
-# 12. Acesso via VPN
+# 12. Acesso via VPN e SSH TUN
 
-O Gateway suporta um cliente OpenVPN opcional e SSH TUN. Os dois transportes podem operar simultaneamente. O perfil `.ovpn` é privado, externo ao Git e exclusivo do Gateway; rotas fornecidas pelo servidor são descobertas em runtime. O servidor VPN e suas rotas permanecem responsabilidade externa.
+A decisão confirmada é acesso roteado Layer 3 com split tunnel completo para os CIDRs Podman configurados, sem requisito de forwarding individual por serviço. O servidor OpenVPN existente permanece externo; o Gateway executa um cliente OpenVPN. O servidor aloca os endereços de seus clientes em um pool dedicado. O dono externo provisiona rotas para os CIDRs Podman via o cliente OpenVPN do Gateway. Este projeto não instala nem configura um servidor VPN.
+
+SSH usa OpenSSH TUN ponto-a-ponto (`ssh -w`), não TAP. Um usuário de túnel dedicado, com permissões restritas, pode manter múltiplas sessões simultâneas. Cada sessão recebe interface e par de endereços únicos e não sobrepostos de um pool SSH dedicado, além das rotas split configuradas. Hooks de ciclo de vida de protocolo podem alocar/remover somente o estado da sessão proprietária; não haverá watcher genérico. DHCP, bridging Ethernet, TAP e forwarding por serviço não são necessários.
+
+OpenVPN e várias sessões SSH TUN podem coexistir. Pools, endpoints, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede corporativa não podem se sobrepor. O mesmo prefixo de cliente anunciado por transportes diferentes é ambíguo: falhar fechado, salvo política explícita aprovada; não selecionar automaticamente multihoming. Reconnect OpenVPN revalida rotas/endereço enviados como candidato antes de ativá-los. Profile, CIDRs concretos, sistemas operacionais de clientes e regras externas são inputs de deployment.
 
 
 ---
 
 # 13. Roteamento, egress e forwarding
 
-O acesso remoto de desenvolvedores usa roteamento IP entre OpenVPN ou SSH TUN e todas as redes Podman declaradas no JSON. Ele permite qualquer protocolo e porta, preserva o IP de origem e não usa DNAT nem SNAT. Não existe uma segunda aprovação de rede por serviço; a autenticação e autorização pertencem a cada container ou serviço.
+O acesso remoto de desenvolvedores usa roteamento IP entre o cliente OpenVPN do Gateway ou sessões SSH TUN e todos os CIDRs Podman declarados no JSON. É split tunnel: somente destinos Podman configurados recebem rotas pelo túnel; a rota default, o egress normal do cliente/container e o IP de origem do desenvolvedor são preservados. O acesso permite qualquer protocolo e porta, sem DNAT ou SNAT e sem aprovação de forwarding por serviço. Autenticação/autorização pertencem a cada container/serviço.
 
-Rotas e endereços de clientes são descobertos nas sessões ativas. Antes de instalar estado, o deployment compara-os com os CIDRs Podman declarados e falha se encontrar sobreposição. O host e o Gateway devem fornecer rotas de retorno simétricas. As rotas externas do servidor VPN são pré-requisito e não são configuradas por este projeto.
+Direção de rotas:
+
+1. Desenvolvedores recebem split routes somente para os CIDRs Podman configurados. O servidor OpenVPN externo aloca endereços de cliente e o dono externo direciona cada CIDR Podman ao cliente OpenVPN do Gateway.
+2. O Gateway alcança cada CIDR Podman pelas rotas conectadas às interfaces Podman já anexadas. Não instale rota de CIDR de aplicação de volta por um túnel de desenvolvedor.
+3. No Gateway, cada prefixo de cliente remoto retorna pelo túnel que o possui. Cada sessão SSH TUN possui interface e par de endereços únicos, com rotas alocadas e removidas por lifecycle hook daquela sessão.
+4. Containers enviam replies pela rota Podman normal ao host. O host instala um próximo salto determinístico do Gateway por prefixo de cliente remoto, não cópias concorrentes do mesmo prefixo por cada rede Podman. Se testes mostrarem que tabelas de policy routing são necessárias, elas devem ser explícitas e ter propriedade/reconciliação definida.
+
+Antes de alterar estado, validar pools/endpoints OpenVPN e SSH, rotas candidatas, CIDRs Podman e rotas relevantes do host/LAN/corporativas. Permitir rotas gerenciadas exatas e redes conectadas Podman/túnel necessárias; não rejeitar em bloco rotas default ou ranges conectados necessários. Rotas e regras têm proprietário identificável, reconciliação idempotente e rollback limitado ao estado candidato possuído pelo Gateway/sessão. Candidato inválido não altera rotas, forwarding, DNS ou serviços. Reconnect OpenVPN revalida alterações de rotas pushed antes da ativação. Não há watcher genérico; hooks de sessão são separados e limitados ao ciclo de vida de protocolo.
 
 Containers podem iniciar conexões para qualquer destino externo alcançável pela rota padrão do host. O egress usa o caminho normal do Podman rootful e pode usar masquerading; serviços externos verão o endereço de saída do host. Esse comportamento é separado do acesso remoto de desenvolvedores, que preserva o IP de origem.
 
-O Gateway não encaminha tráfego entre redes de aplicações. Sua interface em cada rede permite alcançar todos os serviços, inclusive PostgreSQL; cada serviço deve controlar sua própria autenticação e autorização.
+O Gateway encaminha tráfego entre túneis ativos e CIDRs Podman e tráfego de resposta relacionado, mas nunca entre redes de aplicações. Sua interface em cada rede permite alcançar todos os serviços, inclusive PostgreSQL; cada serviço deve controlar sua própria autenticação e autorização.
 
 ---
 
@@ -1098,16 +1118,16 @@ As seguintes decisões são consideradas parte do contrato:
 | Configuração DNS | Gerada/atualizada pelo deployment |
 | Nomes internos | DNSMasq resolve nomes para endereços atuais de containers; clientes usam rotas aos CIDRs Podman |
 | Nomes externos | Namespace/endpoints externos separados |
-| Acesso remoto | OpenVPN ou SSH TUN com roteamento IP a todas as redes; sem NAT; origem preservada |
+| Acesso remoto | Split tunnel Layer 3 às redes Podman via Gateway OpenVPN client e SSH TUN; sem NAT; origem e default route do cliente preservadas |
 | Egress de containers | Saída normal do Podman rootful pelo host, com masquerading quando necessário |
-| SSH | ProxyJump e SSH TUN (`ssh -w`) via Gateway |
-| SSH para aplicações | ProxyJump encaminha TCP; TUN fornece rede IP; autenticação ocorre no destino |
+| SSH | ProxyJump e múltiplas sessões SSH TUN (`ssh -w`) via Gateway |
+| SSH para aplicações | ProxyJump encaminha somente TCP; TUN fornece rede IP roteada; autenticação ocorre no destino |
 | SSH para gateway | Autenticação no próprio Gateway |
 | Bind de gestão | SSH em `0.0.0.0` sob ACL do perímetro; Cockpit em `127.0.0.1` |
 | SSH keys | Individuais por desenvolvedor |
 | SSH shared keys | Não |
 | SSH Certificate Authority | Fora do boilerplate inicial |
-| VPN | Cliente OpenVPN opcional e SSH TUN; ambos podem operar simultaneamente |
+| VPN | Servidor OpenVPN externo aloca endereços de cliente; Gateway é OpenVPN client; múltiplos SSH TUN simultâneos usam pool próprio; sem deployment de servidor VPN |
 | Firewall de usuários | Fora do gateway |
 | Podman API | Preferencialmente Unix socket |
 | Acesso diário ao host | Não |
@@ -1124,20 +1144,22 @@ As seguintes decisões são consideradas parte do contrato:
 | Secret storage inicial | Arquivos no host |
 | Secret mapping | Somente leitura e apenas para containers necessários |
 | Secret Manager | Integração futura, fora do boilerplate inicial |
+| Bootstrap offline | Gateway base valida e inicia sem containers de aplicação, perfil VPN ou sessão TUN; runtime checks são exigidos somente antes da ativação do túnel correspondente |
 
 # 29. Inputs e gates de implementação
 
 As decisões de topologia confirmadas estão registradas na seção 34. Os valores operacionais e testes abaixo permanecem como inputs de deployment:
 
-1. Definir endereços estáticos do Gateway em cada rede e validar conflitos com CIDRs externos descobertos nas sessões VPN.
-2. Provisionar o perfil OpenVPN privado e as rotas externas. O deployment não configura o servidor VPN; falha se as sessões não expuserem dados suficientes para rotas simétricas.
-3. Definir o pool de endereços SSH TUN, a conta dedicada e a política restrita de `PermitTunnel`.
-4. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
-5. Definir operadores autorizados de produção, UIDs/GIDs, identidades de processo no container `webApp`, paths de dados e mount host/container para backup.
-6. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
-7. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
-8. Definir os nomes DNS internos e validar o handoff de atualização DNS entre deployment da aplicação e Development Gateway.
-9. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
+1. Validar endereços estáticos do Gateway nas redes Podman e detectar conflitos com pools e rotas relevantes do host, LAN/corporativo e túneis.
+2. Provisionar o perfil OpenVPN privado, os endereços client pool alocados pelo servidor e rotas externas que direcionam CIDRs Podman via Gateway VPN client. O deployment não instala nem configura servidor VPN.
+3. Fornecer o pool SSH TUN real, a conta restrita e a política `PermitTunnel`; implementar alocação única por sessão, detecção de colisão e cleanup isolado.
+4. Validar a rota determinística de retorno pelo host e determinar por teste se policy tables explícitas são necessárias. Revalidar mudanças de rotas pushed ao reconectar OpenVPN.
+5. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
+6. Definir operadores autorizados de produção, UIDs/GIDs, identidades de processo no container `webApp`, paths de dados e mount host/container para backup.
+7. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
+8. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
+9. Definir os nomes DNS internos e validar o handoff de atualização DNS entre deployment da aplicação e Development Gateway.
+10. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
 
 SELinux desativado é uma decisão de segurança explícita. O deployment valida o estado, mas não altera a política do host.
 
@@ -1161,7 +1183,11 @@ Uma implementação do boilerplate será considerada aderente quando:
 - o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
 - rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
 - serviços não HTTP de usuário usarem publicação direta explicitamente configurada, sem confundir isso com o acesso de desenvolvimento via Gateway;
-- OpenVPN e SSH TUN permitirem tráfego IP remoto sem NAT, preservando a origem e com rotas de retorno simétricas;
+- OpenVPN client e múltiplos clientes SSH TUN simultâneos permitirem tráfego Layer 3 split-tunnel para CIDRs Podman sem NAT, preservando a origem e as rotas default dos clientes;
+- pools e endpoints de túnel não se sobreporem a CIDRs Podman nem rotas relevantes de host/LAN/corporativas; alocações SSH por sessão serem únicas, com cleanup isolado;
+- rotas externas direcionarem CIDRs Podman ao cliente OpenVPN do Gateway e o Gateway alcançar aplicações por interfaces Podman conectadas, com rotas de retorno determinísticas ao túnel proprietário;
+- reconnect OpenVPN revalidar rotas pushed, candidato inválido não mutar estado e rotas/regras terem ownership, reconciliação idempotente e rollback definidos;
+- não haver forwarding entre redes de aplicação, DHCP, bridging Ethernet, TAP, servidor VPN neste projeto, nem watcher genérico;
 - egress de containers alcançar destinos externos pela saída normal do Podman no host, usando masquerading quando necessário;
 - deployment usar Quadlet e passar aceitação em RHEL 9.8 / Podman rootful 5.8.2 com SELinux desativado;
 - chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment;
@@ -1257,7 +1283,7 @@ Use os planos de implementação abaixo para decompor o contrato sem misturar ac
 
 Resolva os inputs restantes da seção 29 antes da implementação. Valide Podman, Quadlet, roteamento, DNS, egress e SELinux desativado no host descartável autorizado RHEL 9.8 com Podman rootful 5.8.2. Testes locais de containers não substituem a aceitação do host.
 
-# 34. Topologia selecionada e inputs pendentes
+# 34. Topologia selecionada e inputs operacionais
 
 `config/host_config.json` declara a topologia selecionada:
 
@@ -1268,18 +1294,19 @@ Resolva os inputs restantes da seção 29 antes da implementação. Valide Podma
 
 O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `.2` foram aprovados para as duas interfaces do Gateway.
 
-`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` permanece uma área separada para os campos de VPN/túneis ainda pendentes; rotas externas e pools de endereços não são redes Podman e não entram em `networks`.
+`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` permanece uma área separada para configuração de VPN/túneis planejada; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. As decisões de topologia estão confirmadas; perfis, CIDRs, OS do cliente e regras de roteamento são inputs de deployment.
 
 `192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza somente o inventário top-level `networks` e reconcilia o Gateway existente. Não deve criar outro Gateway nem manter um inventário seletivo de redes no bloco `gateway`.
 
 O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços estáticos do Gateway. O validador aceita `gateway_address` e a seção `http_proxy`; o deployment de NGINX ainda não foi implementado. Essa declaração representa configuração desejada, não autenticação ou sucesso de runtime.
 
-Inputs e gates restantes:
+Inputs operacionais e gates de implementação restantes:
 
 1. Validar no host-alvo a atribuição Quadlet dos IPs aprovados `192.168.7.2` e `192.168.8.2`.
 2. NGINX usa `0.0.0.0:8080`, mapeado ao TCP `80` do container. A rede externa encaminha tráfego para o IP DHCP atual do host.
 3. `/app` e `/app/api/` apontam ao mesmo `webApp:8000`; FastAPI serve os assets Vite e a API.
 4. Decisão confirmada: FastAPI serve assets e API no mesmo processo `webApp:8000` e mantém credenciais PostgreSQL. Browser assets não são processos do container; teste que build output e respostas HTTP nunca exponham essas credenciais.
 5. Implementar deployment NGINX e atualização idempotente do Gateway quando novas redes forem adicionadas.
-6. Verificar que os CIDRs escolhidos não conflitam com redes existentes ou rotas externas de VPN antes de deployment.
+6. Verificar pools/endpoints de túnel e CIDRs Podman contra redes/rotas do host, LAN de desenvolvedores e ambiente corporativo antes de deployment. Preservar rotas default e conectadas necessárias.
 7. SSH do Gateway usa bind `0.0.0.0` para forwarding externo sob controle do perímetro; Cockpit permanece em `127.0.0.1`.
+8. Confirmar em teste o próximo salto determinístico para retorno dos containers; não instalar rotas conflitantes de um mesmo prefixo por todas as redes Podman.
