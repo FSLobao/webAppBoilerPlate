@@ -110,7 +110,13 @@ def validate_http_proxy_networks(config: dict[str, Any]) -> None:
         )
 
     for route in http_proxy["routes"]:
-        for upstream in (route["frontend"], route["backend"]):
+        for field in ("frontend", "backend"):
+            upstream = route[field]
+            if upstream == "postgres":
+                raise ValueError(
+                    f"http_proxy route {field} must not target PostgreSQL "
+                    "container 'postgres'"
+                )
             upstream_networks = containers.get(upstream)
             if upstream_networks is None:
                 raise ValueError(

@@ -61,7 +61,7 @@ For the selected initial application, use same-origin path routing: public `http
 ### Phase 1: Versioned routing configuration
 
 - Define `/app/` and `/app/api/` routes for the initial `webApp` application to its combined `webApp:8000` upstream, preserving the API prefix. Other applications may declare separate routes to their configured upstreams and ports; do not impose `webApp:8000` as a global route restriction.
-- Planned validator gate: reject routes targeting PostgreSQL. The current validator does not yet enforce this rule; do not treat it as implemented until added and tested.
+- Static config validation rejects a route whose `frontend` or `backend` is `postgres`; regression tests cover both fields. This declaration check does not establish NGINX runtime deployment or route readiness.
 - Reject malformed route configuration, duplicate declarations, and references to undeclared networks/containers before mutation even when NGINX or upstream containers are absent. Absence at runtime is readiness-pending, not a reason for Gateway bootstrap to fail.
 - Require explicit `listen_address` and `http_port` fields whenever the optional `http_proxy` section is present. The selected values are `0.0.0.0` and `8080`; reject missing or invalid values and occupied ports.
 - Normalize `/app` to `/app/`. Match `/app/api/` before `/app/`; preserve the API prefix and never send API paths to the SPA fallback. Configure Vite's base path as `/app/` and FastAPI's forwarded prefix/OpenAPI URLs consistently.
@@ -92,7 +92,7 @@ For the selected initial application, use same-origin path routing: public `http
 - Approved HTTP routes reach only their declared upstreams. HTTPS/TLS termination belongs to the external perimeter.
 - Verify the selected initial application serves `/app/` and `/app/api/` through `webApp:8000`, while separate declared HTTP applications can route to their own configured upstreams and ports.
 - Unknown hosts and paths do not fall through to an unintended application.
-- PostgreSQL, the Development Gateway, Cockpit, SSH, and Podman API are not reachable through this component. PostgreSQL-route rejection is a planned validator gate and must be covered by tests before claiming it is enforced.
+- Verify PostgreSQL, the Development Gateway, Cockpit, SSH, and Podman API are not reachable through this component at runtime. Static config validation already rejects routes whose `frontend` or `backend` is `postgres`; this does not replace runtime reachability acceptance.
 - App-specific networks have no routing between them. Test direct shared-network reach separately and verify each service's authentication blocks unauthorized cross-service access.
 - External perimeter forwards TLS-protected public traffic to the configured host listener. Perimeter behavior and certificate rotation are assumed, not validated here.
 - Stopping an upstream produces a defined health/error response without exposing internal details or secrets.

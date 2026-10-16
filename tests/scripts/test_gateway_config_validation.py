@@ -71,6 +71,28 @@ def test_accepts_http_proxy_upstreams_on_shared_network() -> None:
     )
 
 
+@pytest.mark.parametrize("field", ["frontend", "backend"])
+def test_rejects_postgres_http_proxy_upstream(field: str) -> None:
+    """Reject PostgreSQL as either HTTP proxy upstream."""
+    route = {"frontend": "webApp", "backend": "webApp"}
+    route[field] = "postgres"
+
+    with pytest.raises(
+        ValueError,
+        match=f"http_proxy route {field} must not target PostgreSQL",
+    ):
+        validate_http_proxy_networks(
+            {
+                "containers": [
+                    {"name": "nginx", "networks": ["shared"]},
+                    {"name": "webApp", "networks": ["shared"]},
+                    {"name": "postgres", "networks": ["shared"]},
+                ],
+                "http_proxy": {"enabled": True, "routes": [route]},
+            }
+        )
+
+
 def test_rejects_http_proxy_upstream_without_shared_network() -> None:
     """Reject HTTP proxy routes that cannot reach their configured upstream."""
     with pytest.raises(ValueError, match="shares no network"):
