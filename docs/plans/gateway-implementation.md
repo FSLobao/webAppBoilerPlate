@@ -124,4 +124,24 @@ The container test uses temporary keys and a self-signed certificate, creates no
 
 ## Validation Status
 
-No RHEL 9.8 / Podman 5.8.2 host acceptance has been recorded. The attached disposable environment is authorized for tests, but no tests are claimed yet. OpenVPN profile mounting and connection, SSH TUN, full-protocol forwarding, route symmetry through the external VPN, unrestricted host egress and masquerading, split DNS, host apply, Quadlet lifecycle and reboot, SELinux-disabled state, Cockpit Podman operations, SSH ProxyJump and destination authentication, DNS refresh after target replacement, all-network attachment, peer network isolation, rollback, and minimum capabilities remain unvalidated. Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on the authorized disposable RHEL 9.8 / Podman 5.8.2 system.
+No validation has been performed for the current implementation plan. The following items are pending, not evidence of completed tests.
+
+### Local validation
+
+- [ ] Configuration validation and regression tests.
+- [ ] Container image build and isolated startup, shutdown, and signal-handling tests.
+- [ ] DNS generation and SSH configuration checks.
+
+### Target-host acceptance
+
+- [ ] Verify RHEL 9.8, rootful Podman 5.8.2, Quadlet, and the required SELinux-disabled baseline without changing host security settings.
+- [ ] Validate clean-host Gateway bootstrap without application containers, all-network attachment, lifecycle, reboot recovery, idempotence, persistence, and rollback.
+- [ ] Validate OpenVPN profile mounting and connection, concurrent OpenVPN and SSH TUN sessions, route conflict checks, symmetric replies, full-protocol forwarding, and source-address preservation.
+- [ ] Validate unrestricted container egress through host masquerading and forwarding isolation between application networks.
+- [ ] Validate split DNS, readiness-scoped DNS publication, and DNS refresh after target replacement.
+- [ ] Validate SSH ProxyJump, direct SSH through tunnels, and independent destination authentication.
+- [ ] Validate Cockpit Podman operations through the Unix socket and the minimum required capabilities and TUN-device access.
+
+For each completed check, record the date, exact command, environment, implementation revision, and result. Keep earlier test evidence separate unless it applies to the exact revision being validated. Local results do not establish target-host acceptance.
+
+Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on an authorized disposable RHEL 9.8 / Podman 5.8.2 system with SELinux already disabled.
