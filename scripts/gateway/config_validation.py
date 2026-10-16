@@ -45,12 +45,12 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
                     raise ValueError(
                         f"gateway.{field} must be an IPv4 address"
                     )
-    if "application_gateway" in config:
+    if "http_proxy" in config:
         bind_address = ipaddress.ip_address(
-            config["application_gateway"]["listen_address"]
+            config["http_proxy"]["listen_address"]
         )
         if bind_address.version != 4:
-            raise ValueError("application_gateway.listen_address must be an IPv4 address")
+            raise ValueError("http_proxy.listen_address must be an IPv4 address")
 
     networks = []
     gateway_addresses: set[ipaddress.IPv4Address] = set()
@@ -91,12 +91,12 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
         networks.append((entry["name"], subnet))
 
 
-def validate_application_gateway_networks(config: dict[str, Any]) -> None:
-    """Require NGINX and each enabled upstream to share a declared network."""
+def validate_http_proxy_networks(config: dict[str, Any]) -> None:
+    """Require NGINX and each enabled HTTP upstream to share a declared network."""
     validate_host_config(config)
     validate_host_config(config)
-    application_gateway = config.get("application_gateway")
-    if not application_gateway or not application_gateway["enabled"]:
+    http_proxy = config.get("http_proxy")
+    if not http_proxy or not http_proxy["enabled"]:
         return
 
     containers = {
@@ -106,19 +106,19 @@ def validate_application_gateway_networks(config: dict[str, Any]) -> None:
     nginx_networks = containers.get("nginx")
     if nginx_networks is None:
         raise ValueError(
-            "application_gateway requires an 'nginx' container declaration"
+            "http_proxy requires an 'nginx' container declaration"
         )
 
-    for route in application_gateway["routes"]:
+    for route in http_proxy["routes"]:
         for upstream in (route["frontend"], route["backend"]):
             upstream_networks = containers.get(upstream)
             if upstream_networks is None:
                 raise ValueError(
-                    f"application_gateway upstream '{upstream}' is not declared"
+                    f"http_proxy upstream '{upstream}' is not declared"
                 )
             if not nginx_networks.intersection(upstream_networks):
                 raise ValueError(
-                    f"application_gateway upstream '{upstream}' shares no network "
+                    f"http_proxy upstream '{upstream}' shares no network "
                     "with 'nginx'"
                 )
 
@@ -136,7 +136,7 @@ def validate_config_file(config_path: str | Path) -> None:
     """
     config = load_host_config(config_path)
     validate_address_declarations(config)
-    validate_application_gateway_networks(config)
+    validate_http_proxy_networks(config)
 
 
 def main(argv: list[str] | None = None) -> int:

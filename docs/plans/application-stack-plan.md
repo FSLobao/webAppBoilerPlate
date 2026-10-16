@@ -5,14 +5,14 @@
 
 ## 1. Goal and Components
 
-Define the per-application container stack: JavaScript frontend and Python/FastAPI in `webApp`, plus PostgreSQL. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each app gets a unique app-specific Podman network, but members also connect to `shared` and require service-level authentication. `shared` is a Podman bridge for attached containers, not a physical/host interface or a VPN route/address pool. Deploy and verify the shared Development Gateway before this application stack. Application deployment owns app container creation/readiness; this plan does not implement the Gateway or NGINX runtime; see [Application Gateway Plan](application-gateway-plan.md).
+Define the selected initial application stack: JavaScript frontend and Python/FastAPI in `webApp`, plus PostgreSQL. Other HTTP applications may configure their own HTTP upstreams and ports. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each app gets a unique app-specific Podman network, but members also connect to `shared` and require service-level authentication. `shared` is a Podman bridge for attached containers, not a physical/host interface or a VPN route/address pool. Deploy and verify the shared Development Gateway before this application stack. Application deployment owns app container creation/readiness; this plan does not implement the Gateway or NGINX HTTP proxy runtime; see [HTTP Proxy Plan](http-proxy-plan.md).
 
 ## 2. Proposed Network Shape
 
 ```text
-NGINX               -> `webApp` frontend and FastAPI routes
+Optional NGINX HTTP -> initial `webApp:8000` SPA and FastAPI routes
 webApp container    -> PostgreSQL on `webApp` and `shared`
-Development Gateway -> every declared Podman network
+Development Gateway -> all configured services and ports on every declared Podman network
 ```
 
 Selected Podman membership:
@@ -28,7 +28,21 @@ The global top-level `networks` array contains the Podman application networks a
 
 The requester confirmed that all app containers, including PostgreSQL, join `shared`. That network provides direct connectivity between all its members. No routing between app-specific networks does not prevent communication over `shared`; each service must enforce its own authentication and authorization.
 
-The `webApp` container combines Vite assets and FastAPI. The latest decision supersedes the earlier separate-process choice: FastAPI serves both assets and API on port `8000` and holds PostgreSQL credentials. Browser assets do not receive those credentials; keep them out of build output and HTTP responses.
+The selected initial `webApp` container combines built Vite assets and FastAPI. FastAPI serves the SPA at `/app/` and the API at `/app/api/` on the single internal TCP listener `8000`, and holds PostgreSQL credentials. NGINX, when enabled, proxies both paths to that same listener. Browser assets do not receive those credentials; keep them out of build output and HTTP responses. There are no separate frontend/API listener ports or unresolved port inputs in this initial stack. This does not restrict additional HTTP applications: their configured routes may use their own upstreams and ports.
+
+For protected end-user HTTP operations, the external perimeter authenticates users and injects trusted
+`X-USER` identity fields after stripping/replacing client-supplied identity. The application uses
+those fields to authorize; NGINX only proxies and is not a login/authentication engine. Protected
+endpoints reject missing or untrusted identity. The exact `X-USER` allowlist and verified provenance
+mechanism remain implementation prerequisites; runtime authentication/authorization is not claimed.
+The selected initial host proxy bind is `0.0.0.0:8080`, and Development Gateway access bypasses the proxy.
+Deployment must gate protected routes on effective restriction to the trusted perimeter or verified
+perimeter-to-application identity provenance. A CIDR or raw header alone does not establish trust.
+
+End-user non-HTTP services are published directly only with explicitly declared host bind address,
+protocol, and published port, and retain their own service authentication and perimeter controls.
+Developer reachability through the Development Gateway covers configured container ports/services
+and never requires host publication.
 
 The `192.168.8.0/29` subnet is reserved for this `webApp` network. Reusing it for another simultaneous Podman network is invalid; future apps require distinct CIDRs.
 
@@ -36,7 +50,7 @@ The `192.168.8.0/29` subnet is reserved for this `webApp` network. Reusing it fo
 
 - Gateway is the first containerized service on a clean host. Gateway preflight validates its own host/tools/credentials and all declared Podman network definitions; it may create missing declared networks during apply. It succeeds without any `nginx`, `webApp`, PostgreSQL, or DNS-target containers and never creates, starts, or inspects them.
 - After Gateway is healthy, application deployment validates the shared versioned host-config candidate and existing network compatibility before atomically updating it for new networks, containers, routes, or DNS declarations; unrelated config objects and operator inputs are preserved. It creates missing declared networks and reconciles the existing Gateway to attach newly declared networks before creating/starting the application workload. Existing incompatible networks and invalid staged references fail before mutation.
-- Application deployment owns dependency ordering and readiness for `webApp`, PostgreSQL, NGINX, and any other app services. Declared container existence, `application_gateway.enabled`, or DNS mappings do not establish runtime readiness or mean those services are implemented.
+- Application deployment owns dependency ordering and readiness for `webApp`, PostgreSQL, NGINX, and any other app services. Declared container existence, `http_proxy.enabled`, or DNS mappings do not establish runtime readiness or mean those services are implemented.
 - Only after an app target passes its declared health/readiness checks does application deployment request a revision-scoped DNS refresh. Gateway re-inspects Podman and publishes only the current valid address on the target's declared network. Absent, stopped, unhealthy, unattached, or not-ready targets remain pending and have no DNS record; Gateway never starts them.
 - App start, stop, failure, and replacement paths request DNS refresh so the address is added, updated, or removed. A refresh must never retain the previous address as fallback. There is no background watcher in scope, so an unannounced process crash can leave DNS stale until an explicit refresh or Gateway restart; that limitation must be visible in operations.
 
@@ -53,13 +67,13 @@ Application lifecycle, container readiness, and dependency checks belong to this
 
 | API route | Advantages | Costs and risks | Recommendation |
 |---|---|---|---|
-| Same-origin `/app/api` reverse proxy through the Application Gateway | No browser CORS setup and one public origin. | Requires path-prefix proxy rules and SPA fallback exclusions. | Selected default. NGINX sends both paths to `webApp:8000`. |
-| Separate API hostname such as `api.example.com` | Independent API origin and release/routing policy; useful for multiple clients. | Requires CORS allowlists, extra DNS/TLS, cookie and credential policy, and origin-specific testing. | Use when independent API consumers or ownership require it. |
-| Publish the backend port directly | Simple for isolated development tools. | Bypasses the Application Gateway, expands public endpoints, and couples clients to deployment ports. | Development-only when explicitly restricted; not the production default. |
+| Same-origin `/app/` and `/app/api/` through the optional HTTP proxy | No browser CORS setup and one public origin. | Requires path-prefix proxy rules and SPA fallback exclusions. | Selected for the initial `webApp` app. NGINX sends both paths to `webApp:8000`; additional applications may configure separate upstreams and ports. |
+| Separate API hostname | Not selected. | Would add a second public origin and separate routing policy. | Outside the confirmed default contract. |
+| Direct development access through Gateway | Reaches all configured services/ports without publishing host ports. | Requires authorized developer network access and service authentication. | Selected for developer access; not an end-user exposure mechanism. |
 
 Vite is not a UI framework. It is a build tool and development server. With vanilla JavaScript, it gives ES-module development, dependency bundling, optimized static output, and a configurable asset base path without React/Vue/Svelte runtime conventions. For a handful of static pages, plain HTML and modules without Vite have fewer dependencies. For a mostly-SPA application, Vite is a pragmatic middle ground; set its base path to `/app/` so built assets work under the configured application prefix.
 
-The public route contract is `https://<domain>/app` for frontend assets and `https://<domain>/app/api/<route>` for FastAPI; the external perimeter terminates TLS and forwards HTTP to NGINX. NGINX preserves `/app/api/`, matches it before `/app`, and proxies both paths to `webApp:8000`. Local development should expose the same paths through the Vite proxy.
+The initial app's public route contract is `https://<domain>/app/` for the built SPA and `https://<domain>/app/api/<route>` for FastAPI; the external perimeter terminates TLS and forwards HTTP to NGINX. NGINX preserves `/app/api/`, matches it before `/app/`, and proxies both paths to the same `webApp:8000` listener. Local development should expose the same paths through the Vite proxy. This does not require other applications to use this listener.
 
 ## 4. Component Contracts
 
@@ -67,10 +81,10 @@ The public route contract is `https://<domain>/app` for frontend assets and `htt
 
 - Default to Vite plus vanilla JavaScript ES modules, with static output served by the selected static server. Add Vue, Svelte, or React only when app complexity or team standards justify it.
 - Configure Vite's `base` to `/app/`; keep browser routes and asset URLs beneath that prefix.
-- Build Vite assets into the combined `webApp` image. FastAPI serves static assets under `/app` and API routes under `/app/api/` on port `8000`; NGINX is the only host-published HTTP provider and proxies both paths.
+- Build Vite assets into the combined `webApp` image. FastAPI serves the SPA under `/app/` and API routes under `/app/api/` on its one TCP listener `8000`; optional NGINX is the host-published HTTP proxy and proxies both paths.
 - Keep API endpoints configurable by environment without embedding production secrets in build output.
 - Do not connect directly to PostgreSQL or receive database credentials.
-- Define client-side route fallback and static asset cache behavior with the Application Gateway route plan.
+- Define client-side route fallback and static asset cache behavior with the HTTP proxy route plan.
 
 ### Backend
 
@@ -103,7 +117,7 @@ The public route contract is `https://<domain>/app` for frontend assets and `htt
 
 Run unfiltered `pg_dumpall` for the complete PostgreSQL cluster: all database schemas and data, plus global roles. Write its UTF-8 SQL stream to a timestamped file on the configured host-mounted remote path, compress it, verify a checksum, then publish it atomically. Log a clear error and fail the job if the mount is absent or unwritable; never fall back to local-only storage. Retention is managed by the remote-storage service. Protect credentials and dump files, and keep secrets out of process arguments and logs.
 
-Restore is a manual, operator-triggered task, not an automatic deployment rollback. The initial interface is a restore script; a Cockpit tool may be added later. An authorized operator connects directly to PostgreSQL through an approved private route or temporary management tunnel and runs the complete SQL dump through `psql` as a PostgreSQL administrator. Do not expose the database through the Application Gateway or leave a public PostgreSQL port open. Test role and ownership restoration before acceptance.
+Restore is a manual, operator-triggered task, not an automatic deployment rollback. The initial interface is a restore script; a Cockpit tool may be added later. An authorized operator connects directly to PostgreSQL through an approved private route or temporary management tunnel and runs the complete SQL dump through `psql` as a PostgreSQL administrator. Do not expose the database through the HTTP proxy or leave a public PostgreSQL port open. Test role and ownership restoration before acceptance.
 
 For a compressed `pg_dumpall` file, the manual restore shape is:
 
@@ -120,7 +134,7 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 ### Phase 0: Resolve the stack contract
 
 - Use Vite plus vanilla JavaScript as the default. Define the supported Node.js build version and SPA fallback.
-- Keep frontend assets and FastAPI in the single `webApp` container on internal port `8000`. NGINX proxies both `/app` and `/app/api/` to that listener.
+- Keep frontend assets and FastAPI in the single `webApp` container on internal TCP port `8000`. NGINX proxies both `/app/` and `/app/api/` to that listener.
 - Use PostgreSQL 18 by default; define the matching client image version in config.
 - Reserve `192.168.8.0/29` for the `webApp` network. Assign each future app network a unique, non-overlapping CIDR and static Gateway address.
 - Set the default full-cluster backup schedule to monthly in JSON. Define the host-mounted remote path and approved direct restore connection. Retention is managed by remote storage.
@@ -141,14 +155,16 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 - Verify the combined `webApp` container reaches PostgreSQL over `webApp` and `shared`. All services attached to `shared` have direct network reach to PostgreSQL; prove PostgreSQL authentication denies unauthorized workloads and only FastAPI's process can read database credentials.
 - Verify app-specific networks do not route to one another. Do not treat this as isolation between containers that share `shared`.
 - Test fresh database initialization, full `pg_dumpall` backup, manual SQL restore into an isolated cluster, and container replacement with data sentinels.
-- Test frontend-to-backend routing through the selected Application Gateway contract.
+- Test frontend-to-backend routing through the selected optional HTTP proxy contract.
 
 ## 6. Acceptance Checks
 
-- The frontend and FastAPI run in one `webApp` image; PostgreSQL uses a separate image. Document each process and internal port.
+- The SPA and FastAPI run in one `webApp` image and one TCP `8000` listener; PostgreSQL uses a separate image. Document each process and internal port.
 - No frontend image/config contains database credentials.
 - PostgreSQL has persistent storage and no external port publication.
-- FastAPI serves frontend assets and APIs on `webApp:8000` and holds database credentials. Verify build output and HTTP responses never expose those credentials; shared-network membership cannot enforce service authorization.
+- FastAPI serves the SPA at `/app/` and API at `/app/api/` on the single `webApp:8000` listener and holds database credentials. Verify build output and HTTP responses never expose those credentials; shared-network membership cannot enforce service authorization.
+- The external perimeter supplies authenticated `X-USER` identity; the application authorizes and rejects missing/untrusted identity on protected endpoints. NGINX does not authenticate, and runtime implementation is not claimed.
+- Protected HTTP routes do not become deployable until the ingress restriction or verified identity-provenance gate passes; direct Gateway or host-listener access is not trusted identity.
 - PostgreSQL rejects unauthorized connections from other shared-network members. The Gateway has network-level reach but receives no database credentials.
 - Backend and frontend health checks detect startup failure without leaking secrets.
 - A PostgreSQL replacement preserves the data volume; a full-cluster SQL dump restores every database and global role into a disposable cluster.
@@ -162,4 +178,4 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 - Select the supported Node.js build version and non-root UID/GID for each image.
 - Define writable paths and verify permissions on the SELinux-disabled RHEL 9.8 host.
 - Set actual PostgreSQL network, volume, host-mounted backup path, and DNS names in config.
-- Configure the remote tunnel DNS suffixes. The Development Gateway reaches every configured service; each service must enforce its own authentication and authorization.
+- Configure the remote tunnel DNS suffixes. The Development Gateway reaches every configured service/port without host publication; each service must enforce its own authentication and authorization.

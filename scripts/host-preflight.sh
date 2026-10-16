@@ -51,6 +51,8 @@ validate_config() {
     [[ -f "$config_path" && -r "$config_path" ]] || fail "Configuration file is missing or unreadable: $config_path"
     run_python_module scripts.gateway.strict_json "$config_path" || \
         fail "Configuration is not valid JSON without duplicate keys: $config_path"
+    run_python_module scripts.gateway.host_config_validation "$config_path" || \
+        fail "Configuration uses a removed host-configuration field: $config_path"
     jq empty "$config_path" >/dev/null 2>&1 || fail "Configuration is not valid JSON: $config_path"
 
     local schema_version
@@ -93,7 +95,7 @@ validate_config() {
         (. as $config |
         object_with_allowed_keys(
             ["schema_version", "networks"];
-            ["gateway", "application_gateway", "containers", "dns_records"]
+            ["gateway", "http_proxy", "containers", "dns_records"]
         ) and
         $config.schema_version == 1 and
         ($config.networks | type == "array") and
@@ -109,19 +111,19 @@ validate_config() {
             (.networks | type == "array" and length > 0 and
                 all(.[]; podman_name) and length == (unique | length))) and
         ([($config.containers // [])[] | .name] | length == (unique | length)) and
-        (if ($config | has("application_gateway")) then
-            ($config.application_gateway as $application_gateway |
-                ($application_gateway | object_with_keys(
+        (if ($config | has("http_proxy")) then
+            ($config.http_proxy as $http_proxy |
+                ($http_proxy | object_with_keys(
                     ["enabled", "listen_address", "http_port", "routes"]
                 )) and
-                ($application_gateway.enabled | type == "boolean") and
-                ($application_gateway.listen_address | type == "string" and length > 0) and
-                ($application_gateway.http_port | port) and
-                ($application_gateway.routes | type == "array") and
-                (if $application_gateway.enabled then
-                    ($application_gateway.routes | length > 0)
+                ($http_proxy.enabled | type == "boolean") and
+                ($http_proxy.listen_address | type == "string" and length > 0) and
+                ($http_proxy.http_port | port) and
+                ($http_proxy.routes | type == "array") and
+                (if $http_proxy.enabled then
+                    ($http_proxy.routes | length > 0)
                 else true end) and
-                all($application_gateway.routes[];
+                all($http_proxy.routes[];
                     object_with_keys([
                         "prefix", "frontend", "frontend_port",
                         "api_prefix", "backend", "backend_port"
@@ -133,11 +135,11 @@ validate_config() {
                     (.backend_port | port) and
                     (. as $route | .api_prefix | api_prefix($route.prefix))
                 ) and
-                ([$application_gateway.routes[].prefix] | length == (unique | length)) and
-                routes_disjoint($application_gateway.routes) and
-                (if $application_gateway.enabled then
+                ([$http_proxy.routes[].prefix] | length == (unique | length)) and
+                routes_disjoint($http_proxy.routes) and
+                (if $http_proxy.enabled then
                     any(($config.containers // [])[]; .name == "nginx") and
-                    all($application_gateway.routes[];
+                    all($http_proxy.routes[];
                         . as $route |
                         any(($config.containers // [])[]; .name == $route.frontend) and
                         any(($config.containers // [])[]; .name == $route.backend)

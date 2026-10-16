@@ -72,7 +72,7 @@ A arquitetura separa o perímetro de segurança e três planos funcionais:
        Developer access                 User access
                │                                │
                ▼                                ▼
-       Gateway            Application Gateway
+       Development Gateway    Optional NGINX HTTP proxy
                │                                │
                ▼                                ▼
           Podman networks                App endpoints
@@ -92,6 +92,13 @@ Inclui, conforme a infraestrutura disponível:
 - controle de portas de entrada.
 
 O Gateway assume que uma conexão que chegou até ele já passou pelos mecanismos externos de autorização.
+Essa premissa descreve o acesso administrativo ao Gateway; não comprova a identidade HTTP apresentada
+à aplicação nem torna confiáveis campos `X-USER` recebidos por um caminho de bypass.
+Para acesso HTTP de usuários, o perímetro autentica o usuário, remove ou substitui campos de identidade
+fornecidos pelo cliente e injeta os campos `X-USER` confiáveis. A aplicação usa esses campos para
+autorizar operações; o NGINX somente encaminha HTTP e não autentica usuários. A lista exata de campos
+`X-USER` e o mecanismo que comprova a proveniência do perímetro permanecem pré-requisitos de
+implementação. Endpoints protegidos rejeitam identidade ausente ou não confiável.
 
 ## 3.2 Management Plane
 
@@ -120,7 +127,10 @@ Responsável por executar:
 
 Responsável por disponibilizar a aplicação aos usuários/consumidores.
 
-Esse plano é independente do Gateway.
+O acesso de usuários HTTP pode usar o proxy NGINX compartilhado opcional. Serviços não HTTP são
+publicados diretamente por bind de host, protocolo e porta publicados explicitamente; cada serviço
+mantém sua autenticação e o perímetro controla a exposição. Esse plano é independente do Development
+Gateway, que fornece somente acesso de desenvolvimento aos serviços configurados.
 
 ---
 
@@ -152,23 +162,29 @@ Não deve ser criado um gateway independente por aplicação salvo necessidade a
 
 ---
 
-## 4.2 Application Gateway
+## 4.2 HTTP proxy opcional
 
-Container independente do Gateway.
+Container NGINX opcional e compartilhado, distinto do Development Gateway. Ele fornece somente
+reverse proxy HTTP; não representa um componente geral de acesso a aplicações.
 
 Responsabilidade:
 
-- receber conexões HTTP/HTTPS;
-- encaminhar requests para as aplicações;
-- receber tráfego HTTP encaminhado pelo perímetro externo, que fornece TLS, certificados e DNS público;
-- eventualmente realizar virtual hosting;
-- eventualmente aplicar políticas de acesso específicas da aplicação.
+- encaminhar as rotas HTTP configuradas para serviços de aplicação;
+- receber HTTP do perímetro externo, que fornece TLS, certificados, DNS público e autenticação de usuários;
+- opcionalmente servir downloads/arquivos estáticos somente para leitura, fora da SPA.
 
-NGINX é o único provedor HTTP previsto. Instale-o somente quando `application_gateway` estiver habilitado.
+NGINX é o único provedor HTTP previsto. Instale-o somente quando `http_proxy` estiver habilitado. Ele
+não implementa login, autenticação ou autorização e não é canal de manutenção de containers.
 
-A escolha concreta deve ser definida separadamente da arquitetura do Gateway.
-
-O Application Gateway **não deve ser utilizado como canal de manutenção dos containers**.
+O perímetro remove ou substitui valores de identidade enviados pelo cliente e injeta os campos
+`X-USER` confiáveis. A aplicação usa esses valores para autorização. A lista exata permitida e o
+mecanismo de proveniência ainda precisam ser definidos e verificados como pré-requisito de
+implementação; um CIDR ou um header bruto não prova identidade. O listener HTTP atualmente vincula
+`0.0.0.0:8080`, e o Development Gateway fornece um caminho de bypass aos containers. Antes de expor
+rotas protegidas, o deployment deve exigir restrição efetiva de ingresso ao perímetro confiável ou
+proveniência perímetro-aplicação verificada. Acesso direto pelo Gateway ou ao listener do host não
+confere confiança aos campos `X-USER`; endpoints protegidos rejeitam identidade ausente ou não
+confiável.
 
 ---
 
@@ -614,9 +630,11 @@ O Gateway não encaminha tráfego entre redes de aplicações. Sua interface em 
 
 ---
 
-# 14. Application Gateway
+# 14. HTTP reverse proxy e publicação de serviços
 
-O Application Gateway possui função distinta do Gateway.
+O Development Gateway é exclusivamente para acesso de desenvolvedores aos serviços e portas de
+containers configurados. Esse acesso roteado não depende de portas publicadas no host. NGINX é
+apenas um proxy HTTP opcional, não um componente geral de acesso a aplicações.
 
 Exemplo:
 
@@ -624,7 +642,7 @@ Exemplo:
 Internet / Corporate users
           │
           ▼
-Application Gateway
+Optional NGINX HTTP reverse proxy
           │
           ├── Application A
           ├── Application B
@@ -634,14 +652,36 @@ Application Gateway
 Pode utilizar:
 
 - HTTP;
-- HTTPS;
-- TLS termination;
 - virtual hosts;
 - reverse proxy.
 
-O acesso administrativo não deve depender do Application Gateway.
+O acesso de desenvolvimento não depende do proxy HTTP.
 
-Use NGINX como único provedor HTTP, somente quando `application_gateway` estiver habilitado. O container escuta TCP 80; o endereço de bind e a porta publicada no host ficam no JSON, com a porta padrão 8080. O perímetro externo fornece DNS público, certificados, TLS termination e encaminha HTTP ao host. Por aplicação, `/app` serve o frontend e `/app/api/<route>` encaminha ao FastAPI com o prefixo preservado. A rota da API deve ser avaliada antes do fallback SPA. Não configure rate limiting por padrão. Limite uploads a 1 GB por padrão; configure esse limite no NGINX e no serviço TUS. O file sharing básico do NGINX é opcional e somente leitura por padrão.
+Use NGINX como proxy HTTP opcional somente quando `http_proxy` estiver habilitado. O container escuta
+TCP 80; o endereço de bind e a porta publicada no host ficam no JSON. O bind selecionado permanece
+`0.0.0.0:8080`; não o altere silenciosamente. O perímetro externo fornece DNS público, certificados,
+TLS e autenticação, e encaminha HTTP ao host. Na aplicação inicial `webApp`, FastAPI no único
+listener `webApp:8000` serve a SPA em `/app/` e a API em `/app/api/`; NGINX encaminha ambas ao mesmo
+listener e avalia a rota da API antes do fallback SPA. Não há portas separadas de frontend e API
+nessa aplicação inicial. Outras aplicações HTTP podem declarar seus próprios upstreams e portas;
+`webApp:8000` não é uma restrição global do proxy.
+
+O perímetro autentica usuários e injeta campos de identidade `X-USER` confiáveis após remover ou
+substituir valores fornecidos pelo cliente. A aplicação usa esses campos para autorização. NGINX
+somente faz proxy; não há engine de login/autenticação. A lista exata dos campos `X-USER` e o
+mecanismo de proveniência confiável permanecem pré-requisitos de implementação, não decisões abertas.
+Como o listener está em `0.0.0.0:8080` e o Gateway permite bypass direto, a implantação de rotas
+protegidas exige um gate: restringir efetivamente o ingresso ao perímetro confiável ou verificar a
+proveniência de identidade até a aplicação. CIDR ou header bruto não provam autenticação. Acesso
+direto pelo Gateway ou ao listener do host não torna confiáveis os campos `X-USER`; endpoints
+protegidos devem rejeitar identidade ausente ou não confiável.
+
+Serviços não HTTP destinados a usuários são publicados diretamente com bind de host, protocolo e
+portas publicados declarados explicitamente. Cada serviço aplica sua própria autenticação e depende
+dos controles de perímetro. O Development Gateway alcança todos os serviços/portas configurados sem
+necessidade de publicação de portas no host. Não configure rate limiting NGINX por padrão. Limite
+uploads a 1 GB por padrão no NGINX e no serviço TUS. O compartilhamento básico de arquivos por NGINX
+é opcional, somente para leitura e fora da SPA.
 
 ---
 
@@ -660,7 +700,7 @@ Responsabilidades:
 - lógica de negócio;
 - acesso ao PostgreSQL;
 - integração com serviços externos;
-- autenticação/autorização da aplicação, quando aplicável.
+- autorização da aplicação com base na identidade `X-USER` autenticada pelo perímetro, quando aplicável.
 
 O backend não deve assumir responsabilidades de infraestrutura do gateway.
 
@@ -672,17 +712,16 @@ O frontend será composto por componentes JavaScript.
 
 O boilerplate deve permitir evolução futura do framework sem alterar a arquitetura de infraestrutura.
 
-O frontend deve ser servido por:
-
-- Nginx;
-- servidor estático apropriado;
-- ou mecanismo equivalente.
-
-Os assets Vite residem no container `webApp` e FastAPI os serve em `/app`; FastAPI também serve `/app/api/*` no listener interno TCP `8000`. NGINX faz proxy de ambas as rotas para esse listener. Não há processo frontend separado no modo selecionado.
+Na aplicação inicial, os assets Vite são construídos como arquivos estáticos no container `webApp`.
+FastAPI serve a SPA em `/app/` e a API em `/app/api/*` pelo mesmo listener interno TCP `8000`; NGINX,
+quando habilitado, faz proxy de ambas as rotas para esse único listener. Não há processo frontend
+nem listener separado nesse stack inicial. Outras aplicações HTTP podem usar upstreams e portas
+próprios configurados no proxy.
 
 Use Vite com módulos JavaScript sem framework, gerados como arquivos estáticos. Para aplicações muito pequenas, HTML/CSS/JavaScript sem build também é válido; adote Vue, Svelte ou React somente quando complexidade de estado, componentes reutilizáveis ou padrão da equipe justificar. Configure o asset base como `/app/`.
 
-O padrão de API recomendado é mesma origem e prefixo por aplicação: `/app` serve o frontend e `/app/api/<route>` encaminha ao FastAPI. Um hostname separado para a API permanece uma alternativa futura para consumidores independentes, mas exige CORS, DNS e TLS adicionais.
+O contrato selecionado usa a mesma origem e prefixo por aplicação: `/app/` serve a SPA e
+`/app/api/<route>` encaminha ao FastAPI. Não há hostname nem listener separado para a API.
 
 ---
 
@@ -709,7 +748,7 @@ webApp:  webApp, PostgreSQL
 Frontend JavaScript executado no browser não recebe credenciais PostgreSQL; FastAPI em `webApp:8000` possui essas credenciais. O processo FastAPI serve também os assets estáticos, então não há isolamento de processo entre frontend server e backend.
 
 
-O backup obrigatório executa `pg_dumpall` sem filtros para salvar dados, estrutura de todos os bancos e objetos globais do cluster. O schedule mensal padrão e os caminhos do mount host/container são configurados por instância no JSON; um timer systemd é gerado a partir do schedule. O armazenamento remoto é montado no host e compartilhado somente para leitura com PostgreSQL. O job registra erro e falha se o mount não estiver disponível; não usa fallback local. Restore é uma ação manual do operador, inicialmente por script: conexão direta e privada ao PostgreSQL, seguida da execução do SQL completo via `psql`. Não exponha PostgreSQL pelo Application Gateway nem restaure automaticamente durante deployment.
+O backup obrigatório executa `pg_dumpall` sem filtros para salvar dados, estrutura de todos os bancos e objetos globais do cluster. O schedule mensal padrão e os caminhos do mount host/container são configurados por instância no JSON; um timer systemd é gerado a partir do schedule. O armazenamento remoto é montado no host e compartilhado somente para leitura com PostgreSQL. O job registra erro e falha se o mount não estiver disponível; não usa fallback local. Restore é uma ação manual do operador, inicialmente por script: conexão direta e privada ao PostgreSQL, seguida da execução do SQL completo via `psql`. Não exponha PostgreSQL pelo proxy HTTP nem restaure automaticamente durante deployment.
 
 ---
 
@@ -993,7 +1032,7 @@ Podem variar:
 Não devem variar:
 
 - responsabilidades dos componentes;
-- separação entre gateway de desenvolvimento e gateway de aplicação;
+- separação entre Development Gateway e proxy HTTP opcional;
 - isolamento das redes;
 - mecanismo geral de deployment;
 - modelo de acesso aos containers.
@@ -1015,7 +1054,7 @@ Mesmo com o controle de acesso externo, devem ser mantidos os seguintes princíp
 9. redes app-specific sem roteamento entre si; a rede `shared` fornece conectividade direta intencional e exige autenticação nos serviços;
 10. PostgreSQL não exposto externamente;
 11. Gateway não utilizado para servir tráfego de usuários;
-12. Application Gateway não utilizado como canal administrativo;
+12. Proxy HTTP não utilizado como canal administrativo;
 13. autenticação SSH individual, sem chaves privadas compartilhadas;
 14. chaves privadas nunca armazenadas no gateway;
 15. secrets de aplicação fora do Git;
@@ -1037,16 +1076,18 @@ As seguintes decisões são consideradas parte do contrato:
 | Podman mode | Rootful |
 | Backend | Python + FastAPI |
 | Frontend | Vite com JavaScript sem framework por padrão; HTML/JS estático para páginas pequenas |
-| Rota frontend/API | `/app` e `/app/api/<route>` no mesmo domínio |
+| Rota frontend/API | `/app/` e `/app/api/<route>` no mesmo domínio |
 | Database | PostgreSQL 18 por padrão, versão configurável por instância |
-| Container de aplicação | `webApp` combina frontend e FastAPI; PostgreSQL permanece separado |
+| Stack inicial da aplicação | `webApp` combina assets SPA e FastAPI em um listener TCP `8000`; PostgreSQL permanece separado |
 | Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
 | Cockpit | Dentro do Gateway |
 | cockpit-podman | Dentro do Gateway |
-| Application Gateway | Nginx compartilhado separado do Development Gateway |
+| Proxy HTTP | NGINX compartilhado opcional; reverse proxy HTTP, distinto do Development Gateway |
 | Configuração mínima | Host e Development Gateway; serviços de aplicação são opcionais |
-| Porta HTTP no host | TCP 8080 por padrão, mapeada ao TCP 80 do NGINX; endereço e porta definidos no JSON |
+| Porta HTTP no host | Bind selecionado `0.0.0.0:8080`, mapeado ao TCP 80 do NGINX; não presumir que o bind restringe o perímetro |
+| Identidade HTTP | Perímetro autentica e injeta campos `X-USER`; aplicação autoriza; NGINX somente faz proxy |
+| Autorização HTTP | Gate de deployment exige restrição efetiva ao perímetro confiável ou proveniência verificada; lista exata de campos e mecanismo permanecem pré-requisitos |
 | TLS, DNS público e perímetro | Fornecidos externamente e assumidos por este host |
 | Rede por aplicação | Sim |
 | Gateway compartilhado entre redes | Sim; uma interface Podman para cada rede no inventário global `networks` |
@@ -1074,6 +1115,8 @@ As seguintes decisões são consideradas parte do contrato:
 | SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo |
 | Backup PostgreSQL | `pg_dumpall` integral; schedule mensal padrão; mount host/ container no JSON; restore manual por script; retenção pelo storage |
 | TUS e file sharing | Serviços opcionais; limite de arquivo de 1 GB por padrão; file sharing NGINX somente leitura |
+| Serviços não HTTP para usuários | Publicação direta por bind de host, protocolo e portas explicitamente declarados; autenticação do serviço e perímetro próprios |
+| Acesso developer aos containers | Gateway alcança todos os serviços/portas configurados sem publicação de portas no host |
 | NGINX rate limit | Desativado por padrão |
 | Limite de body NGINX | 1 GB por padrão; configurável |
 | Configuração | `schema_version: 1` obrigatória; seções de recursos opcionais e retrocompatíveis |
@@ -1091,7 +1134,7 @@ As decisões de topologia confirmadas estão registradas na seção 34. Os valor
 3. Definir o pool de endereços SSH TUN, a conta dedicada e a política restrita de `PermitTunnel`.
 4. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
 5. Definir operadores autorizados de produção, UIDs/GIDs, identidades de processo no container `webApp`, paths de dados e mount host/container para backup.
-6. Definir host bind address do NGINX, método de servir os assets e ports frontend/API do container `webApp`.
+6. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
 7. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
 8. Definir os nomes DNS internos e validar o handoff de atualização DNS entre deployment da aplicação e Development Gateway.
 9. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
@@ -1112,9 +1155,12 @@ Uma implementação do boilerplate será considerada aderente quando:
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
 - desenvolvedores puderem acessar containers por SSH/VS Code através do gateway;
 - o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
-- endpoints NGINX forem opcionais e declarados no JSON, com host TCP/8080 mapeado ao container TCP/80;
-- NGINX servir `/app` e encaminhar `/app/api/<route>` ao FastAPI preservando o prefixo;
-- frontend e FastAPI executarem no container `webApp`, com portas upstream configuradas separadamente;
+- rotas NGINX forem opcionais e declaradas no JSON, com o bind selecionado `0.0.0.0:8080` mapeado ao container TCP/80;
+- NGINX encaminhar, para a aplicação inicial, `/app/` e `/app/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
+- FastAPI servir, na aplicação inicial, a SPA em `/app/` e a API em `/app/api/` no único listener TCP `8000`;
+- o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
+- rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
+- serviços não HTTP de usuário usarem publicação direta explicitamente configurada, sem confundir isso com o acesso de desenvolvimento via Gateway;
 - OpenVPN e SSH TUN permitirem tráfego IP remoto sem NAT, preservando a origem e com rotas de retorno simétricas;
 - egress de containers alcançar destinos externos pela saída normal do Podman no host, usando masquerading quando necessário;
 - deployment usar Quadlet e passar aceitação em RHEL 9.8 / Podman rootful 5.8.2 com SELinux desativado;
@@ -1128,7 +1174,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
 - seções opcionais do JSON permanecerem compatíveis com `schema_version: 1`;
-- Application Gateway estiver separado do Gateway;
+- NGINX funcionar como proxy HTTP opcional, não como gateway geral de aplicações;
 - o acesso externo continuar controlado pela infraestrutura de segurança existente;
 - deployment puder ser repetido sem destruir dados;
 - diagnóstico básico de rede puder ser realizado sem acesso ao host RHEL;
@@ -1205,9 +1251,9 @@ Isso proporciona um único ponto de manutenção para os desenvolvedores sem tra
 
 Use os planos de implementação abaixo para decompor o contrato sem misturar acesso administrativo, tráfego de usuários e ciclo de vida das aplicações:
 
-1. [Application Gateway](application-gateway-plan.md): entrada HTTP/HTTPS, roteamento, TLS e isolamento de rede.
-2. [Application stack](application-stack-plan.md): frontend, backend FastAPI e PostgreSQL.
-3. [Application deployment and operations](application-deployment-plan.md): configuração declarativa, secrets, volumes, atualização, recuperação e handoff de DNS.
+1. [HTTP Proxy](../plans/http-proxy-plan.md): reverse proxy HTTP opcional, roteamento, pressupostos de TLS/perímetro e requisitos de identidade.
+2. [Application stack](../plans/application-stack-plan.md): frontend, backend FastAPI e PostgreSQL.
+3. [Application deployment and operations](../plans/application-deployment-plan.md): configuração declarativa, secrets, volumes, atualização, recuperação e handoff de DNS.
 
 Resolva os inputs restantes da seção 29 antes da implementação. Valide Podman, Quadlet, roteamento, DNS, egress e SELinux desativado no host descartável autorizado RHEL 9.8 com Podman rootful 5.8.2. Testes locais de containers não substituem a aceitação do host.
 
@@ -1226,7 +1272,7 @@ O Gateway está conectado a todas as redes declaradas. `webApp` é um único con
 
 `192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza somente o inventário top-level `networks` e reconcilia o Gateway existente. Não deve criar outro Gateway nem manter um inventário seletivo de redes no bloco `gateway`.
 
-O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços estáticos do Gateway. O validador aceita `gateway_address` e `application_gateway`; o deployment de NGINX ainda não foi implementado.
+O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços estáticos do Gateway. O validador aceita `gateway_address` e a seção `http_proxy`; o deployment de NGINX ainda não foi implementado. Essa declaração representa configuração desejada, não autenticação ou sucesso de runtime.
 
 Inputs e gates restantes:
 

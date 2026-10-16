@@ -65,7 +65,7 @@ for path in "$CONFIG" "$AUTHORIZED_KEYS" "$COCKPIT_PASSWORD" "$HOST_KEY" \
 done
 
 python3 /usr/local/lib/gateway/host_config_validation.py "$CONFIG" >/dev/null || \
-    fail "Invalid Gateway host configuration; duplicate keys and gateway.networks are rejected: $CONFIG"
+    fail "Invalid Gateway host configuration; duplicate keys, gateway.networks, and application_gateway are rejected: $CONFIG"
 
 jq -e '
     .schema_version == 1 and

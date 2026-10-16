@@ -6,7 +6,7 @@ import pytest
 
 from scripts.gateway.config_validation import (
     validate_address_declarations,
-    validate_application_gateway_networks,
+    validate_http_proxy_networks,
     validate_config_file,
 )
 
@@ -55,15 +55,15 @@ def test_accepts_static_gateway_addresses_inside_networks() -> None:
     )
 
 
-def test_accepts_application_gateway_upstreams_on_shared_network() -> None:
-    """Accept NGINX routes when both upstreams share a declared network."""
-    validate_application_gateway_networks(
+def test_accepts_http_proxy_upstreams_on_shared_network() -> None:
+    """Accept HTTP proxy routes when both upstreams share a declared network."""
+    validate_http_proxy_networks(
         {
             "containers": [
                 {"name": "nginx", "networks": ["shared"]},
                 {"name": "webApp", "networks": ["webApp", "shared"]},
             ],
-            "application_gateway": {
+            "http_proxy": {
                 "enabled": True,
                 "routes": [{"frontend": "webApp", "backend": "webApp"}],
             },
@@ -71,16 +71,16 @@ def test_accepts_application_gateway_upstreams_on_shared_network() -> None:
     )
 
 
-def test_rejects_application_gateway_upstream_without_shared_network() -> None:
-    """Reject NGINX routes that cannot reach their configured upstream."""
+def test_rejects_http_proxy_upstream_without_shared_network() -> None:
+    """Reject HTTP proxy routes that cannot reach their configured upstream."""
     with pytest.raises(ValueError, match="shares no network"):
-        validate_application_gateway_networks(
+        validate_http_proxy_networks(
             {
                 "containers": [
                     {"name": "nginx", "networks": ["shared"]},
                     {"name": "webApp", "networks": ["webApp"]},
                 ],
-                "application_gateway": {
+                "http_proxy": {
                     "enabled": True,
                     "routes": [{"frontend": "webApp", "backend": "webApp"}],
                 },
@@ -107,10 +107,10 @@ def test_rejects_application_gateway_upstream_without_shared_network() -> None:
         ),
         (
             {
-                "application_gateway": {"listen_address": "::1"},
+                "http_proxy": {"listen_address": "::1"},
                 "networks": [],
             },
-            "application_gateway.listen_address must be an IPv4 address",
+            "http_proxy.listen_address must be an IPv4 address",
         ),
         (
             {
@@ -243,3 +243,15 @@ def test_address_validation_rejects_gateway_networks_directly() -> None:
                 "networks": [],
             }
         )
+
+
+def test_validate_config_file_rejects_application_gateway_section(tmp_path) -> None:
+    """Reject the removed proxy section instead of accepting a legacy alias."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"application_gateway": {}, "networks": []}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="application_gateway.*not supported"):
+        validate_config_file(config_path)

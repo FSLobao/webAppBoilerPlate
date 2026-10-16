@@ -9,7 +9,7 @@
         "cockpit_port": 9090,
         "authorized_keys_path": "/etc/gateway/authorized_keys"
     },
-    "application_gateway": {
+    "http_proxy": {
         "enabled": true,
         "listen_address": "0.0.0.0",
         "http_port": 8080,

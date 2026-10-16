@@ -45,49 +45,62 @@ flowchart LR
     D[Desenvolvedores]
     U[Usuários e consumidores]
     DG[Gateway compartilhado<br/>SSH, DNSMasq, NAT, diagnóstico, Cockpit]
-    AG[Application Gateway<br/>HTTP, HTTPS e reverse proxy]
+    HP[Proxy HTTP NGINX opcional]
     subgraph A[Aplicação A: rede Podman isolada]
-        ABE[Backend FastAPI]
-        AFE[Frontend JavaScript]
+        ABE[webApp<br/>FastAPI + SPA<br/>TCP 8000]
     end
     subgraph AD[Aplicação A: rede dedicada do banco]
         ADB[(PostgreSQL<br/>volume persistente)]
     end
     subgraph B[Aplicação B: rede Podman isolada]
-        BBE[Backend FastAPI]
-        BFE[Frontend JavaScript]
+        BBE[Serviço HTTP<br/>upstream/porta configuráveis]
     end
     subgraph BD[Aplicação B: rede dedicada do banco]
         BDB[(PostgreSQL<br/>volume persistente)]
     end
     S --> D
-    S --> U
+    U --> S
     D --> DG
-    U --> AG
+    S --> HP
     DG -. acesso administrativo .-> A
     DG -. acesso administrativo .-> B
-    AG --> AFE
-    AG --> BFE
-    AFE --> ABE
+    HP --> ABE
+    HP --> BBE
     ABE --> ADB
-    BFE --> BBE
     BBE --> BDB
 ```
 
 Componentes e limites principais:
 
-- **Gateway:** um container administrativo compartilhado, conectado a todas as redes Podman
-  declaradas para as aplicações. Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico,
-  Cockpit e
-  `cockpit-podman`. Não serve tráfego de usuários.
-- **Application Gateway:** componente separado para acesso HTTP/HTTPS às aplicações. Não é canal
-  de manutenção dos containers.
-- **Containers da aplicação:** backend, frontend e serviços auxiliares independentes. Cada
-  aplicação mantém sua própria rede Podman.
-- **PostgreSQL:** container com volume persistente, acessível normalmente apenas pelo backend na
-  rede dedicada ao banco.
+- **Development Gateway:** um container compartilhado exclusivamente para acesso dos
+  desenvolvedores a todos os serviços e portas configurados. O acesso roteado não exige publicação
+  de portas no host. Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico, Cockpit e
+  `cockpit-podman`; não é proxy de usuários.
+- **Proxy HTTP NGINX:** opcional, compartilhado e limitado a reverse proxy HTTP. Pode encaminhar
+  rotas para serviços HTTP de diferentes aplicações, cada qual com upstream e porta configuráveis.
+  Na aplicação inicial `webApp`, `/app/` e `/app/api/` usam o mesmo listener TCP `8000`. O perímetro externo
+  autentica usuários e injeta os campos `X-USER`; a aplicação usa a identidade para autorizar.
+  NGINX não implementa login nem autenticação. Serviços não HTTP de usuários são publicados
+  diretamente por bind de host, protocolo e portas explicitamente configurados, com autenticação
+  própria do serviço e controles do perímetro.
+- **Aplicação inicial:** um container `webApp` serve a SPA em `/app/` e API em `/app/api/` no único
+  listener FastAPI `TCP 8000`. O proxy opcional encaminha ambas as rotas ao mesmo listener.
+  Aplicações HTTP adicionais podem configurar seus próprios upstreams e portas. PostgreSQL e
+  serviços auxiliares podem permanecer em containers independentes.
+- **PostgreSQL:** container com volume persistente. FastAPI o utiliza na rede dedicada, mas membros
+  de `shared` — incluindo Gateway e NGINX — também têm alcance de rede; autenticação do serviço é
+  obrigatória e a topologia não isola esses membros.
 - **Perímetro de segurança:** VPN, firewall, ACL e autenticação externa ao boilerplate. O Development
   Gateway não substitui esses controles nem funciona como firewall de autorização.
+
+O proxy HTTP está selecionado para bind `0.0.0.0:8080` no host, mapeado para TCP `80` no container.
+Como o Gateway permite acesso direto e o listener está em todas as interfaces, rotas protegidas
+dependem de um gate de deployment: restringir efetivamente o ingresso ao perímetro confiável ou
+verificar a proveniência da identidade até a aplicação. Nem um CIDR nem um `X-USER` bruto comprovam
+autenticação. O perímetro deve remover/substituir identidade enviada pelo cliente; a aplicação deve
+rejeitar identidade ausente ou não confiável. A lista exata de campos `X-USER` e o mecanismo de
+proveniência permanecem pré-requisitos de implementação; autenticação/autorização de runtime não
+está implementada.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -98,11 +111,10 @@ gateways e operações de deployment:
 
 ```text
 repository/
-├── backend/                 # API Python/FastAPI (planejado)
-├── frontend/                # Interface JavaScript (planejado)
+├── webApp/                  # FastAPI, API e assets SPA no mesmo serviço (planejado)
 ├── gateway/
 │   ├── development/         # Gateway administrativo compartilhado
-│   └── application/         # Gateway de acesso às aplicações
+│   └── http_proxy/          # Proxy HTTP NGINX opcional
 ├── database/                # Inicialização e recursos do PostgreSQL
 ├── deploy/quadlet/           # Quadlet do Gateway
 ├── config/                  # Configuração estrutural versionada
@@ -124,8 +136,8 @@ limites de segurança definidos no contrato arquitetural devem permanecer explí
 ## Modelo de desenvolvimento
 
 O desenvolvimento cotidiano deve ocorrer pelo VS Code, usando Git, terminal, testes e ferramentas
-de debugging. O acesso remoto aos containers passa pelo Gateway; não exige acesso
-administrativo permanente ao host RHEL.
+de debugging. O Gateway fornece acesso roteado aos serviços e portas configurados, sem exigir
+publicação de portas no host ou acesso administrativo permanente ao host RHEL.
 
 O host de execução fornece Podman e armazenamento persistente. A equipe de infraestrutura realiza
 a configuração inicial e operações excepcionais do host. Os containers permanecem substituíveis;
@@ -433,7 +445,7 @@ Princípios obrigatórios:
 - não incluir secrets nas imagens ou no Git;
 - não montar secrets em serviços que não os utilizam;
 - usar chaves SSH individuais e provisionar somente as chaves públicas;
-- separar o gateway administrativo do gateway de aplicação;
+- separar o Development Gateway administrativo do proxy HTTP opcional;
 - tratar o perímetro externo como responsabilidade da infraestrutura.
 
 Os caminhos externos de credenciais e os mounts do gateway estão definidos em
@@ -451,14 +463,14 @@ Git. Permanecem em aberto:
 
 - capabilities do Gateway e integração Cockpit/Podman;
 - política de alocação de CIDRs;
-- tecnologia do Application Gateway e framework JavaScript;
+- mecanismo verificável de proveniência dos campos `X-USER` para endpoints protegidos;
 - backups, health checks, logs e atualização/versionamento de imagens;
-- certificados TLS, VPN opcional e exposição dos endpoints de aplicação.
+- configuração de exposição direta por serviço não HTTP e VPN opcional.
 
 Próxima etapa do gateway: executar os gates de aceitação em um host RHEL 9.8 / Podman 5.8.2
 descartável e registrar os resultados de Quadlet, reboot, SELinux, capabilities, forwarding e
 Cockpit/Podman. Não use um host live para essa validação. As decisões restantes da aplicação e do
-Application Gateway devem ser tratadas separadamente.
+proxy HTTP devem ser tratadas separadamente.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 

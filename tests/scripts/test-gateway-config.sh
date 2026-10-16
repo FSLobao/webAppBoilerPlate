@@ -33,7 +33,7 @@ jq '.networks = [
         {"name":"nginx","networks":["shared","newly-added-net"]},
         {"name":"project-a-backend","networks":["project-a-net","shared","newly-added-net"]}
     ] |
-    .application_gateway = {
+    .http_proxy = {
         "enabled":true,
         "listen_address":"0.0.0.0",
         "http_port":8080,
@@ -62,7 +62,7 @@ expected_networks=(
 )
 [[ "${rendered_networks[*]}" == "${expected_networks[*]}" ]] || \
     fail "Gateway Quadlet networks differ from top-level Podman declarations: ${rendered_networks[*]}"
-printf 'PASS: all declared Podman networks are rendered; application routes are not networks\n'
+printf 'PASS: all declared Podman networks are rendered; HTTP proxy routes are not networks\n'
 
 mkdir -p "$TMP_DIR/network-bin"
 cat > "$TMP_DIR/network-bin/podman" <<'SH'
@@ -83,7 +83,7 @@ expected_created_networks=(shared project-a-net newly-added-net)
     fail "Created Podman networks differ from declarations: ${created_networks[*]}"
 printf 'PASS: all declared Podman networks are created\n'
 
-jq 'del(.gateway, .application_gateway) | .networks = [{"name":"database","subnet":"10.90.0.0/24"}] |
+jq 'del(.gateway, .http_proxy) | .networks = [{"name":"database","subnet":"10.90.0.0/24"}] |
     .containers = [{"name":"postgres","networks":["database"]}] | .dns_records = []' \
     "$SAMPLE_CONFIG" > "$TMP_DIR/generic-host.json"
 "$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/generic-host.json" >/dev/null
@@ -144,17 +144,26 @@ jq '.gateway.cockpit_bind_address = "::1"' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-cockpit-bind.json"
 expect_invalid 'non-IPv4 Cockpit bind address' "$TMP_DIR/invalid-cockpit-bind.json"
 
-jq '.application_gateway.http_port = 70000' \
-    "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-application-gateway-port.json"
-expect_invalid 'invalid Application Gateway port' "$TMP_DIR/invalid-application-gateway-port.json"
+jq '.http_proxy.http_port = 70000' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-http-proxy-port.json"
+expect_invalid 'invalid HTTP proxy port' "$TMP_DIR/invalid-http-proxy-port.json"
 
-jq '.application_gateway.routes[0].api_prefix = "/api/"' \
+jq '.http_proxy.routes[0].api_prefix = "/api/"' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-api-prefix.json"
 expect_invalid 'API prefix outside application prefix' "$TMP_DIR/invalid-api-prefix.json"
 
 jq '.containers |= map(select(.name != "nginx"))' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/missing-nginx-container.json"
-expect_invalid 'Application Gateway without NGINX container' "$TMP_DIR/missing-nginx-container.json"
+expect_invalid 'HTTP proxy without NGINX container' "$TMP_DIR/missing-nginx-container.json"
+
+jq '.application_gateway = .http_proxy | del(.http_proxy)' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/removed-application-gateway.json"
+expect_invalid 'removed application_gateway section' "$TMP_DIR/removed-application-gateway.json"
+if python3 "$REPO_ROOT/gateway/development/host_config_validation.py" \
+    "$TMP_DIR/removed-application-gateway.json" >/dev/null 2>&1; then
+    fail 'startup host-config validator accepted application_gateway'
+fi
+printf 'PASS: startup host-config validator rejects application_gateway\n'
 
 jq '.networks[0].subnet = "10.89.1.7/24"' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/noncanonical-cidr.json"

@@ -2,11 +2,11 @@
 
 **Status:** Design plan; application lifecycle is not implemented.
 **Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
-**Related plans:** [Application Gateway](application-gateway-plan.md), [Application Stack](application-stack-plan.md), [Gateway Bootstrap](gateway-plan.md)
+**Related plans:** [HTTP Proxy](http-proxy-plan.md), [Application Stack](application-stack-plan.md), [Gateway Bootstrap](gateway-plan.md)
 
 ## 1. Goal and Ownership
 
-Define repeatable deployment and day-two operations for application services on the RHEL 9.8 / rootful Podman 5.8.2 qualification target with SELinux disabled by explicit decision. Host deployment scripts must verify this state and must not change host security settings. Keep application lifecycle separate from the shared Development Gateway lifecycle. The clean-host order is Gateway bootstrap first; application services and optional NGINX deploy only after Gateway is healthy. Use maintained, efficient Linux images for the Gateway and application containers; prefer Debian or Alpine. This plan covers networks, service definitions, volumes, external secrets, image updates, health, rollback, backups, and handoffs to the two gateways.
+Define repeatable deployment and day-two operations for application services on the RHEL 9.8 / rootful Podman 5.8.2 qualification target with SELinux disabled by explicit decision. Host deployment scripts must verify this state and must not change host security settings. Keep application lifecycle separate from the shared Development Gateway lifecycle. The clean-host order is Gateway bootstrap first; application services and optional NGINX HTTP proxy deploy only after Gateway is healthy. Use maintained, efficient Linux images for the Gateway and application containers; prefer Debian or Alpine. This plan covers networks, service definitions, volumes, external secrets, image updates, health, rollback, backups, and handoffs to the Development Gateway and optional HTTP proxy.
 
 The standalone Debian File Gateway recipe remains a reference for future containerized deployment. Its Debian host bootstrap is not for use on the RHEL host.
 
@@ -19,10 +19,11 @@ Use rootful Podman Quadlet for long-running application containers and the share
 | RHEL host, Podman, storage capacity, host security policy | Infrastructure | Developers do not need routine host administrator access. |
 | Application containers, networks, database volumes and health state, destination SSH accounts and public keys | Application deployment | Do not delete or rewrite persistent state during ordinary updates. Preserve per-developer destination authentication. |
 | Development Gateway, its SSH identity, and generated DNSMasq records | Development Gateway deployment | Application deployment must use a documented handoff; it must not edit Gateway-owned files directly. |
-| Public HTTP routes | Application Gateway deployment | NGINX listens on configured host port `8080` by default; the external perimeter provides TLS, public DNS, and forwarding. |
+| Public HTTP routes | Application deployment through optional HTTP proxy | Current v1 requires explicit `listen_address` and `http_port` when `http_proxy` is enabled; selected values are `0.0.0.0` and `8080`. The external perimeter provides TLS, public DNS, user authentication, and forwarding. |
+| Published non-HTTP services | Application/service deployment | Explicit host bind address, protocol, and published port; service authentication and perimeter controls remain required. Developer reachability through the Development Gateway does not require host publication. |
 | Secret values and backup destination | Infrastructure/application owners | Keep outside Git and images; mount only into required consumers. |
 
-Keep `config/host_config.json` as the source of truth for every Podman application and database network. The top-level `networks` array contains only these Podman networks, not VPN routes/address pools, host interfaces, or physical/host network attachments. Require `schema_version: 1`; keep feature sections optional and backward-compatible. The minimum config contains host settings and the Development Gateway. Add optional sections for the Application Gateway, frontend, backend, PostgreSQL, TUS file transfer, NGINX file sharing, and backups. Create only resources declared by enabled sections. Shared preflight always validates the full Podman network inventory; service-specific preflight and apply run only for declared/enabled sections. Do not create duplicate network sources of truth.
+Keep `config/host_config.json` as the source of truth for every Podman application and database network. The top-level `networks` array contains only these Podman networks, not VPN routes/address pools, host interfaces, or physical/host network attachments. Require `schema_version: 1`; keep feature sections optional and backward-compatible. The minimum config contains host settings and the Development Gateway. Add optional sections for `http_proxy`, applications, PostgreSQL, TUS file transfer, NGINX file sharing, direct non-HTTP service publication, and backups. Create only resources declared by enabled sections. Shared preflight always validates the full Podman network inventory; service-specific preflight and apply run only for declared/enabled sections. Do not create duplicate network sources of truth.
 
 The shared Development Gateway attaches to every network in the top-level inventory, including database networks. There is no separate per-service approval workflow for Gateway reachability. This makes the Gateway a trusted, multi-network administrative component; Podman network isolation does not protect an application from a compromised Gateway. Keep application credentials separate and rely on service authentication as well as the external perimeter. The Podman network `shared` is a bridge for its attached containers, not a physical/host interface or a VPN route/pool. Gateway preflight and apply must not require or operate application containers; declared app resources may be absent during Gateway bootstrap.
 
@@ -32,14 +33,14 @@ The current config declares `shared` (`192.168.7.0/24`) and `webApp` (`192.168.8
 
 Application deployment owns creating each unique app network. It updates the shared top-level `networks` inventory and reconciles the existing Gateway, which attaches to every declared network. It must not maintain a second Gateway network list or create another Gateway. Future app deployments must find and reuse the healthy Gateway and compatible existing networks. The current host preflight still requires declared containers to exist; this is an implementation gap, not the desired clean-host contract. Application lifecycle and NGINX runtime deployment are not implemented yet.
 
-The v1 validator accepts `application_gateway` routes and static `gateway_address` fields. The approved initial addresses are `192.168.7.2` and `192.168.8.2`. An enabled `application_gateway` section means that NGINX/routes are desired and statically validated; it does not mean NGINX or its upstreams are deployed or runtime-ready. NGINX runtime deployment and target-host Quadlet acceptance remain unimplemented.
+The v1 validator accepts `http_proxy` routes and static `gateway_address` fields. The approved initial addresses are `192.168.7.2` and `192.168.8.2`. An enabled `http_proxy` section means that NGINX/routes are desired and statically validated; it does not mean NGINX or its upstreams are deployed or runtime-ready. NGINX runtime deployment and target-host Quadlet acceptance remain unimplemented.
 
 ### Clean-host deployment sequence
 
 1. Validate the complete versioned host config. Malformed schema, invalid values, duplicate declarations, and references to undeclared networks or containers are hard errors, even if the referenced service is not yet deployed.
 2. Deploy and verify the shared Development Gateway using Gateway-scoped host/tool/credential prerequisites and the complete declared Podman network inventory. Missing declared networks are reported as planned creation in read-only check and created during apply. Existing networks must match config; an incompatible or overlapping network fails before mutation. Gateway must not require, create, start, or inspect `nginx`, `webApp`, PostgreSQL, or DNS-target containers.
 3. After Gateway readiness, application deployment stages any application changes to the same host config, including networks, containers, routes, and DNS declarations. Validate the complete staged config and existing network compatibility before an atomic replacement. Preserve unrelated sections, operator inputs, secrets, and other objects byte-for-byte where untouched; do not overwrite concurrent edits. Create missing declared networks and reconcile the existing Gateway for any added network before creating/starting application workloads.
-4. Application deployment owns creation, dependency ordering, startup, health/readiness, and rollback for application containers and NGINX. Do not publish public routes or development DNS just because `application_gateway.enabled` or a DNS declaration exists.
+4. Application deployment owns creation, dependency ordering, startup, health/readiness, and rollback for application containers and NGINX. Do not publish public routes or development DNS just because `http_proxy.enabled` or a DNS declaration exists.
 5. After each configured target passes its application-owned readiness checks, send the active config revision and ready target identities through the narrow Gateway DNS handoff. Gateway re-inspects Podman and publishes only the current valid address on the declared network. Absent, stopped, unhealthy, unattached, or otherwise not-ready targets remain pending and have no published record; Gateway never starts them.
 
 When Gateway reconciliation or an application operation fails, restore the prior active host-config version and managed service/Gateway state where safe, and report additive networks, volumes, images, or data that remain. A mismatch in an already existing declared network is detected before config commit or other mutation. Preserve and report the last known-good app routes and DNS on invalid candidates only if their targets remain current and ready; never retain a stale address as fallback. Repeat apply must converge without unnecessary restarts. On reboot, Gateway starts independently of app targets; application Quadlet units start only after Gateway/network prerequisites, and successful app readiness triggers the same DNS handoff. App stop/failure/replacement must request refresh so managed DNS records are updated or removed; there is no background watcher, so an unexpected crash can leave a record until refresh/restart.
@@ -56,20 +57,21 @@ Use structured, versioned configuration rather than shell-sourced files or ad ho
 - secret file references, required owners/modes, and consuming services;
 - developer public-key references and the application destinations authorized to accept them;
 - public routes and development DNS/SSH exposure declarations;
-- optional NGINX listener address and published host port (default `8080`, mapped to container port `80`), plus `/app` frontend and `/app/api/` backend routes;
+- optional NGINX listener address and published host port (both required by current v1 when `http_proxy` is present; selected values are `0.0.0.0:8080`, mapped to container port `80`), plus the initial `webApp` `/app/` SPA and `/app/api/` routes to the same `webApp:8000` listener;
+- explicit host bind address, protocol, and published port for each end-user non-HTTP service; developer access through the Gateway does not require these host publications;
 - DNS records for containers and Gateway DNS addresses for each Podman network, with remote split-DNS suffixes;
 - PostgreSQL major version (default `18`), configurable per instance;
 - optional TUS and NGINX file-sharing routes, with a default 1 GB maximum uploaded file size and no NGINX rate limit;
 - one root-managed public `authorized_keys` file path per SSH-enabled application container and its dedicated non-root destination account;
 - a `database_backups` entry per PostgreSQL instance, with monthly default `schedule`, host-mounted `remote_mount`, and read-only `container_path` shared with PostgreSQL.
 
-Configuration contains references and metadata, not secret values or permanent container IPs. The Application Gateway and application services are absent unless their optional config sections are enabled.
+Configuration contains references and metadata, not secret values or permanent container IPs. The optional HTTP proxy and application services are absent unless their optional config sections are enabled.
 
-Example service configuration; the actual top-level `networks` array must list every Podman network used by the host:
+Example configuration for the selected initial `webApp` HTTP application; additional HTTP applications may declare their own upstreams and ports. The actual top-level `networks` array must list every Podman network used by the host:
 
 ```json
 {
-	"application_gateway": {
+	"http_proxy": {
 		"enabled": true,
 		"listen_address": "0.0.0.0",
 		"http_port": 8080,
@@ -98,7 +100,22 @@ Example service configuration; the actual top-level `networks` array must list e
 
 `schedule` uses systemd `OnCalendar` syntax and defaults to `monthly`. `remote_mount` names host-mounted storage. Mount it read-only in PostgreSQL at `container_path`; the host backup job writes to the host path. Deployment logs an error and fails the backup job if the mount is unavailable.
 
-The frontend and API route to the same `webApp` container. NGINX needs separate internal frontend and FastAPI ports; values remain unprovided.
+The existing nested route shape retains the frontend/backend upstream fields for the selected initial application, but both resolve to the same combined `webApp:8000` FastAPI listener. FastAPI serves the built SPA at `/app/` and API routes at `/app/api/`; there are no separate frontend/API listeners or unresolved port inputs for this initial stack. Other HTTP applications may configure their own upstreams and ports; `webApp:8000` is not a global proxy restriction.
+
+### HTTP identity and access trust
+
+The external perimeter authenticates end users, removes or replaces client-supplied identity fields,
+and injects the trusted `X-USER` identity fields. The application uses those fields to authorize
+protected operations; NGINX only proxies and is not a login/authentication engine. The application
+must reject missing or untrusted identity on protected endpoints. No runtime authentication or
+authorization implementation is claimed here.
+
+Because the selected NGINX host listener binds `0.0.0.0:8080` and the Development Gateway permits
+direct service access, deployment must gate protected HTTP routes on either effective ingress
+restriction to the trusted perimeter or verified perimeter-to-application identity provenance.
+Neither network CIDR nor an unverified raw `X-USER` value proves authentication. The exact
+`X-USER`-field allowlist and provenance mechanism remain unresolved implementation prerequisites;
+do not invent additional identity header names.
 
 ## 4. Lifecycle Contract
 
@@ -113,7 +130,7 @@ The frontend and API route to the same `webApp` container. NGINX needs separate 
 
 - Starting only after a healthy Gateway is present, build or pull pinned images, create only missing declared networks and volumes, install service definitions atomically, and start dependencies in an explicit order. Reuse the existing Gateway; do not deploy a duplicate.
 - Wait for dependency readiness and application health before publishing routes or development DNS records. Config declarations alone are not readiness.
-- Update Application Gateway routes through its supported deployment interface only after route targets pass readiness. The flag `application_gateway.enabled` expresses desired declaration and validation, not implemented or successful runtime deployment.
+- Update HTTP proxy routes through its supported deployment interface only after route targets pass readiness. The flag `http_proxy.enabled` expresses desired declaration and validation, not implemented or successful runtime deployment.
 - Configure containers to use the Development Gateway DNS address on their network. Publish split-DNS rules for configured container domains to remote OpenVPN and SSH TUN clients.
 - Notify the Development Gateway after a declared development target is ready and its current network address is known. The handoff carries the active config revision and ready target identities; Gateway independently re-inspects Podman, rejects stale revisions/undeclared references, and emits records only for current valid addresses. Missing, stopped, unhealthy, or not-ready targets stay pending with no record and are never started by Gateway. Do not edit Gateway-owned DNS files directly.
 - On stop, failed readiness, or replacement, invoke DNS refresh after the application's state transition so obsolete records are removed or updated. No background watcher is assumed; document the window in which an unannounced crash may leave DNS stale until an explicit refresh or Gateway restart.
@@ -156,7 +173,7 @@ The frontend and API route to the same `webApp` container. NGINX needs separate 
 2. Define a versioned app manifest and read-only preflight with failure-before-change tests.
 3. Implement network, volume, and service lifecycle after the shared Gateway is healthy, with idempotence and explicit ownership checks. Add/update networks, containers, routes, and DNS in the shared versioned host config through staged validation and atomic replacement; preserve unrelated objects and operator inputs.
 4. Reconcile the existing Gateway for newly declared networks before starting app workloads. Integrate readiness, health checks, route publication, and backup scheduling.
-5. Integrate Application Gateway route updates and revision-scoped Development Gateway DNS refresh without direct edits to their owned state.
+5. Integrate HTTP proxy route updates and revision-scoped Development Gateway DNS refresh without direct edits to their owned state.
 6. Validate update, failure rollback, reboot, backup/restore, secret preservation, and isolation on the authorized disposable RHEL 9.8 / Podman 5.8.2 host with SELinux disabled. Do not change host security settings.
 
 ## 8. Acceptance Checks
@@ -167,7 +184,7 @@ The frontend and API route to the same `webApp` container. NGINX needs separate 
 - A newly recreated development target gets a fresh DNS address only after readiness; stale records are removed according to the Gateway contract.
 - On a pristine host, Gateway `--check` is read-only, reports missing networks as planned creation, and marks configured DNS declarations pending readiness/unverified from configuration alone without probing containers; Gateway apply creates networks and reaches readiness without any application containers or app operations. Readiness-aware DNS status and publication occur only through the separate post-readiness handoff.
 - After Gateway is healthy, application and optional NGINX deployment creates and readies its own containers, atomically updates the shared config while preserving unrelated inputs, and reconciles the existing Gateway for added networks. A malformed staged update or incompatible existing network fails before mutation.
-- `application_gateway.enabled` validates desired NGINX/routes only. It never counts as runtime deployment or readiness; public routes appear only after NGINX and upstream readiness.
+- `http_proxy.enabled` validates desired NGINX/routes only. It never counts as runtime deployment or readiness; public routes appear only after NGINX and upstream readiness.
 - Reboot starts Gateway without app DNS targets, then application services independently satisfy their dependencies/readiness and refresh DNS. Stop, failure, and replacement handoffs remove/update managed DNS without retaining old addresses.
 - VS Code ProxyJump reaches the declared application destination, and that destination accepts or rejects the developer key independently of Gateway authentication.
 - Public routes become active only after application health passes.
@@ -180,7 +197,7 @@ The frontend and API route to the same `webApp` container. NGINX needs separate 
 - Name the authorized production deployment operators and their audit path.
 - Supply actual Podman network names, CIDRs, Gateway interface/DNS addresses, and configured container domains. Runtime tunnel routes must be discoverable and must not overlap these networks.
 - Select non-root UID/GID values and writable paths for each image. The qualification host requires SELinux disabled; deployment must not change that state.
-- Set the Application Gateway bind address and the frontend/FastAPI ports within the combined `webApp` container. Keep database credentials readable only by the FastAPI process.
+- Preserve the selected HTTP proxy bind `0.0.0.0:8080`; serve the SPA and API from the single `webApp:8000` listener. Keep database credentials readable only by the FastAPI process.
 - Set the host-mounted remote backup path and confirm its protocol and write access. The path is shared with PostgreSQL; backup jobs log errors and fail if it is unavailable.
 - Implement and test a narrow Development Gateway DNS refresh handoff. Do not edit Gateway-owned DNS files directly.
 - Select the supported Node.js build version and TUS account/storage details. Keep the default 1 GB file limit configurable.

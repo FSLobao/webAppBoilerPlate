@@ -249,7 +249,7 @@ def test_validate_podman_state_checks_every_declared_podman_network() -> None:
     validate_podman_state(
         {
             "networks": declarations,
-            "application_gateway": {
+            "http_proxy": {
                 "enabled": True,
                 "routes": [
                     {"frontend": "frontend-container", "backend": "external-service"}

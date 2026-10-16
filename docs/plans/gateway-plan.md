@@ -31,7 +31,7 @@ In scope:
 
 Out of scope:
 
-- Application Gateway implementation or application/backend/database deployment.
+- HTTP proxy implementation or application/backend/database deployment.
 - OpenVPN server provisioning or configuration. This project installs and configures only the Gateway's OpenVPN client.
 - External firewall, VPN identity policy, corporate authentication, DNS, or TLS policy. External VPN routing and developer-client route distribution remain prerequisites.
 - Live-host deployment or changes to a production RHEL host.
@@ -47,7 +47,7 @@ Implementation must preserve these invariants:
 - One shared Gateway serves multiple isolated application networks.
 - The shared Gateway has one Podman interface for every network in the global top-level `networks` array in `config/host_config.json`, including database networks. It has no per-service network allowlist.
 - Each application retains its own Podman network. No global network joins applications.
-- The Gateway is not the Application Gateway and does not serve user traffic.
+- The Development Gateway is not an end-user HTTP proxy. It provides developer access to all configured service ports and does not require host-port publication.
 - DNSMasq runs in the Gateway and returns current container addresses only for readiness-confirmed declared targets. An unavailable or not-ready target is pending and has no published record. Remote clients can use the Gateway DNS service through either tunnel interface and must have routes to every configured Podman CIDR.
 - The Gateway routes developer-initiated traffic across tunnel interfaces to every configured container network without protocol or port filtering. Stateful replies are allowed. New container-initiated egress uses normal Podman host egress and host masquerading.
 - The shared Gateway can reach every network-attached service, including PostgreSQL. Remote developers also gain access to every configured network and service, including database services; the external VPN and security perimeter control who can connect.
@@ -133,7 +133,7 @@ The host schema should contain:
 
 - `schema_version`, initially `1`.
 - A required top-level `networks` array containing every Podman network declared for applications and their services, with exact name, expected CIDR, and non-overlapping Gateway interface address. This is the global application-network inventory; the Development Gateway attaches to every listed network. Do not include unrelated host interfaces/attachments, external VPN routes, or tunnel address pools here.
-- Optional service-specific sections such as `gateway`, `application_gateway`, and per-application declarations. Feature sections are optional and backward-compatible under required `schema_version: 1`.
+- Optional service-specific sections such as `gateway`, `http_proxy`, direct service-publication declarations, and per-application declarations. Feature sections are optional and backward-compatible under required `schema_version: 1`.
 - An optional array of containers and their expected networks for generic host preflight checks.
 - An optional `gateway` section with identity and separate SSH/Cockpit bind addresses and ports. Keep `bind_address` as the backward-compatible fallback for both listeners; Gateway attachment is derived from the top-level `networks` inventory, not a Gateway-specific network list.
 - Pending optional `gateway.remote_access.openvpn` design settings with an enable flag and a host path to the external, private client profile. Discover pushed routes and client ranges from the active tunnel; those external routes do not belong in the Podman network inventory.

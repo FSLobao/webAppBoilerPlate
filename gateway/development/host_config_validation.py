@@ -1,8 +1,8 @@
 """Validate host configuration rules shared by Gateway entrypoints.
 
-The public functions reject the removed ``gateway.networks`` field and load
-JSON with duplicate-key protection. The CLI validates one host configuration
-for container startup.
+The public functions reject the removed ``gateway.networks`` field and the
+removed ``application_gateway`` section, and load JSON with duplicate-key
+protection. The CLI validates one host configuration for container startup.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ else:
 
 
 def validate_host_config(config: Any) -> None:
-    """Reject removed Gateway-level network configuration.
+    """Reject removed Gateway-level network and proxy configuration.
 
     Raises:
-        ValueError: The configuration declares ``gateway.networks``.
+        ValueError: The configuration declares a removed configuration field.
     """
     if not isinstance(config, dict):
         return
@@ -32,6 +32,11 @@ def validate_host_config(config: Any) -> None:
             "'gateway.networks' is not supported; declare Podman networks "
             "in top-level 'networks'"
         )
+    if "application_gateway" in config:
+        raise ValueError(
+            "'application_gateway' is not supported; use 'http_proxy' for "
+            "optional HTTP reverse-proxy configuration"
+        )
 
 
 def load_host_config(path: str | Path) -> Any:
@@ -39,7 +44,7 @@ def load_host_config(path: str | Path) -> Any:
 
     Raises:
         OSError: The configuration file cannot be read.
-        ValueError: The JSON is invalid or uses ``gateway.networks``.
+        ValueError: The JSON is invalid or uses a removed configuration field.
     """
     config = load_json(path)
     validate_host_config(config)
