@@ -13,6 +13,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from scripts.gateway.host_config_validation import (
+    load_host_config,
+    validate_host_config,
+)
+
 
 def validate_address_declarations(config: dict[str, Any]) -> None:
     """Validate Gateway bind addresses, optional interface IPs, and subnets.
@@ -26,6 +31,8 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
         ValueError: An address is invalid or outside its subnet, a subnet is
             non-canonical, or two declared subnets overlap.
     """
+    validate_host_config(config)
+    validate_host_config(config)
     if "gateway" in config:
         for field in (
             "bind_address",
@@ -86,6 +93,8 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
 
 def validate_application_gateway_networks(config: dict[str, Any]) -> None:
     """Require NGINX and each enabled upstream to share a declared network."""
+    validate_host_config(config)
+    validate_host_config(config)
     application_gateway = config.get("application_gateway")
     if not application_gateway or not application_gateway["enabled"]:
         return
@@ -125,8 +134,7 @@ def validate_config_file(config_path: str | Path) -> None:
         json.JSONDecodeError: The file does not contain valid JSON.
         KeyError, TypeError, ValueError: Address or subnet declarations fail.
     """
-    with Path(config_path).open(encoding="utf-8") as config_file:
-        config = json.load(config_file)
+    config = load_host_config(config_path)
     validate_address_declarations(config)
     validate_application_gateway_networks(config)
 

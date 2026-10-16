@@ -49,6 +49,8 @@ validate_config() {
     command -v jq >/dev/null 2>&1 || fail 'jq is required for configuration validation.'
     command -v python3 >/dev/null 2>&1 || fail 'python3 is required to validate IPv4 addresses and CIDR overlap.'
     [[ -f "$config_path" && -r "$config_path" ]] || fail "Configuration file is missing or unreadable: $config_path"
+    run_python_module scripts.gateway.strict_json "$config_path" || \
+        fail "Configuration is not valid JSON without duplicate keys: $config_path"
     jq empty "$config_path" >/dev/null 2>&1 || fail "Configuration is not valid JSON: $config_path"
 
     local schema_version
@@ -155,7 +157,7 @@ validate_config() {
                 ($config.gateway |
                     object_with_allowed_keys(
                         ["name", "bind_address", "ssh_port", "cockpit_port", "authorized_keys_path"];
-                        ["networks", "ssh_bind_address", "cockpit_bind_address"]
+                        ["ssh_bind_address", "cockpit_bind_address"]
                     ) and
                     (.name | podman_name) and .name == "gateway" and
                     (.bind_address | type == "string" and length > 0) and
@@ -166,14 +168,9 @@ validate_config() {
                     .ssh_port != .cockpit_port and
                     (.authorized_keys_path | type == "string" and
                         test("^/[A-Za-z0-9_./-]+$") and
-                        (split("/") | all(.[]; . != "." and . != ".."))) and
-                    (if has("networks") then
-                        (.networks | type == "array" and all(.[]; podman_name) and length == (unique | length))
-                    else true end)) and
-                (($config.gateway.networks // $network_names) as $gateway_networks |
-                    all($gateway_networks[]; . as $network | $network_names | index($network) != null) and
-                    all(($config.dns_records // [])[]; .network as $network | $gateway_networks | index($network) != null))
-            else true end))
+                        (split("/") | all(.[]; . != "." and . != ".."))))
+            else true end) and
+            all(($config.dns_records // [])[]; .network as $network | $network_names | index($network) != null))
         )
     ' "$config_path" >/dev/null || fail 'Configuration violates schema version 1, contains duplicate names, or has invalid network/DNS declarations.'
 
@@ -270,7 +267,7 @@ check_gateway_host_preflight() {
     [[ "$certificate_public_key" == "$private_public_key" ]] || fail 'Cockpit TLS certificate and private key do not match.'
 
     local network_count dns_count
-    network_count=$(jq '(.gateway.networks // [.networks[].name]) | length' "$config_path")
+    network_count=$(jq '.networks | length' "$config_path")
     dns_count=$(jq '(.dns_records // []) | length' "$config_path")
     (( network_count > 0 )) || fail 'At least one gateway network must be declared before deployment.'
     (( dns_count > 0 )) || fail 'At least one development DNS record must be declared before deployment.'
@@ -368,7 +365,7 @@ check_gateway_host_preflight() {
     done
 
     run_python_module scripts.gateway.host_preflight podman-state \
-        --allow-missing-gateway-networks "$config_path"
+        --allow-missing-declared-networks "$config_path"
 }
 # ---------------------------------- #
 

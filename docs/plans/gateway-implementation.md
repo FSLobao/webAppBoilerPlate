@@ -15,14 +15,14 @@
 - The container does not run systemd as PID 1. Bash supervises foreground OpenSSH, DNSMasq, and Cockpit websocket processes and forwards shutdown signals. Cockpit websocket standalone flags and the process lifecycle passed a local container smoke test.
 - No extra Linux capabilities are requested; Quadlet drops unused `NET_RAW`. OpenVPN, SSH TUN, and routed remote access are not implemented. Test TUN device access, forwarding, routes, and the minimum capability set on the target host before adding privileges.
 - The current [startup.sh](../../gateway/development/startup.sh) sets `PermitTunnel no`; it does not support the planned SSH TUN interface. Supporting SSH TUN requires an explicitly restricted tunnel account and target-host validation.
-- Missing DNS targets are hard preflight errors. Read-only `--check` reports stopped targets without starting them. `--apply` asks before starting stopped targets, reruns preflight, and restores their stopped state if a later apply step fails. A running target attached to the wrong network is a hard preflight failure.
+- **Current implementation gap:** `scripts/gateway/host_preflight.py` still requires configured containers and DNS targets to exist; its legacy Podman-state probe reports stopped containers as pending, but `scripts/deploy-gateway.sh --apply` asks permission to start stopped DNS targets. `scripts/gateway/dns_records.py` fails when a DNS target is absent or stopped. Gateway `--check` currently permits missing declared networks but does not report them as planned creation; `--apply` creates them. This is current behavior, not the approved plan: future Gateway `--check` must not probe containers and must mark each configured DNS declaration `pending readiness/unverified` from config alone. Later implementation must remove application-container prerequisites and start permissions, report planned network creation, and keep readiness-aware Podman inspection in the separate DNS refresh handoff. Gateway bootstrap must succeed without application containers and must never create, start, or otherwise operate them.
 - The Gateway currently loads only gateway-login public keys from `/etc/gateway/authorized_keys`. Application destination keys remain unimplemented. The plan requires one root-managed `authorized_keys` file per container, allowing multiple public keys, read-only consumption, and installation for a dedicated non-root destination account. Host audit records file changes; PAM and operator-session controls remain external and are not revalidated here. Private keys must never be copied to the host or containers.
-- The checked-in JSON declares `shared` (`192.168.7.0/24`) and `webApp` (`192.168.8.0/29`). Gateway attaches to both, `nginx` uses `shared`, and the combined `webApp` plus `postgres` containers use both networks. This matches the all-networks Gateway contract. Application deployment owns creating each unique app network, updating the top-level inventory and `gateway.networks`, then reconciling the existing Gateway; it must not create another Gateway. The current host preflight requires declared networks and containers to exist. Static Gateway address and Application Gateway route validation are implemented; NGINX runtime deployment and target-host Quadlet acceptance remain pending. No services were deployed.
+- The checked-in JSON declares `shared` (`192.168.7.0/24`) and `webApp` (`192.168.8.0/29`) in the top-level Podman application-network inventory. `shared` is a Podman bridge, not a physical/host interface, host network attachment, VPN route, or tunnel address pool. Gateway attaches to both, `nginx` uses `shared`, and the combined `webApp` plus `postgres` containers use both networks. This matches the all-networks Gateway contract. The approved order is Gateway bootstrap first, then application/NGINX deployment; the top-level declarations may precede those containers. Application deployment owns creating or updating app objects in the same versioned config, creating its containers, readiness, and reconciling the existing Gateway for newly declared networks; it must not create another Gateway or maintain a separate Gateway network list. Pending VPN/tunnel fields remain distinct under `gateway.remote_access`. Current host preflight still requires declared containers to exist, and current DNS generation treats absent/stopped targets as errors; this conflicts with the plan and must be changed later. Static Gateway address and Application Gateway route validation are implemented; NGINX runtime deployment and target-host Quadlet acceptance remain pending. No services were deployed.
 - Gateway SSH binds `0.0.0.0` for external forwarding; Cockpit stays on `127.0.0.1`. The perimeter controls SSH access. NGINX binds `0.0.0.0:8080` for the DHCP-assigned host address.
 
 ## Host Inputs and State
 
-Provision external inputs before `--check`. The deployment never creates or overwrites them.
+Provision Gateway-specific external inputs before `--check`. Application containers and DNS targets are not Gateway prerequisites in the approved design. The deployment never creates or overwrites external inputs.
 
 | Path | Owner and mode | Purpose and responsibility |
 |---|---|---|
@@ -67,10 +67,12 @@ The reusable host preflight can also validate host configurations without a gate
 sudo ./scripts/host-preflight.sh --check config/host_config.json
 ```
 
-Generic checks compare declared network subnets with existing Podman networks and inspect only
-containers listed in `containers` or `dns_records`. Stopped containers are reported as pending.
-They do not require gateway credentials, RHEL 9, or Quadlet. The gateway deployment commands below
-retain those stricter checks.
+Generic checks currently compare declared network subnets with existing Podman networks and inspect
+containers listed in `containers` or `dns_records`; stopped containers are reported as pending.
+They do not require gateway credentials, RHEL 9, or Quadlet. This current behavior is not the
+approved Gateway bootstrap contract: a later implementation must scope Gateway preflight to Gateway
+host/tools/credentials and network prerequisites, not application-container existence or lifecycle.
+Read-only Gateway `--check` must report missing networks as planned creation without changing them.
 
 On a disposable RHEL 9.8 host with rootful Podman 5.8.2, run read-only preflight, then apply only after it passes:
 
@@ -79,7 +81,7 @@ sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
-The current `--apply` refreshes DNS only; it does not create tunnel interfaces, forwarding policy, or routes. Do not claim remote Layer 3 access is available. After routing is implemented, application deployment must refresh DNS after the target is healthy; routes cover network CIDRs, so target recreation does not require per-container route updates. No background watcher is currently installed.
+The current `--apply` creates missing declared networks and refreshes DNS, but it still enforces the older DNS-target presence/start behavior described above. It does not create tunnel interfaces, forwarding policy, or routes. Do not claim remote Layer 3 access is available. The approved future handoff is revision-scoped: after its own readiness checks, application deployment requests DNS refresh; Gateway re-inspects Podman and publishes only a live, valid address for the declared network. Absent, stopped, or not-ready targets remain pending, are not started by Gateway, and have no record. Application lifecycle requests refresh after readiness, stop, and replacement. No background watcher is currently installed; unexpected crashes can leave a prior record until an explicit refresh or Gateway restart, but generated state must never fall back to that stale address.
 
 Inspect and recover with:
 
@@ -89,7 +91,7 @@ sudo journalctl -u gateway.service
 sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 ```
 
-Apply does not delete application networks. If activation or health checks fail, it restores the previous generated Quadlet, configuration, and DNS files, then attempts to restore the prior service and image tag. Newly created networks, image layers, and persistent host keys remain; failure output reports additive network changes. Inspect systemd and Podman state before retrying.
+Apply does not delete application networks. In the approved design, Gateway apply never changes application containers; on a clean host it can bootstrap with none present. If activation or health checks fail, it restores the previous generated Quadlet, configuration, and DNS files, then attempts to restore the prior service and image tag. Newly created networks, image layers, and persistent host keys remain; failure output reports additive network changes. Inspect systemd and Podman state before retrying.
 
 Decommissioning is a separate operator action. First stop and disable the gateway, then remove only its generated Quadlet and container. Keep application networks, host keys, secrets, and application data unless their owners separately approve removal:
 

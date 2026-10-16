@@ -208,3 +208,38 @@ def test_validate_config_file_reads_json(tmp_path) -> None:
     )
 
     validate_config_file(config_path)
+
+
+def test_validate_config_file_rejects_duplicate_keys(tmp_path) -> None:
+    """Reject duplicate configuration keys before JSON object parsing loses them."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"schema_version": 2, "schema_version": 1, "networks": []}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        validate_config_file(config_path)
+
+
+def test_validate_config_file_rejects_gateway_networks(tmp_path) -> None:
+    """Reject the removed Gateway network selector in a parsed configuration."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"gateway": {"networks": ["app-net"]}, "networks": []}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="gateway.networks.*not supported"):
+        validate_config_file(config_path)
+
+
+def test_address_validation_rejects_gateway_networks_directly() -> None:
+    """Reject the removed selector through the public dictionary validator."""
+    with pytest.raises(ValueError, match="gateway.networks.*not supported"):
+        validate_address_declarations(
+            {
+                "gateway": {"networks": ["app-net"]},
+                "networks": [],
+            }
+        )

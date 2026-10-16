@@ -14,8 +14,12 @@ import json
 import subprocess
 import sys
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
+
+from scripts.gateway.host_config_validation import (
+    load_host_config,
+    validate_host_config,
+)
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -47,6 +51,7 @@ def generate_dns_records(
     External commands: ``podman container exists`` and ``podman inspect``.
     This function is read-only and writes no files.
     """
+    validate_host_config(config)
     networks = {
         entry["name"]: ipaddress.ip_network(entry["subnet"], strict=True)
         for entry in config["networks"]
@@ -110,8 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        with Path(args.config).open(encoding="utf-8") as config_file:
-            config = json.load(config_file)
+        config = load_host_config(args.config)
         records = generate_dns_records(config)
     except (
         OSError,

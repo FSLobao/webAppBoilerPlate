@@ -308,7 +308,8 @@ O uso de `firewalld` não é requisito da arquitetura.
 
 ## 8.1 Princípio
 
-Cada aplicação deve possuir uma rede Podman própria com CIDR exclusivo.
+O array top-level `networks` em `config/host_config.json` é o inventário global das redes Podman
+declaradas para aplicações e serviços. Cada aplicação deve possuir uma rede Podman própria com CIDR exclusivo.
 
 Exemplo:
 
@@ -320,11 +321,13 @@ project-c-net
 
 As redes app-specific não roteiam entre si. A topologia inicial também conecta todos os containers de aplicação e PostgreSQL à rede `shared`; essa rede fornece conectividade direta e exige autenticação/autorização em cada serviço.
 
+`networks` descreve somente essas redes Podman de aplicação, não interfaces físicas/do host, redes do host, rotas VPN ou pools de endereços de túneis. A rede Podman `shared` é uma bridge compartilhada por seus membros; ela não é uma interface física do host nem uma interface de host compartilhada com o Gateway.
+
 ---
 
 ## 8.2 Gateway compartilhado
 
-O Gateway compartilhado possui uma interface Podman para cada rede no inventário global `networks` de `config/host_config.json`, incluindo `shared`. Ele não mantém uma lista seletiva de redes por serviço:
+O Gateway compartilhado possui uma interface Podman para cada rede declarada no inventário global top-level `networks` de `config/host_config.json`, incluindo `shared`. Ele não mantém uma lista seletiva de redes por serviço:
 
 ```text
                  Gateway
@@ -335,9 +338,9 @@ O Gateway compartilhado possui uma interface Podman para cada rede no inventári
 
 O Gateway administra todas as redes declaradas sem rotear entre redes app-specific. A rede `shared` é uma exceção explícita: seus membros podem comunicar-se diretamente na mesma rede.
 
-O JSON declara o endereço da interface do Gateway em cada rede. Esse endereço atende DNSMasq para os containers conectados à rede.
+O JSON declara o endereço da interface Podman do Gateway em cada rede. Esse endereço atende DNSMasq para os containers conectados à rede. Não confunda essas interfaces de rede Podman com interfaces físicas/do host ou interfaces de túnel.
 
-A configuração solicitada declara `shared` e `webApp` em `gateway.networks`, mantendo o Gateway conectado a todas as redes do inventário. Aplicações futuras devem adicionar cada rede nova à configuração do Gateway existente.
+A configuração declara `shared` e `webApp` no inventário top-level `networks`, mantendo o Gateway conectado a todas as redes declaradas. Aplicações futuras adicionam cada rede Podman nova somente a esse inventário e reconciliam o Gateway existente.
 
 ---
 
@@ -1219,7 +1222,9 @@ Resolva os inputs restantes da seção 29 antes da implementação. Valide Podma
 
 O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `.2` foram aprovados para as duas interfaces do Gateway.
 
-`192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza o inventário e `gateway.networks`, e reconcilia o Gateway existente. Não deve criar outro Gateway.
+`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` permanece uma área separada para os campos de VPN/túneis ainda pendentes; rotas externas e pools de endereços não são redes Podman e não entram em `networks`.
+
+`192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza somente o inventário top-level `networks` e reconcilia o Gateway existente. Não deve criar outro Gateway nem manter um inventário seletivo de redes no bloco `gateway`.
 
 O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços estáticos do Gateway. O validador aceita `gateway_address` e `application_gateway`; o deployment de NGINX ainda não foi implementado.
 

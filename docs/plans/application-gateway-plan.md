@@ -1,6 +1,6 @@
 # Application Gateway Plan
 
-**Status:** Route defaults and v1 config validation are selected; NGINX runtime deployment remains pending.
+**Status:** Route defaults and static v1 config validation are selected; NGINX runtime deployment/readiness remains pending. `application_gateway.enabled` is a desired declaration to validate, not evidence of deployed or successful runtime behavior.
 **Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
 
 ## 1. Goal and Boundary
@@ -14,9 +14,9 @@ The external security perimeter provides TLS termination, certificates, public D
 - Keep the Application Gateway separate from the Development Gateway.
 - Do not use it as a maintenance path to containers or the host.
 - Publish the routes declared in `config/host_config.json`; there is no separate per-service approval workflow. Do not route PostgreSQL through the public Application Gateway by default.
-- Keep unique per-app networks and do not route between them. The selected topology also connects every app container to `shared`; members have direct network reach and must enforce service authentication.
+- Keep unique per-app Podman networks and do not route between them. The selected topology also connects every app container to `shared`; this is a Podman bridge, not a host/physical interface or VPN route/pool. Members have direct network reach and must enforce service authentication.
 - Treat DNS names, routes, certificates, and upstream service identities as configuration, not container IP identities.
-- NGINX is the only HTTP provider. Install it only when the optional `application_gateway` section is enabled; the minimum config installs no NGINX or application services.
+- NGINX is the only HTTP provider. The optional `application_gateway` section expresses desired NGINX/routes and enables static validation; runtime NGINX and upstream deployment occurs only in the post-Gateway application phase. The minimum config installs no NGINX or application services.
 - Map NGINX container TCP port `80` to configured host port `8080` by default.
 - External perimeter, public DNS, certificates, and TLS termination are assumed to be provided outside this host-and-container plan.
 
@@ -32,7 +32,7 @@ User
 
 When enabled, one shared NGINX Application Gateway serves every declared HTTP route. The selected config attaches NGINX to `shared`; PostgreSQL and all app containers also join `shared`. NGINX therefore has direct network reach to PostgreSQL even without a database HTTP route. The requester accepts this shared-network connectivity; PostgreSQL authentication remains the control. A route omission is not a network isolation control.
 
-The Development Gateway is separate. It does not publish user HTTP routes or replace the Application Gateway.
+The Development Gateway is separate. It does not publish user HTTP routes or replace the Application Gateway. It must bootstrap before NGINX or application containers and must not require or start them; app target readiness is owned by application deployment.
 
 Use same-origin path routing: public `https://<domain>/app` serves the frontend, and `https://<domain>/app/api/<route>` reaches FastAPI with the prefix preserved. The external perimeter terminates TLS and forwards HTTP to the host listener. NGINX matches `/app/api/` before `/app`; both routes proxy to `webApp:8000`. FastAPI serves built Vite assets and API routes in one process. Configure Vite's asset base as `/app/`. A separate API hostname is out of the default design.
 
@@ -51,10 +51,12 @@ Use same-origin path routing: public `https://<domain>/app` serves the frontend,
 
 - Define configured public endpoint inventory and NGINX network attachments. External perimeter inputs are assumed and remain outside this plan's ownership.
 - Confirm the upstream service names and ports from [Application Stack Plan](application-stack-plan.md).
+- Keep `application_gateway.enabled` as desired-state declaration/static-validation input only. Do not interpret it as implementation or runtime success.
 
 ### Phase 1: Versioned routing configuration
 
 - Define `/app` and `/app/api/` routes to the combined `webApp:8000` upstream, preserving the API prefix. Reject duplicate/overlapping prefixes, undeclared upstreams, and any route to PostgreSQL.
+- Reject malformed route configuration, duplicate declarations, and references to undeclared networks/containers before mutation even when NGINX or upstream containers are absent. Absence at runtime is readiness-pending, not a reason for Gateway bootstrap to fail.
 - Treat an absent `http_port` as `8080`; default the listener address to `0.0.0.0` for the assigned host IP. Reject invalid/occupied ports, duplicate routes, and undeclared upstreams.
 - Normalize `/app` to `/app/`. Match `/app/api/` before `/app/`; preserve the API prefix and never send API paths to the SPA fallback. Configure Vite's base path as `/app/` and FastAPI's forwarded prefix/OpenAPI URLs consistently.
 - Set NGINX request-body limit to 1 GB by default, with no rate limits. Configure the TUS service to reject files larger than 1 GB by default.
@@ -63,16 +65,21 @@ Use same-origin path routing: public `https://<domain>/app` serves the frontend,
 
 ### Phase 2: Container lifecycle and integration
 
-- Add the NGINX image and lifecycle using rootful Podman Quadlet only when `application_gateway` is enabled. Bind `0.0.0.0:8080` to container TCP port `80`; fail preflight if the port is occupied.
+- Run this phase only after the shared Development Gateway is healthy. Application deployment owns NGINX image/lifecycle and app container creation, startup, health, and readiness. The Gateway must never create, start, inspect, or otherwise operate NGINX or its upstream containers.
+- Stage and validate any network/container/route/DNS changes against the complete shared versioned host config, including compatibility of existing networks, then atomically update it while preserving unrelated objects and operator inputs. Create missing application networks and reconcile the existing Gateway for added network declarations before creating/starting application containers; do not deploy a second Gateway.
+- Add the NGINX image and lifecycle using rootful Podman Quadlet only when `application_gateway` is enabled. Bind `0.0.0.0:8080` to container TCP port `80`; fail application-phase preflight if the port is occupied.
 - Attach NGINX to `shared`. PostgreSQL is also on `shared`, so NGINX has network reach to it; omit database HTTP routes and rely on PostgreSQL authentication.
 - Configure optional TUS and basic file-sharing endpoints only when declared.
-- Add readiness and health behavior that distinguishes proxy failure from unavailable upstreams.
+- Add readiness and health behavior that distinguishes proxy failure from unavailable upstreams. Publish/reload routes only after NGINX and each route target pass their owning readiness checks. A valid route declaration alone is not readiness.
+- On service stop, replacement, or failed readiness, retain no route to an unready upstream after the application phase reconciles state. For development DNS targets use the revision-scoped Development Gateway handoff; absent/stopped targets remain pending and produce no record, and Gateway does not start them.
 
 ### Phase 3: RHEL 9.8 / Podman 5.8.2 acceptance
 
 - Validate image provenance/pinning, Quadlet behavior, restart/reboot behavior, and external bind addresses on the authorized disposable RHEL 9.8 / Podman 5.8.2 host with SELinux disabled. Do not change host security settings.
 - Verify malformed route configuration fails without changing active routes or service state.
 - Verify reload failure preserves the last known-good config and active service.
+- Verify the clean-host order: Gateway bootstraps first with no application or NGINX containers even when their optional declarations exist; then app deployment creates and readies upstreams and NGINX without changing unrelated host-config objects.
+- Verify an absent, stopped, or unhealthy upstream does not make Gateway bootstrap fail and is not represented as a successful route deployment. Public routes become active only after NGINX/upstream readiness; a failed staged config or incompatible network fails before mutation.
 
 ## 6. Acceptance Checks
 
@@ -83,6 +90,7 @@ Use same-origin path routing: public `https://<domain>/app` serves the frontend,
 - External perimeter forwards TLS-protected public traffic to the configured host listener. Perimeter behavior and certificate rotation are assumed, not validated here.
 - Stopping an upstream produces a defined health/error response without exposing internal details or secrets.
 - Config update, rollback, restart, and reboot work without deleting application data.
+- `application_gateway.enabled` is reported as desired declaration/static validation only until NGINX runtime acceptance has actually passed.
 
 ## 7. Unresolved Questions
 

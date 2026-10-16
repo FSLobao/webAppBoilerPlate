@@ -22,6 +22,7 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
         podman=5.4.2+ds1-2+b2 \
         passwd=1:4.17.4-2 \
         procps=2:4.0.4-9 \
+        python3-minimal=3.13.5-1 \
         util-linux=2.41.5-0+deb13u1 \
     && rm -f /usr/sbin/policy-rc.d \
     && rm -rf /var/lib/apt/lists/* \
@@ -36,6 +37,8 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && chmod 0755 /home/developer /home/gateway-admin
 
 COPY startup.sh /usr/local/sbin/gateway-startup
+COPY strict_json.py /usr/local/lib/gateway/strict_json.py
+COPY host_config_validation.py /usr/local/lib/gateway/host_config_validation.py
 RUN chmod 0755 /usr/local/sbin/gateway-startup
 
 EXPOSE 22/tcp 53/tcp 53/udp 9090/tcp

@@ -16,6 +16,11 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
+from scripts.gateway.host_config_validation import (
+    load_host_config,
+    validate_host_config,
+)
+
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 TARGET_HOST_OS_ID = "rhel"
@@ -77,17 +82,17 @@ def validate_podman_state(
     config: dict[str, Any],
     run_command: CommandRunner = subprocess.run,
     announce: Callable[[str], None] = print,
-    allow_missing_gateway_networks: bool = False,
+    allow_missing_declared_networks: bool = False,
 ) -> None:
     """Check declared host networks and container attachments against Podman.
 
     Args:
         config: Structurally validated host configuration. ``gateway`` is
-            optional; its selected networks may be created during deployment.
+            optional; declared Podman networks may be created during deployment.
         run_command: Subprocess-compatible runner, injectable for tests.
         announce: Receives pending-target messages; defaults to standard output.
-        allow_missing_gateway_networks: Permit selected gateway networks to be
-            absent before gateway deployment creates them.
+        allow_missing_declared_networks: Permit declared Podman networks to be
+            absent before deployment creates them.
 
     Raises:
         RuntimeError: A Podman command fails.
@@ -98,6 +103,7 @@ def validate_podman_state(
     ``podman container exists``, and ``podman inspect``. The function is
     read-only and does not start containers or create networks.
     """
+    validate_host_config(config)
     names_output = run_command(
         ["podman", "network", "ls", "--format", "{{.Name}}"],
         check=True,
@@ -113,10 +119,6 @@ def validate_podman_state(
         entry["name"]: ipaddress.ip_network(entry["subnet"], strict=True)
         for entry in config["networks"]
     }
-    gateway = config.get("gateway")
-    gateway_networks = set(
-        gateway.get("networks", declared_networks) if gateway else ()
-    )
     for name, subnet in declared_networks.items():
         for existing_name, subnets in existing_networks.items():
             if existing_name == name:
@@ -129,7 +131,7 @@ def validate_podman_state(
                     )
 
         if name not in existing_networks:
-            if allow_missing_gateway_networks and name in gateway_networks:
+            if allow_missing_declared_networks:
                 continue
             raise ValueError(f"declared host network '{name}' is absent")
         ipv4_subnets = [
@@ -227,9 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     state_parser.add_argument("config", help="JSON host configuration")
     state_parser.add_argument(
-        "--allow-missing-gateway-networks",
+        "--allow-missing-declared-networks",
         action="store_true",
-        help="allow selected gateway networks to be created during deployment",
+        help="allow declared Podman networks to be created during deployment",
     )
     args = parser.parse_args(argv)
 
@@ -241,11 +243,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if cockpit_password_is_valid(args.path) else 1
 
     try:
-        with pathlib.Path(args.config).open(encoding="utf-8") as config_file:
-            config = json.load(config_file)
+        config = load_host_config(args.config)
         validate_podman_state(
             config,
-            allow_missing_gateway_networks=args.allow_missing_gateway_networks,
+            allow_missing_declared_networks=args.allow_missing_declared_networks,
         )
     except (
         OSError,

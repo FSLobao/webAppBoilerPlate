@@ -104,7 +104,6 @@ def test_validate_podman_state_accepts_valid_running_target() -> None:
 
     validate_podman_state(
         {
-            "gateway": {"networks": ["project-a"]},
             "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
             "dns_records": [
                 {"name": "api.project-a.dev.internal", "container": "api", "network": "project-a"}
@@ -132,7 +131,6 @@ def test_validate_podman_state_rejects_overlapping_existing_network() -> None:
     with pytest.raises(ValueError, match="overlaps existing Podman network"):
         validate_podman_state(
             {
-                "gateway": {"networks": ["project-a"]},
                 "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
                 "dns_records": [],
             },
@@ -157,7 +155,6 @@ def test_validate_podman_state_reports_stopped_target_as_pending() -> None:
     messages = []
     validate_podman_state(
         {
-            "gateway": {"networks": ["project-a"]},
             "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
             "dns_records": [
                 {"name": "api.project-a.dev.internal", "container": "api", "network": "project-a"}
@@ -221,3 +218,96 @@ def test_validate_podman_state_rejects_missing_generic_network() -> None:
             {"networks": [{"name": "database", "subnet": "10.90.0.0/24"}]},
             run_command=run_command,
         )
+
+
+def test_validate_podman_state_checks_every_declared_podman_network() -> None:
+    """Check each declared Podman network without treating routes as networks."""
+    inspected_networks = []
+    declarations = [
+        {"name": "shared", "subnet": "10.89.1.0/24"},
+        {"name": "application-net", "subnet": "10.89.2.0/24"},
+        {"name": "newly-added-net", "subnet": "10.89.3.0/24"},
+    ]
+
+    def run_command(*args, **kwargs):
+        command = list(args[0]) if len(args) == 1 else list(args)
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            names = "\n".join(entry["name"] for entry in declarations)
+            return subprocess.CompletedProcess(command, 0, names, "")
+        if command[:3] == ["podman", "network", "inspect"]:
+            network_name = command[3]
+            inspected_networks.append(network_name)
+            subnet = next(
+                entry["subnet"]
+                for entry in declarations
+                if entry["name"] == network_name
+            )
+            details = [{"subnets": [{"subnet": subnet}]}]
+            return subprocess.CompletedProcess(command, 0, json.dumps(details), "")
+        raise AssertionError(f"unexpected command: {command}")
+
+    validate_podman_state(
+        {
+            "networks": declarations,
+            "application_gateway": {
+                "enabled": True,
+                "routes": [
+                    {"frontend": "frontend-container", "backend": "external-service"}
+                ],
+            },
+        },
+        run_command=run_command,
+    )
+
+    assert inspected_networks == [
+        "shared",
+        "application-net",
+        "newly-added-net",
+    ]
+
+
+def test_host_preflight_cli_rejects_nested_duplicate_keys(tmp_path, capsys) -> None:
+    """Reject duplicate nested keys before invoking Podman during preflight."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"schema_version": 1, "networks": [], '
+        '"gateway": {"name": "invalid", "name": "gateway"}}',
+        encoding="utf-8",
+    )
+
+    assert main(["podman-state", str(config_path)]) == 1
+    assert "duplicate JSON object key" in capsys.readouterr().err
+
+
+def test_host_preflight_cli_rejects_gateway_networks_before_podman(
+    tmp_path, capsys
+) -> None:
+    """Reject the removed network selector before querying Podman."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"gateway": {"networks": ["app-net"]}, "networks": []}',
+        encoding="utf-8",
+    )
+
+    assert main(["podman-state", str(config_path)]) == 1
+    assert "gateway.networks" in capsys.readouterr().err
+
+
+def test_validate_podman_state_rejects_gateway_networks_before_commands() -> None:
+    """Reject the removed network selector before any Podman command."""
+    calls = []
+
+    def run_command(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError("Podman must not be queried for an invalid config")
+
+    with pytest.raises(ValueError, match="gateway.networks.*not supported"):
+        validate_podman_state(
+            {
+                "gateway": {"networks": ["app-net"]},
+                "networks": [{"name": "app-net", "subnet": "10.89.1.0/24"}],
+            },
+            run_command=run_command,
+        )
+
+    assert calls == []

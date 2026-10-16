@@ -61,7 +61,7 @@ create_declared_networks() {
                 ;;
             *) fail "Could not inspect declared Podman network '$network'." ;;
         esac
-    done < <(jq -r '(.gateway.networks // [.networks[].name])[]' "$config_path")
+    done < <(jq -r '.networks[].name' "$config_path")
 }
 
 generate_dns_candidate() {
@@ -106,8 +106,7 @@ render_quadlet_candidate() {
     ssh_port=$(jq -r '.gateway.ssh_port' "$config_path")
     cockpit_port=$(jq -r '.gateway.cockpit_port' "$config_path")
     network_lines=$(jq -r '
-        (.gateway.networks // [.networks[].name])[] as $network |
-        .networks[] | select(.name == $network) |
+        .networks[] |
         "Network=" + .name +
             (if has("gateway_address") then ":ip=" + .gateway_address else "" end)
     ' "$config_path")
@@ -276,7 +275,7 @@ check_gateway_health() {
     [[ "$(podman inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == true ]] || \
         fail "Gateway container is not running: $CONTAINER_NAME"
 
-    expected_networks=$(jq -c '(.gateway.networks // [.networks[].name]) | sort' "$config_path")
+    expected_networks=$(jq -c '[.networks[].name] | sort' "$config_path")
     attached_networks=$(podman inspect --format '{{json .NetworkSettings.Networks}}' "$CONTAINER_NAME") || \
         fail 'Cannot inspect gateway network attachments.'
     jq -e --argjson expected "$expected_networks" 'keys | sort == $expected' <<< "$attached_networks" >/dev/null || \
@@ -288,8 +287,7 @@ check_gateway_health() {
         [[ "$actual_address" == "$expected_address" ]] || \
             fail "Gateway address on network '$network' is '$actual_address'; expected '$expected_address'."
     done < <(jq -r '
-        (.gateway.networks // [.networks[].name])[] as $name |
-        .networks[] | select(.name == $name and has("gateway_address")) |
+        .networks[] | select(has("gateway_address")) |
         "\(.name) \(.gateway_address)"
     ' "$config_path")
 
@@ -518,4 +516,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

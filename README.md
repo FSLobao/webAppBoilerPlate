@@ -76,8 +76,9 @@ flowchart LR
 
 Componentes e limites principais:
 
-- **Gateway:** um container administrativo compartilhado, conectado às redes das
-  aplicações. Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico, Cockpit e
+- **Gateway:** um container administrativo compartilhado, conectado a todas as redes Podman
+  declaradas para as aplicações. Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico,
+  Cockpit e
   `cockpit-podman`. Não serve tráfego de usuários.
 - **Application Gateway:** componente separado para acesso HTTP/HTTPS às aplicações. Não é canal
   de manutenção dos containers.
@@ -182,9 +183,20 @@ para deployment.
 
 ## Containers e redes Podman
 
-Cada aplicação terá uma rede Podman própria, com CIDR sem sobreposição. As redes não se comunicam
-entre si por padrão. O Gateway poderá se conectar a várias redes para manutenção, sem
-unificá-las.
+O array top-level `networks` em `config/host_config.json` é o inventário global das redes Podman
+declaradas para aplicações e seus serviços. Cada aplicação terá uma rede Podman própria, com CIDR
+sem sobreposição. O Gateway conecta-se a todas as redes desse inventário; essa conexão não as une
+nem cria roteamento entre redes app-specific.
+
+A rede `shared` é uma bridge Podman compartilhada explicitamente por seus membros. Ela não é uma
+interface física do host, uma interface do host ligada ao Gateway, nem uma rota ou pool de endereços
+de VPN. Rotas externas de VPN, pools de endereços de túneis e interfaces físicas/do host são
+conceitos distintos e não pertencem ao inventário `networks`.
+
+`networks` declara somente as redes Podman da aplicação; não declara todos os recursos de rede do
+host. Ao implantar uma aplicação, a implantação atualiza somente esse inventário de redes Podman
+para a nova rede e reconcilia o Gateway existente, que deve permanecer conectado a todas as redes
+declaradas.
 
 O deployment deverá gerar ou atualizar os registros do DNSMasq para serviços de desenvolvimento
 selecionados, usando nomes estáveis como `backend.project-a.dev.internal`. A configuração deverá
@@ -218,11 +230,11 @@ para o inventário detalhado de paths, decisões e limitações.
 | `--check` | Faz preflight somente leitura. Exige root e RHEL 9.8 com Podman 5.8.2; não constrói imagem nem inicia serviços. |
 | `--apply` | Repete o preflight e, se aprovado, constrói a imagem, instala os arquivos gerenciados e ativa o serviço. Use apenas em host de teste RHEL 9.8 / Podman 5.8.2 autorizado. |
 
-Comece ajustando `config/host_config.json`. `networks` declara as redes existentes no host, com
-nome Podman e CIDR IPv4 esperado. `containers` lista serviços e redes que o preflight deve conferir.
-O bloco `gateway` é opcional para o preflight geral; `gateway.networks` seleciona quais redes o
-gateway pode usar ou criar durante deployment. Cada registro DNS associa um nome `.dev.internal` a
-um container e a uma rede declarada. Exemplo:
+Comece ajustando `config/host_config.json`. `networks` declara as redes Podman da aplicação, com
+nome e CIDR IPv4 esperado. O Gateway conecta-se automaticamente a todas as redes declaradas;
+nenhuma lista seletiva de redes é mantida no bloco `gateway`. `containers` lista serviços e redes
+que o preflight deve conferir. Cada registro DNS associa um nome `.dev.internal` a um container e a
+uma rede declarada. Exemplo:
 
 ```json
 {
@@ -234,8 +246,7 @@ um container e a uma rede declarada. Exemplo:
     "cockpit_bind_address": "127.0.0.1",
     "ssh_port": 2222,
     "cockpit_port": 9090,
-    "authorized_keys_path": "/etc/gateway/authorized_keys",
-    "networks": ["project-a-net"]
+    "authorized_keys_path": "/etc/gateway/authorized_keys"
   },
   "networks": [
     { "name": "project-a-net", "subnet": "10.89.1.0/24" }
@@ -255,8 +266,8 @@ um container e a uma rede declarada. Exemplo:
 
 Escolha CIDRs que não conflitem com as redes existentes no host. O preflight geral exige que cada
 rede declarada exista com o CIDR esperado e verifica os containers listados. Containers parados são
-reportados como pendentes. O deployment do gateway exige também ao menos uma rede em
-`gateway.networks` e um registro DNS.
+reportados como pendentes. O deployment do gateway exige também ao menos uma rede Podman declarada
+no inventário global e um registro DNS.
 
 Para conferir um host com outros containers, sem exigir configuração ou credenciais do gateway:
 

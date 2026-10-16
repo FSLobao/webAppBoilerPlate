@@ -24,11 +24,14 @@ expect_invalid() {
     printf 'PASS: %s rejected\n' "$label"
 }
 
-jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24","gateway_address":"10.89.1.2"}] |
-    .gateway.networks = ["project-a-net"] |
+jq '.networks = [
+        {"name":"shared","subnet":"10.89.1.0/24","gateway_address":"10.89.1.2"},
+        {"name":"project-a-net","subnet":"10.89.2.0/24"},
+        {"name":"newly-added-net","subnet":"10.89.3.0/24"}
+    ] |
     .containers = [
-        {"name":"nginx","networks":["project-a-net"]},
-        {"name":"project-a-backend","networks":["project-a-net"]}
+        {"name":"nginx","networks":["shared","newly-added-net"]},
+        {"name":"project-a-backend","networks":["project-a-net","shared","newly-added-net"]}
     ] |
     .application_gateway = {
         "enabled":true,
@@ -48,6 +51,37 @@ jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24","gateway_addres
 "$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 "$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 printf 'PASS: valid configuration accepted\n'
+
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" "$TMP_DIR/rendered.container"
+mapfile -t rendered_networks < <(grep '^Network=' "$TMP_DIR/rendered.container")
+expected_networks=(
+    'Network=shared:ip=10.89.1.2'
+    'Network=project-a-net'
+    'Network=newly-added-net'
+)
+[[ "${rendered_networks[*]}" == "${expected_networks[*]}" ]] || \
+    fail "Gateway Quadlet networks differ from top-level Podman declarations: ${rendered_networks[*]}"
+printf 'PASS: all declared Podman networks are rendered; application routes are not networks\n'
+
+mkdir -p "$TMP_DIR/network-bin"
+cat > "$TMP_DIR/network-bin/podman" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+case "${1:-} ${2:-}" in
+    'network exists') exit 1 ;;
+    'network create') printf '%s\n' "${5:-}" >> "$NETWORK_CREATE_LOG" ;;
+    *) exit 97 ;;
+esac
+SH
+chmod 0755 "$TMP_DIR/network-bin/podman"
+PATH="$TMP_DIR/network-bin:$PATH" NETWORK_CREATE_LOG="$TMP_DIR/network-create.log" \
+    bash -c 'source "$1"; create_declared_networks "$2"' _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json"
+mapfile -t created_networks < "$TMP_DIR/network-create.log"
+expected_created_networks=(shared project-a-net newly-added-net)
+[[ "${created_networks[*]}" == "${expected_created_networks[*]}" ]] || \
+    fail "Created Podman networks differ from declarations: ${created_networks[*]}"
+printf 'PASS: all declared Podman networks are created\n'
 
 jq 'del(.gateway, .application_gateway) | .networks = [{"name":"database","subnet":"10.90.0.0/24"}] |
     .containers = [{"name":"postgres","networks":["database"]}] | .dns_records = []' \
@@ -81,6 +115,14 @@ printf 'PASS: generic host preflight checks containers without gateway requireme
 
 jq '.schema_version = 2' "$TMP_DIR/valid.json" > "$TMP_DIR/unsupported-version.json"
 expect_invalid 'unsupported schema version' "$TMP_DIR/unsupported-version.json"
+
+jq '.gateway.networks = ["project-a-net"]' "$TMP_DIR/valid.json" > "$TMP_DIR/legacy-gateway-networks.json"
+expect_invalid 'gateway.networks field' "$TMP_DIR/legacy-gateway-networks.json"
+if python3 "$REPO_ROOT/gateway/development/host_config_validation.py" \
+    "$TMP_DIR/legacy-gateway-networks.json" >/dev/null 2>&1; then
+    fail 'startup host-config validator accepted gateway.networks'
+fi
+printf 'PASS: startup host-config validator rejects gateway.networks\n'
 
 jq '.networks += [{"name":"project-a-net","subnet":"10.89.2.0/24"}]' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/duplicate-network.json"
@@ -137,6 +179,19 @@ if "$DEPLOY_SCRIPT" --check "$TMP_DIR/malformed.json" >/dev/null 2>&1; then
 fi
 printf 'PASS: host preflight rejects malformed configuration\n'
 
+sed '0,/"schema_version": 1/s//"schema_version": 2,\n    "schema_version": 1/' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/duplicate-top-level.json"
+sed '0,/"name": "gateway"/s//"name": "invalid",\n        "name": "gateway"/' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/duplicate-nested.json"
+for duplicate_config in "$TMP_DIR/duplicate-top-level.json" "$TMP_DIR/duplicate-nested.json"; do
+    jq empty "$duplicate_config" >/dev/null || fail 'Duplicate-key regression fixture is not valid JSON.'
+    expect_invalid 'duplicate JSON key' "$duplicate_config"
+    if python3 "$REPO_ROOT/gateway/development/host_config_validation.py" \
+        "$duplicate_config" >/dev/null 2>&1; then
+        fail 'startup host-config validator accepted duplicate JSON keys'
+    fi
+done
+
 mkdir -p "$TMP_DIR/source-check/scripts" "$TMP_DIR/source-check/gateway/development"
 install -m 0755 "$PREFLIGHT_SCRIPT" "$TMP_DIR/source-check/scripts/host-preflight.sh"
 if "$TMP_DIR/source-check/scripts/host-preflight.sh" --check-gateway "$TMP_DIR/valid.json" \
@@ -162,6 +217,14 @@ if PATH="$TMP_DIR/fake-bin:$PATH" HOST_COMMAND_LOG="$TMP_DIR/host-commands.log" 
 fi
 [[ ! -s "$TMP_DIR/host-commands.log" ]] || fail 'apply ran host commands before rejecting malformed configuration'
 printf 'PASS: invalid apply stops before host commands\n'
+for duplicate_config in "$TMP_DIR/duplicate-top-level.json" "$TMP_DIR/duplicate-nested.json"; do
+    if PATH="$TMP_DIR/fake-bin:$PATH" HOST_COMMAND_LOG="$TMP_DIR/host-commands.log" \
+        "$DEPLOY_SCRIPT" --apply "$duplicate_config" >/dev/null 2>&1; then
+        fail 'apply accepted duplicate JSON keys'
+    fi
+    [[ ! -s "$TMP_DIR/host-commands.log" ]] || fail 'apply ran host commands before rejecting duplicate keys'
+done
+printf 'PASS: duplicate-key apply failures stop before host commands\n'
 
 before=$(sha256sum "$SAMPLE_CONFIG")
 "$DEPLOY_SCRIPT" --validate-config "$SAMPLE_CONFIG" >/dev/null

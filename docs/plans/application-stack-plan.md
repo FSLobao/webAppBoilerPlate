@@ -5,7 +5,7 @@
 
 ## 1. Goal and Components
 
-Define the per-application container stack: JavaScript frontend and Python/FastAPI in `webApp`, plus PostgreSQL. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each app gets a unique app-specific network, but members also connect to `shared` and require service-level authentication. This plan does not implement the shared Development Gateway or NGINX runtime; see [Application Gateway Plan](application-gateway-plan.md).
+Define the per-application container stack: JavaScript frontend and Python/FastAPI in `webApp`, plus PostgreSQL. Host deployment targets RHEL 9.8 with rootful Podman 5.8.2. Use maintained, efficient Linux images for the Gateway and applications, preferably Debian or Alpine; choose container bases independently from the host distribution. Each app gets a unique app-specific Podman network, but members also connect to `shared` and require service-level authentication. `shared` is a Podman bridge for attached containers, not a physical/host interface or a VPN route/address pool. Deploy and verify the shared Development Gateway before this application stack. Application deployment owns app container creation/readiness; this plan does not implement the Gateway or NGINX runtime; see [Application Gateway Plan](application-gateway-plan.md).
 
 ## 2. Proposed Network Shape
 
@@ -22,7 +22,7 @@ Selected Podman membership:
 - NGINX: `shared`.
 - Development Gateway: every declared network, including `shared` and `webApp`.
 
-The `webApp` network uses `192.168.8.0/29`; `shared` uses `192.168.7.0/24`. The `/29` provides six usable addresses for the host bridge, Gateway, `webApp`, PostgreSQL, and future headroom. PostgreSQL has no published host port by default. App deployment assigns a unique, non-overlapping CIDR to each future app network, creates it, updates the Gateway network declaration, and reconciles the existing Gateway.
+The global top-level `networks` array contains the Podman application networks and their non-overlapping CIDRs; it does not describe host interfaces, physical/host network attachments, VPN routes, or tunnel address pools. The `webApp` network uses `192.168.8.0/29`; `shared` uses `192.168.7.0/24`. The `/29` provides six usable addresses for the host bridge, Gateway, `webApp`, PostgreSQL, and future headroom. PostgreSQL has no published host port by default. App deployment assigns a unique, non-overlapping CIDR to each future app network, creates it, adds it only to the global top-level `networks` inventory, and reconciles the existing Gateway to attach it.
 
 ### Shared-network security boundary
 
@@ -31,6 +31,16 @@ The requester confirmed that all app containers, including PostgreSQL, join `sha
 The `webApp` container combines Vite assets and FastAPI. The latest decision supersedes the earlier separate-process choice: FastAPI serves both assets and API on port `8000` and holds PostgreSQL credentials. Browser assets do not receive those credentials; keep them out of build output and HTTP responses.
 
 The `192.168.8.0/29` subnet is reserved for this `webApp` network. Reusing it for another simultaneous Podman network is invalid; future apps require distinct CIDRs.
+
+### Deployment order and readiness ownership
+
+- Gateway is the first containerized service on a clean host. Gateway preflight validates its own host/tools/credentials and all declared Podman network definitions; it may create missing declared networks during apply. It succeeds without any `nginx`, `webApp`, PostgreSQL, or DNS-target containers and never creates, starts, or inspects them.
+- After Gateway is healthy, application deployment validates the shared versioned host-config candidate and existing network compatibility before atomically updating it for new networks, containers, routes, or DNS declarations; unrelated config objects and operator inputs are preserved. It creates missing declared networks and reconciles the existing Gateway to attach newly declared networks before creating/starting the application workload. Existing incompatible networks and invalid staged references fail before mutation.
+- Application deployment owns dependency ordering and readiness for `webApp`, PostgreSQL, NGINX, and any other app services. Declared container existence, `application_gateway.enabled`, or DNS mappings do not establish runtime readiness or mean those services are implemented.
+- Only after an app target passes its declared health/readiness checks does application deployment request a revision-scoped DNS refresh. Gateway re-inspects Podman and publishes only the current valid address on the target's declared network. Absent, stopped, unhealthy, unattached, or not-ready targets remain pending and have no DNS record; Gateway never starts them.
+- App start, stop, failure, and replacement paths request DNS refresh so the address is added, updated, or removed. A refresh must never retain the previous address as fallback. There is no background watcher in scope, so an unannounced process crash can leave DNS stale until an explicit refresh or Gateway restart; that limitation must be visible in operations.
+
+Application lifecycle, container readiness, and dependency checks belong to this application phase, not Gateway host preflight. The current scripts still impose older Gateway container prerequisites and may start stopped DNS targets; that runtime behavior is not this plan and must be changed before clean-host Gateway-first acceptance. The top-level `networks` array remains strictly the Podman network inventory; VPN/tunnel routes and host interfaces remain separate configuration.
 
 ## 3. Frontend and API Alternatives
 
@@ -142,6 +152,10 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 - PostgreSQL rejects unauthorized connections from other shared-network members. The Gateway has network-level reach but receives no database credentials.
 - Backend and frontend health checks detect startup failure without leaking secrets.
 - A PostgreSQL replacement preserves the data volume; a full-cluster SQL dump restores every database and global role into a disposable cluster.
+- On a pristine host, Gateway bootstrap succeeds with optional app container, DNS, and route declarations present but no application containers; Gateway does not start or operate them. Missing Podman networks are reported by read-only check and created only during apply.
+- After Gateway health, application deployment creates/readies `webApp` and PostgreSQL, preserves unrelated objects while atomically updating the shared config, and reconciles the existing Gateway for new networks before app startup. A repeated deployment is idempotent; a malformed staged config or incompatible existing network fails before mutation.
+- An absent, stopped, or unhealthy declared service is pending rather than a Gateway bootstrap error or a published DNS answer. After application readiness, Gateway publishes the live address; stop/replacement refresh removes or updates the record and never falls back to an old address.
+- Gateway reboot recovery does not depend on app targets. Application units start in their own phase after Gateway/network prerequisites, and readiness triggers the same DNS handoff.
 
 ## 7. Remaining Implementation Inputs
 
