@@ -768,7 +768,19 @@ webApp:  webApp, PostgreSQL
 Frontend JavaScript executado no browser não recebe credenciais PostgreSQL; FastAPI em `webApp:8000` possui essas credenciais. O processo FastAPI serve também os assets estáticos, então não há isolamento de processo entre frontend server e backend.
 
 
-O backup obrigatório executa `pg_dumpall` sem filtros para salvar dados, estrutura de todos os bancos e objetos globais do cluster. O schedule mensal padrão e os caminhos do mount host/container são configurados por instância no JSON; um timer systemd é gerado a partir do schedule. O armazenamento remoto é montado no host e compartilhado somente para leitura com PostgreSQL. O job registra erro e falha se o mount não estiver disponível; não usa fallback local. Restore é uma ação manual do operador, inicialmente por script: conexão direta e privada ao PostgreSQL, seguida da execução do SQL completo via `psql`. Não exponha PostgreSQL pelo proxy HTTP nem restaure automaticamente durante deployment.
+### Backup e recuperação (planejado; não implementado)
+
+O plano primário usa pgBackRest, instalado em versão fixada na imagem PostgreSQL e executado dentro do container como conta de sistema `postgres`, com acesso local aos arquivos do banco e autenticação/roles PostgreSQL compatíveis. O operador e os timers ficam no host; uma entrada local, limitada e gerenciada invoca `podman exec`. Não exponha o socket/API rootful do Podman a um servidor ou coletor remoto.
+
+Separe três responsabilidades de armazenamento: volume ativo `PGDATA`; volume gravável de repositório de trabalho pgBackRest, distinto de `PGDATA` e do volume de exportação; e volume de exportação concluída montado no host. PostgreSQL/operador escreve no repositório de trabalho e no mount de exportação concluída. Não use mount somente leitura nem fallback local. A configuração que expressaria esses caminhos ainda não é aceita pelo validador atual; não adicione campos de runtime nem alegue suporte implementado.
+
+Schedules propostos: full mensal e incremental semanal, serializados para impedir concorrência e execução duplicada; se coincidirem, executa-se apenas o full. São pontos de recuperação semanais condicionados ao sucesso/publicação, não PITR. Inclua em cada exportação WAL e metadados necessários à consistência do backup selecionado; exportação contínua de WAL/PITR é opcional e exige decisão explícita.
+
+O repositório pgBackRest é estado mutável com dependências entre backups, metadados e WAL. Não edite, pode, copie enquanto houver escritores ativos, ou renomeie subdiretórios. Antes da publicação, exija um snapshot de geração consistente por mecanismo suportado, excluindo escritores concorrentes e contendo o backup bem-sucedido, cadeia de pais, manifests/metadados e WAL de consistência necessário. A estratégia inicial proposta é exportar uma geração completa, não reconstruir seletivamente arquivos individuais. Isso simplifica a preservação de dependências, mas pode consumir alto armazenamento/tráfego e não promete transferências incrementais.
+
+O volume do repositório de trabalho (inclusive staging de snapshot) é distinto do volume de exportações concluídas. Somente após sucesso do backup, copie a geração para um diretório transitório de publicação, oculto e separado, no filesystem de exportação concluída; esse staging de transferência não é o repositório de trabalho. Verifique a geração e a cópia; faça flush quando suportado e publique sob identidade única por rename atômico dentro do filesystem de destino ou marcador de conclusão escrito por último. Rename entre volumes não é atômico. Bytes incompletos podem existir temporariamente no staging oculto de destino, mas o namespace concluído nunca os expõe. Gerações publicadas são imutáveis, nunca sobrescritas/editadas; coletores aceitam exclusivamente gerações finais/marcadores válidos, nunca diretórios parciais nem estabilidade de tamanho. Falhas preservam publicações anteriores e a cadeia de origem; limpeza limita-se ao staging da execução. Não apague origem até acknowledgement externo e retenção que compreenda dependências.
+
+Ausência/montagem incorreta, permissões insuficientes, timeout ou volume cheio causam falha, sem fallback. Defina coletor, caminho, credenciais de escopo mínimo, transporte/armazenamento cifrado, acknowledgement, retenção, locks e alertas. Dados e credenciais de banco são sensíveis; checksums não comprovam capacidade de restore. Restore é manual, privado e feito com pgBackRest compatível; valide cada geração por restore drill em destino descartável, incluindo recuperação da cadeia incremental. `pg_dumpall` pode continuar como exportação lógica opcional para portabilidade, não como mecanismo primário incremental/restauração. Nunca restaure automaticamente durante deployment.
 
 ---
 
@@ -890,7 +902,7 @@ O repositório deve conter scripts para:
 10. carregar chaves públicas SSH dos arquivos seguros no host;
 11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
 12. apresentar estado, logs, recursos alterados e instruções de recuperação;
-13. gerar, para cada PostgreSQL configurado, um timer systemd mensal por padrão e uma execução `pg_dumpall` completa no mount remoto declarado.
+13. agendar no host full mensal e incremental semanal por PostgreSQL; executar pgBackRest no container como `postgres`, publicar somente gerações completas verificadas em volume host separado e fornecer restore manual validado.
 
 O preflight deve confirmar SELinux desativado sem alterar essa configuração. O egress dos containers usa o caminho padrão do Podman no host e pode usar masquerading.
 
@@ -1133,7 +1145,7 @@ As seguintes decisões são consideradas parte do contrato:
 | Acesso diário ao host | Não |
 | Deployment | Scripts versionados e Quadlet; preflight comum e verificações específicas por serviço |
 | SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo |
-| Backup PostgreSQL | `pg_dumpall` integral; schedule mensal padrão; mount host/ container no JSON; restore manual por script; retenção pelo storage |
+| Backup PostgreSQL | pgBackRest versionado na imagem; full mensal/incremental semanal por timers host; repositório de trabalho e exportações concluídas em volumes distintos; publicação de geração completa verificada; restore manual com drill; plano, não implementado |
 | TUS e file sharing | Serviços opcionais; limite de arquivo de 1 GB por padrão; file sharing NGINX somente leitura |
 | Serviços não HTTP para usuários | Publicação direta por bind de host, protocolo e portas explicitamente declarados; autenticação do serviço e perímetro próprios |
 | Acesso developer aos containers | Gateway alcança todos os serviços/portas configurados sem publicação de portas no host |
@@ -1155,7 +1167,7 @@ As decisões de topologia confirmadas estão registradas na seção 34. Os valor
 3. Fornecer o pool SSH TUN real, a conta restrita e a política `PermitTunnel`; implementar alocação única por sessão, detecção de colisão e cleanup isolado.
 4. Validar a rota determinística de retorno pelo host e determinar por teste se policy tables explícitas são necessárias. Revalidar mudanças de rotas pushed ao reconectar OpenVPN.
 5. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
-6. Definir operadores autorizados de produção, UIDs/GIDs, identidades de processo no container `webApp`, paths de dados e mount host/container para backup.
+6. Definir operadores autorizados de produção, UIDs/GIDs e identidades de processo; validar os três locais de PostgreSQL (`PGDATA`, repositório pgBackRest de trabalho e mount de exportação concluída), capacidade/permissões, snapshot consistente, staging de publicação e restore drill.
 7. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
 8. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
 9. Definir os nomes DNS internos e validar o handoff de atualização DNS entre deployment da aplicação e Development Gateway.
@@ -1196,7 +1208,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - Cockpit permitir administrar os containers;
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
-- PostgreSQL 18 possuir armazenamento persistente e backup `pg_dumpall` mensal por padrão, com schedule e mount remoto definidos no JSON e restore manual por script via `psql`;
+- PostgreSQL 18 possuir armazenamento persistente e plano de backup pgBackRest com full mensal/incremental semanal, volumes de trabalho/exportação distintos, publicação íntegra e restore manual testado; esses campos e operações ainda não são suportados pelo runtime;
 - somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
 - seções opcionais do JSON permanecerem compatíveis com `schema_version: 1`;

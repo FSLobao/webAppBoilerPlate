@@ -233,8 +233,19 @@ mas a autenticação acontece no destino. O acesso SSH ao próprio gateway é au
 Cada desenvolvedor usa sua própria chave; chaves privadas não são compartilhadas nem copiadas para o
 ambiente.
 
-O PostgreSQL terá volume persistente e rede dedicada. Em condições normais, somente o backend
-precisa alcançar o banco; o frontend não acessa PostgreSQL diretamente.
+O PostgreSQL terá volume persistente e participará da rede dedicada da aplicação e de `shared`.
+Os membros de `shared`, incluindo Gateway e NGINX, terão alcance de rede ao banco; a autenticação
+do PostgreSQL controla o acesso. FastAPI utiliza o banco; os assets do frontend não recebem
+credenciais nem acessam PostgreSQL diretamente.
+
+**Backup PostgreSQL:** o desenho planejado usa pgBackRest com full mensal e incremental semanal,
+um repositório de trabalho separado das exportações concluídas e publicação de gerações verificadas.
+O plano e os requisitos de recuperação estão em
+[Application Stack Plan](docs/plans/application-stack-plan.md) e
+[Application Deployment Plan](docs/plans/application-deployment-plan.md). Não está implementado:
+o validador/configuração runtime atual não aceita os campos de backup propostos e nenhum timer,
+mount, publisher ou restore pgBackRest está disponível. Não use esses exemplos como configuração
+executável nem implante com base nesse desenho.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -515,7 +526,9 @@ decisões arquiteturais em aberto. Permanecem em aberto:
 
 - capabilities do Gateway e integração Cockpit/Podman;
 - mecanismo verificável de proveniência dos campos `X-USER` para endpoints protegidos;
-- backups, health checks, logs e atualização/versionamento de imagens;
+- mecanismo de snapshot consistente do repositório pgBackRest, capacidade dos volumes,
+  protocolo de coleta e confirmação externa, retenção de dependências e metas RPO/RTO;
+- health checks, logs e atualização/versionamento de imagens;
 - configuração de exposição direta por serviço não HTTP.
 
 Próxima etapa do gateway: executar os gates de aceitação em um host RHEL 9.8 / Podman 5.8.2

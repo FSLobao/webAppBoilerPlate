@@ -63,11 +63,11 @@ Use structured, versioned configuration rather than shell-sourced files or ad ho
 - PostgreSQL major version (default `18`), configurable per instance;
 - optional TUS and NGINX file-sharing routes, with a default 1 GB maximum uploaded file size and no NGINX rate limit;
 - one root-managed public `authorized_keys` file path per SSH-enabled application container and its dedicated non-root destination account;
-- a `database_backups` entry per PostgreSQL instance, with monthly default `schedule`, host-mounted `remote_mount`, and read-only `container_path` shared with PostgreSQL.
+- eventually, a `database_backups` entry per PostgreSQL instance with separate working-repository volume and completed-export host mount, plus full and incremental schedules. Proposed fields are documentation-only and unsupported by the current runtime validator.
 
 Configuration contains references and metadata, not secret values or permanent container IPs. The optional HTTP proxy and application services are absent unless their optional config sections are enabled.
 
-Example configuration for the selected initial `webApp` HTTP application; additional HTTP applications may declare their own upstreams and ports. The actual top-level `networks` array must list every Podman network used by the host:
+Example configuration for the selected initial `webApp` HTTP application; additional HTTP applications may declare their own upstreams and ports. The actual top-level `networks` array must list every Podman network used by the host. The backup configuration shape appears in the Application Stack Plan as a planning-only proposal and is not accepted by the current runtime validator:
 
 ```json
 {
@@ -86,19 +86,9 @@ Example configuration for the selected initial `webApp` HTTP application; additi
 			}
 		]
 	},
-	"postgres_major": 18,
-	"database_backups": [
-		{
-			"postgres_container": "project-a-postgres",
-			"schedule": "monthly",
-			"remote_mount": "/mnt/remote-backups/project-a",
-			"container_path": "/backups"
-		}
-	]
+	"postgres_major": 18
 }
 ```
-
-`schedule` uses systemd `OnCalendar` syntax and defaults to `monthly`. `remote_mount` names host-mounted storage. Mount it read-only in PostgreSQL at `container_path`; the host backup job writes to the host path. Deployment logs an error and fails the backup job if the mount is unavailable.
 
 The existing nested route shape retains the frontend/backend upstream fields for the selected initial application, but both resolve to the same combined `webApp:8000` FastAPI listener. FastAPI serves the built SPA at `/app/` and API routes at `/app/api/`; there are no separate frontend/API listeners or unresolved port inputs for this initial stack. Other HTTP applications may configure their own upstreams and ports; `webApp:8000` is not a global proxy restriction.
 
@@ -136,7 +126,13 @@ do not invent additional identity header names.
 - On stop, failed readiness, or replacement, invoke DNS refresh after the application's state transition so obsolete records are removed or updated. No background watcher is assumed; document the window in which an unannounced crash may leave DNS stale until an explicit refresh or Gateway restart.
 - Load destination `authorized_keys` inputs from root-managed public-key files outside Git. Default to `/etc/gateway/application-keys/<container>/authorized_keys`, with one file per SSH-enabled container and multiple public keys per file. Mount each file read-only at `/home/<account>/.ssh/authorized_keys` for a dedicated non-root destination account. Validate owner, mode, file type, and key format before apply. Never copy private keys to the host or containers.
 - Host audit records changes to the root-managed public-key files. PAM authentication and operator-session logging are provided by the host security layer and are not managed or tested by this deployment.
-- Generate a systemd timer from each `database_backups[].schedule` in JSON, defaulting to monthly. Run unfiltered `pg_dumpall` for PostgreSQL 18, write compressed SQL to its configured host-mounted path shared with PostgreSQL, verify a checksum, and publish atomically. Log an error and fail the backup job if the mount is unavailable; never fall back to local-only storage. Retention is owned by remote storage; deployment never restores automatically.
+- Backups are an external host-operated feature, not a host job inside a backup server. The planned host systemd full/incremental timers invoke one fixed, root-managed local entrypoint; it uses constrained `podman exec` to run the version-pinned pgBackRest installed in the PostgreSQL image as OS account `postgres`. Do not expose the rootful Podman socket/API to a remote backup server or collector.
+- Use three distinct storage responsibilities: live `PGDATA`, a writable working-repository volume, and a writable host-mounted completed-export volume. The working repository must be separate from `PGDATA` and the completed export. PostgreSQL-side backup/publication steps write to the working repo and completed-export mount; there is no read-only completed-backup mount and no local fallback.
+- Default to monthly full and weekly incremental schedules, serialized under one lock with bounded timeout and no overlap/double-run. A coinciding full replaces that run's incremental. A missing/wrong mount, insufficient space, source-volume full condition, or permission failure is fatal and observable.
+- Before publication, require successful backup completion and a supported consistent repository-generation snapshot that excludes concurrent pgBackRest backup/archive writers and includes the selected backup chain, metadata/manifests, and required consistency WAL. The working-repository/snapshot staging volume is distinct from completed exports. Copy a full repository generation to a separate hidden, transient transfer-staging directory on the completed-export filesystem, verify it, flush as supported, then atomically rename within that filesystem under a unique generation identity or write a completion marker after verification. This destination-local staging area is not the working repository. Cross-volume rename is not atomic; collectors consume only completed names/markers. Published generations are immutable and never overwritten or edited. Never manually prune, edit, or rename live repository components.
+- Keep prior publications and source chain on failed backup/copy; cleanup is limited to the current run's failed staging directory. Do not delete repository sources until external acknowledgement and dependency-aware retention permit it. Set encrypted collector transport/storage, scoped credentials and destination path, retention/acknowledgement, logging, and failure alerts. Checksums are not a restore test. Full-repository snapshot exports trade simple safe dependency preservation for potentially high storage and transfer use; they do not promise incremental transfers.
+- There is no planned continuous WAL publication or PITR guarantee. Scheduled full/incremental jobs provide weekly recovery points if successful. pgBackRest-required consistency WAL is included in each publication; optional PITR/WAL export requires a separate explicit decision.
+- Restore remains manual, private, and pgBackRest-based; validate published generations with restore drills into disposable targets, including parent-chain recovery. `pg_dumpall` may be retained as an optional logical portability/manual export, not the primary incremental backup/restore path. No automatic restore during deployment.
 
 ### Failure and rollback
 
@@ -156,20 +152,20 @@ do not invent additional identity header names.
 
 - Keep secret and public-key source files outside Git with documented owner, group, mode, rotation process, and consumer. Store app keys under `/etc/gateway/application-keys/<container>/authorized_keys` by default, with one file per SSH-enabled container and multiple public keys per file. Mount each file read-only at `/home/<account>/.ssh/authorized_keys`. Require root-controlled key-file writes; reject unexpected symlinks or ownership/mode changes and never overwrite source files. Host audit records key-file changes; PAM controls remain external to this plan.
 - Mount secrets read-only and only into services that use them. Do not copy them into images, generated public configs, or logs.
-- Document each volume's purpose, owner, mount path, backup method, remote mount, and manual restore procedure. Remote storage owns retention.
-- Test backup restoration into a disposable volume before production acceptance. A successful backup command alone is not proof of recoverability.
+- Document the purpose, owner, mount path, backup method, collector acknowledgement/retention, and manual restore procedure for each of `PGDATA`, the working repository, and completed exports.
+- Test recovery from a published generation into a disposable volume before production acceptance. A successful backup command or checksum alone is not proof of recoverability.
 
 ## 6. Operations and Observability
 
 - Provide operator-visible service status, logs, health state, image identity, and recent deployment outcome.
 - Define log destination, retention, rotation, and redaction. Never log secret contents or credentials embedded in connection strings.
 - Define image update cadence, vulnerability review, pinning, and rollback ownership.
-- Define service restart and reboot behavior through Quadlet. Define backup timer schedule, remote-mount dependency, lock/overlap handling, log retention, and failure alerting.
+- Define service restart and reboot behavior through Quadlet. Define both backup timer schedules, mount dependencies, lock/overlap handling, hidden publication staging, collector completion/acknowledgement, log retention, and failure alerting.
 - Keep advanced metrics/tracing optional unless an operational owner and retention target exist.
 
 ## 7. Implementation Phases
 
-1. Resolve the deployment mechanism, configuration ownership, host paths, secret policy, and database recovery objectives.
+1. Resolve the backup publication/snapshot mechanism, deployment ownership, distinct working/completed host paths, secret policy, collector acknowledgement, retention, and database recovery objectives.
 2. Define a versioned app manifest and read-only preflight with failure-before-change tests.
 3. Implement network, volume, and service lifecycle after the shared Gateway is healthy, with idempotence and explicit ownership checks. Add/update networks, containers, routes, and DNS in the shared versioned host config through staged validation and atomic replacement; preserve unrelated objects and operator inputs.
 4. Reconcile the existing Gateway for newly declared networks before starting app workloads. Integrate readiness, health checks, route publication, and backup scheduling.
@@ -188,8 +184,10 @@ do not invent additional identity header names.
 - Reboot starts Gateway without app DNS targets, then application services independently satisfy their dependencies/readiness and refresh DNS. Stop, failure, and replacement handoffs remove/update managed DNS without retaining old addresses.
 - VS Code ProxyJump reaches the declared application destination, and that destination accepts or rejects the developer key independently of Gateway authentication.
 - Public routes become active only after application health passes.
-- Failure during service start, route update, DNS refresh/routing handoff, or backup job has documented recovery without overwriting live database data.
+- Failure during service start, route update, DNS refresh/routing handoff, backup, or publication has documented recovery without overwriting live database data or losing prior published generations/source chains.
 - Backup restore and decommission procedures are proven against disposable resources.
+- Host full/incremental timers invoke only the controlled local operator entrypoint; a shared lock prevents overlap/double-run. Missing/full storage fails without fallback. Failed publication cannot appear in collector-visible completed generations, and prior publications/source chains remain intact.
+- Collector acceptance consumes only verified final generation names/completion markers, acknowledges retained data, and uses encrypted transport/storage with scoped credentials. Checksums are supplemented by a successful restore drill from a published full-plus-incremental chain.
 - No application update exposes the Podman API, changes host SELinux state, or removes unrelated resources.
 
 ## 9. Remaining Implementation Inputs
@@ -198,6 +196,6 @@ do not invent additional identity header names.
 - Supply actual Podman network names, CIDRs, Gateway interface/DNS addresses, and configured container domains. Runtime tunnel routes must be discoverable and must not overlap these networks.
 - Select non-root UID/GID values and writable paths for each image. The qualification host requires SELinux disabled; deployment must not change that state.
 - Preserve the selected HTTP proxy bind `0.0.0.0:8080`; serve the SPA and API from the single `webApp:8000` listener. Keep database credentials readable only by the FastAPI process.
-- Set the host-mounted remote backup path and confirm its protocol and write access. The path is shared with PostgreSQL; backup jobs log errors and fail if it is unavailable.
+- Specify and validate three distinct PostgreSQL storage responsibilities (live `PGDATA`, working repository volume, completed-export host mount), with required capacity and write permissions. Keep the pgBackRest working repository on a volume distinct from completed exports; use a separate hidden, destination-local transfer staging directory only for atomic publication. Missing or full mounts/volumes must fail without a local fallback.
 - Implement and test a narrow Development Gateway DNS refresh handoff. Do not edit Gateway-owned DNS files directly.
 - Select the supported Node.js build version and TUS account/storage details. Keep the default 1 GB file limit configurable.

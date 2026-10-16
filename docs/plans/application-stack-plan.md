@@ -97,8 +97,7 @@ The initial app's public route contract is `https://<domain>/app/` for the built
 
 - Run PostgreSQL 18 by default, with the major version declared in config, in its own container with a named or dedicated persistent volume.
 - Mount PostgreSQL credentials only into the `webApp` container for FastAPI use. One FastAPI process serves static assets and APIs, so it holds database credentials; browser assets do not receive those credentials.
-- Define initialization, readiness, PostgreSQL/client versions, full-cluster backup, and manual restore procedures before production use. The default backup schedule is monthly and remains configurable per instance.
-- Mount the host-managed remote backup path into the PostgreSQL container read-only at a configured path. The host backup job writes to the host path and logs an error if remote storage is unavailable; it never falls back to local-only storage.
+- Define initialization, readiness, PostgreSQL/client versions, backup, and manual restore procedures before production use. pgBackRest is installed at a version pinned in the PostgreSQL image and invoked as the `postgres` OS account, with local database-file access and PostgreSQL authentication. pgBackRest's database roles and permissions must be compatible with the selected backup operations.
 - Container replacement must preserve the database volume. Image rollback must not imply an unsafe data downgrade.
 
 ### Optional file services
@@ -109,23 +108,40 @@ The initial app's public route contract is `https://<domain>/app/` for the built
 
 ### Backup and restore
 
-| Option | Recovery capability | Operational cost | Fit |
-|---|---|---|---|
-| Scheduled plain-SQL `pg_dumpall` to the configured remote mount | Captures every database's schema and data plus cluster-wide roles; restores to dump time, without point-in-time recovery. | Low to moderate. Requires mount checks, credentials, checksums, and restore drills. | Required initial default. JSON config supplies the schedule and mount; remote storage owns retention. |
-| `pgBackRest` or WAL-G with base backups and WAL archiving | Point-in-time recovery and lower recovery-point objectives. | Higher setup, credentials, monitoring, storage, and restore complexity. | Adopt when data value, size, or recovery objectives need PITR. |
-| Storage snapshots coordinated with PostgreSQL | Fast volume-level recovery when snapshots are crash-consistent or database-coordinated. | Storage-provider-specific; snapshots alone are not a portable logical backup. | Supplement, not the only backup, unless consistency and restore are proven. |
+The selected primary backup design uses pgBackRest, not `pg_dumpall`:
 
-Run unfiltered `pg_dumpall` for the complete PostgreSQL cluster: all database schemas and data, plus global roles. Write its UTF-8 SQL stream to a timestamped file on the configured host-mounted remote path, compress it, verify a checksum, then publish it atomically. Log a clear error and fail the job if the mount is absent or unwritable; never fall back to local-only storage. Retention is managed by the remote-storage service. Protect credentials and dump files, and keep secrets out of process arguments and logs.
+- Pin a pgBackRest version in the PostgreSQL image and keep it compatible with the PostgreSQL major version and restore tooling. Execute it inside that container as OS account `postgres`; use local PostgreSQL file access and configured database authentication/roles. Do not put passwords in command arguments, environment dumps, or logs. Use local peer authentication where suitable or a protected credential file readable only by the required account.
+- Keep three storage responsibilities distinct: (1) the live PostgreSQL `PGDATA` volume; (2) a writable pgBackRest working repository volume, separate from both `PGDATA` and the completed-export volume; and (3) a host-mounted completed-export volume. The PostgreSQL-side operator writes to the working repository and writes completed publications to the completed-export mount. Neither repository nor export mount is read-only. A missing mount, wrong mount, permission error, or full volume is a hard failure; never fall back to a container layer or another local directory.
+- Install/configure a controlled host operator entrypoint and systemd timers. The external scheduler invokes that fixed local entrypoint, which uses constrained `podman exec` calls to run the backup and publication steps. Do not give a remote backup server or collector the rootful Podman socket/API or unrestricted host command execution. Run the backup as `postgres`, serialize all backup/publication work with a lock and bounded timeout, and prevent the full and incremental timers from overlapping or duplicating a run.
+- Default recovery-point creation to a monthly full backup and weekly incremental backups. When schedules coincide, run one full backup, not an additional incremental. This yields weekly scheduled recovery points, not daily or continuous recovery. Do not imply PITR or continuous WAL export is required by this design. pgBackRest must retain and publish all WAL and metadata required to make each selected backup consistent and restorable; optional PITR and its additional continuous WAL export, retention, and recovery-point requirements need an explicit later decision.
+- A pgBackRest repository is dependency-linked, mutable state, not a directory of independently complete backup files. Do not manually prune it, edit it, copy it while writers are active, or rename a repository subtree. The baseline publication strategy is a complete, snapshot-consistent repository generation, rather than bespoke selection/reconstruction of individual backups. Before export, the implementation must use a supported repository snapshot/locking procedure that excludes concurrent pgBackRest backup and archive writers and captures the selected successful backup together with its parent chain, manifests, repository metadata, and all required consistency WAL. If a consistent generation cannot be produced safely, fail publication.
+- The backup command must succeed before export begins. The working-repository volume (including any working/snapshot staging there) is distinct from the completed-export volume. Copy the consistent generation to a separate, hidden, transient publication-in-progress directory on the completed-export filesystem; it is transfer staging, not the working repository. Verify the copy and its repository structure, flush data/metadata as supported, then publish under a unique generation identity with an atomic rename within that destination filesystem or a completion manifest written only after verification. A cross-volume rename is not atomic. Incomplete transfer bytes may temporarily exist in the hidden destination staging area, but the completed namespace must never expose an incomplete generation. Published generations are immutable and never overwritten or edited. The external collector consumes only final generation names or valid completion markers, never hidden staging paths, partial directories, or “stable file size” guesses.
+- Full-repository generation exports are intentionally simple and restore-oriented but may consume substantial storage and transfer bandwidth on every schedule. This strategy does not promise incremental network transfers; a collector may deduplicate only through a mechanism that safely preserves immutable generations and their dependencies.
+- Failed backup or copy leaves prior published generations and the working repository chain intact. Cleanup may remove only the current failed staging directory and only after confirming it belongs to that run. Do not delete source repository content until external acknowledgement and repository-aware retention prove that no retained backup depends on it; generic remote retention alone must not remove a parent. Define external collector path, encrypted transport/storage, narrowly scoped credentials, acknowledgement, and retention before deployment. Database files, credential files, and exports are sensitive; checksums detect transfer corruption but do not prove recoverability.
 
-Restore is a manual, operator-triggered task, not an automatic deployment rollback. The initial interface is a restore script; a Cockpit tool may be added later. An authorized operator connects directly to PostgreSQL through an approved private route or temporary management tunnel and runs the complete SQL dump through `psql` as a PostgreSQL administrator. Do not expose the database through the HTTP proxy or leave a public PostgreSQL port open. Test role and ownership restoration before acceptance.
+Restore is manual and operator-triggered, never an automatic deployment rollback. Restore a verified complete published repository generation using compatible pgBackRest tooling into an isolated/disposable PostgreSQL target first; retain the repository structure and required WAL/metadata intact. Conduct a restore drill, including recovery of a selected incremental through its parent chain, before production acceptance. Only after verification should an authorized operator restore to a production target through an approved private route. Do not expose PostgreSQL through the HTTP proxy or leave a public PostgreSQL port open. `pg_dumpall` may remain an optional logical portability/manual export, but it is not the primary incremental backup or restore path.
 
-For a compressed `pg_dumpall` file, the manual restore shape is:
+**RPO and recovery scope:** with the selected monthly-full/weekly-incremental schedule and no optional continuous WAL publication, the newest planned recovery point is at most one scheduled weekly interval old, subject to job success and publication. This is not PITR. Define operational RPO/RTO acceptance, missed-run alerting, and the policy for optional WAL export separately; do not claim a stronger objective until implemented and tested.
 
-```bash
-gzip --decompress --stdout "$dump_file" | psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname=postgres
+**Planning-only configuration shape (not accepted by the current runtime validator):**
+
+```json
+{
+  "database_backups": [
+    {
+      "postgres_container": "project-a-postgres",
+      "working_volume": "project-a-pgbackrest-work",
+      "working_container_path": "/var/lib/pgbackrest",
+      "completed_host_mount": "/mnt/completed-backups/project-a",
+      "completed_container_path": "/completed-backups",
+      "full_schedule": "monthly",
+      "incremental_schedule": "weekly"
+    }
+  ]
+}
 ```
 
-Supply the host, port, and administrator credentials through the approved private connection and protected PostgreSQL client configuration, not command-line passwords. Run this against the intended target cluster; `pg_dumpall` contains commands that create/connect to multiple databases and restore global objects.
+These names are a documentation proposal only. No backup schema, service fields, timers, mounts, pgBackRest image support, publisher, or restore tooling is implemented by this plan's examples.
 
 Workers, schedulers, caches, and other services are out of scope until a concrete application requires them.
 
@@ -137,7 +153,7 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 - Keep frontend assets and FastAPI in the single `webApp` container on internal TCP port `8000`. NGINX proxies both `/app/` and `/app/api/` to that listener.
 - Use PostgreSQL 18 by default; define the matching client image version in config.
 - Reserve `192.168.8.0/29` for the `webApp` network. Assign each future app network a unique, non-overlapping CIDR and static Gateway address.
-- Set the default full-cluster backup schedule to monthly in JSON. Define the host-mounted remote path and approved direct restore connection. Retention is managed by remote storage.
+- Pin pgBackRest and PostgreSQL versions together; define the monthly-full/weekly-incremental host schedules, three storage locations, safe repository-generation export, encrypted collector handoff, dependency-aware retention, and private restore drill before production use. Backup fields are not currently supported by the runtime validator.
 
 ### Phase 1: Define service interfaces
 
@@ -154,7 +170,7 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 
 - Verify the combined `webApp` container reaches PostgreSQL over `webApp` and `shared`. All services attached to `shared` have direct network reach to PostgreSQL; prove PostgreSQL authentication denies unauthorized workloads and only FastAPI's process can read database credentials.
 - Verify app-specific networks do not route to one another. Do not treat this as isolation between containers that share `shared`.
-- Test fresh database initialization, full `pg_dumpall` backup, manual SQL restore into an isolated cluster, and container replacement with data sentinels.
+- Test fresh database initialization, successful full and incremental pgBackRest backups, publication failure/cleanup, and a manual restore from a completed generation into an isolated cluster; verify container replacement with data sentinels.
 - Test frontend-to-backend routing through the selected optional HTTP proxy contract.
 
 ## 6. Acceptance Checks
@@ -167,7 +183,8 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 - Protected HTTP routes do not become deployable until the ingress restriction or verified identity-provenance gate passes; direct Gateway or host-listener access is not trusted identity.
 - PostgreSQL rejects unauthorized connections from other shared-network members. The Gateway has network-level reach but receives no database credentials.
 - Backend and frontend health checks detect startup failure without leaking secrets.
-- A PostgreSQL replacement preserves the data volume; a full-cluster SQL dump restores every database and global role into a disposable cluster.
+- A PostgreSQL replacement preserves the data volume. A successful published pgBackRest generation restores through a full/incremental parent chain into a disposable cluster; restore drills verify recoverability and compatibility.
+- Monthly full and weekly incremental operations run non-overlapping under one host lock. Only consistent full repository snapshots with successful source backup, required dependency metadata/WAL, and completed publication verification are visible to the collector. Failed copies remain hidden and preserve previous generations and the working source chain.
 - On a pristine host, Gateway bootstrap succeeds with optional app container, DNS, and route declarations present but no application containers; Gateway does not start or operate them. Missing Podman networks are reported by read-only check and created only during apply.
 - After Gateway health, application deployment creates/readies `webApp` and PostgreSQL, preserves unrelated objects while atomically updating the shared config, and reconciles the existing Gateway for new networks before app startup. A repeated deployment is idempotent; a malformed staged config or incompatible existing network fails before mutation.
 - An absent, stopped, or unhealthy declared service is pending rather than a Gateway bootstrap error or a published DNS answer. After application readiness, Gateway publishes the live address; stop/replacement refresh removes or updates the record and never falls back to an old address.
@@ -177,5 +194,5 @@ Workers, schedulers, caches, and other services are out of scope until a concret
 
 - Select the supported Node.js build version and non-root UID/GID for each image.
 - Define writable paths and verify permissions on the SELinux-disabled RHEL 9.8 host.
-- Set actual PostgreSQL network, volume, host-mounted backup path, and DNS names in config.
+- Set actual PostgreSQL network and `PGDATA` volume. Once the backup schema is implemented, define its separate working-repository volume, completed-export host mount, and DNS names in supported config; the proposed backup fields are not currently accepted.
 - Configure the remote tunnel DNS suffixes. The Development Gateway reaches every configured service/port without host publication; each service must enforce its own authentication and authorization.
