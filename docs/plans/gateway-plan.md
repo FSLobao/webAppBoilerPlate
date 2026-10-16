@@ -223,7 +223,7 @@ The handoff is revision-scoped: application deployment identifies the exact acti
 
 When application configuration changes add networks, the complete staged configuration is validated before commit; its atomic update preserves other sections and operator-owned inputs. Gateway reconciliation precedes application-container startup, so the Gateway is not duplicated and no application workload is started by Gateway code. If reconciliation or application activation fails, restore the prior managed configuration and generated Gateway state where feasible, report additive networks/resources that remain, and do not claim full rollback. A subsequent apply with the same desired state must converge without unnecessary restarts.
 
-DNS A/AAAA records point directly to current target addresses on their declared container networks. Each network's configured Gateway address serves DNS to attached containers and tunnel clients. Tunnel clients must have routes to those network CIDRs. Developer-to-container access uses no service port mapping, DNAT, or SNAT. Developers with tunnel access can reach every service on every configured network, including databases.
+Version 1 generates only DNS A records, pointing directly to current target IPv4 addresses on their declared container networks. It does not generate AAAA records; IPv6 configuration and validation are out of scope for v1. Each network's configured Gateway address serves DNS to attached containers and tunnel clients. Tunnel clients must have routes to those network CIDRs. Developer-to-container access uses no service port mapping, DNAT, or SNAT. Developers with tunnel access can reach every service on every configured network, including databases.
 
 ## 6. Host and Container Responsibilities
 
