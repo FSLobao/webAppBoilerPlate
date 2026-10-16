@@ -124,17 +124,22 @@ The container test uses temporary keys and a self-signed certificate, creates no
 
 ## Validation Status
 
-No validation has been performed for the current implementation plan. The following items are pending, not evidence of completed tests.
+Validation on 2026-10-16 used repository revision `b70a962c54954911220eca48dac4b27b7d638013`.
 
 ### Local validation
 
-- [ ] Configuration validation and regression tests.
-- [ ] Container image build and isolated startup, shutdown, and signal-handling tests.
-- [ ] DNS generation and SSH configuration checks.
+- `podman build --pull=always --file gateway/development/Containerfile --tag localhost/gateway:1 gateway/development` passed.
+- `bash tests/scripts/test-gateway-config.sh` passed.
+- `bash tests/scripts/test-gateway-container.sh` passed, including isolated SSH, DNS refresh, Cockpit TLS, and clean shutdown checks.
+- `python3 -m pytest -q` reported 56 passed and 4 failed. Failures: `test_validate_podman_state_accepts_valid_running_target`, `test_validate_podman_state_rejects_overlapping_existing_network`, `test_validate_podman_state_reports_stopped_target_as_pending`, and `test_validate_podman_state_checks_generic_container_networks`.
+- `scripts/deploy-gateway.sh --validate-config` and `scripts/host-preflight.sh --validate-gateway-config` passed.
+- `bash -n scripts/deploy-gateway.sh scripts/host-preflight.sh scripts/bootstrap-file-gateway.sh tests/scripts/test-gateway-config.sh tests/scripts/test-gateway-container.sh` passed.
+- `scripts/deploy-gateway.sh --check` failed before further checks: `SELinux must remain Enforcing; found Disabled.`
+
+The disposable host reports RHEL 9.8, rootful Podman 5.8.2, kernel `5.14.0-687.56.1.el9_8.x86_64`, SELinux `Disabled`, systemd 252, and the Podman Quadlet generator. The configured `shared` network (`192.168.7.0/24`) overlaps the host's connected `eth0` network (`192.168.7.0/24`). Do not apply this configuration on this host until the subnet conflict is resolved.
 
 ### Target-host acceptance
 
-- [ ] Verify RHEL 9.8, rootful Podman 5.8.2, Quadlet, and the required SELinux-disabled baseline without changing host security settings.
 - [ ] Validate clean-host Gateway bootstrap without application containers, all-network attachment, lifecycle, reboot recovery, idempotence, persistence, and rollback.
 - [ ] Validate OpenVPN profile mounting and connection, concurrent OpenVPN and SSH TUN sessions, route conflict checks, symmetric replies, full-protocol forwarding, and source-address preservation.
 - [ ] Validate unrestricted container egress through host masquerading and forwarding isolation between application networks.
@@ -142,6 +147,6 @@ No validation has been performed for the current implementation plan. The follow
 - [ ] Validate SSH ProxyJump, direct SSH through tunnels, and independent destination authentication.
 - [ ] Validate Cockpit Podman operations through the Unix socket and the minimum required capabilities and TUN-device access.
 
-For each completed check, record the date, exact command, environment, implementation revision, and result. Keep earlier test evidence separate unless it applies to the exact revision being validated. Local results do not establish target-host acceptance.
+No deployment or host-mutating acceptance test ran. The host preflight currently requires SELinux `Enforcing`, contrary to this contract's `Disabled` target. Required external Gateway credentials are also absent. Tunnel acceptance remains unimplemented and requires external VPN/session inputs. Resolve the preflight conflict, network overlap, external inputs, and failing tests before retrying host deployment. Local results do not establish target-host acceptance.
 
 Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on an authorized disposable RHEL 9.8 / Podman 5.8.2 system with SELinux already disabled.
