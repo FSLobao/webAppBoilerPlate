@@ -1,15 +1,22 @@
 """Tests for Gateway host-preflight Python helpers."""
 
+from __future__ import annotations
+
 import json
 import subprocess
+from pathlib import Path
+from typing import Any
 
 import pytest
 
+import scripts.gateway.host_preflight as host_preflight
 from scripts.gateway.host_preflight import (
     cockpit_password_is_valid,
     host_platform_matches_target,
     main,
     podman_version_matches_target,
+    selinux_mode_matches_target,
+    validate_gateway_networks,
     validate_podman_state,
 )
 
@@ -51,11 +58,28 @@ def test_podman_version_requirement(version: str, matches: bool) -> None:
         (["host-platform", "rhel", "9.9"], 1),
         (["podman-version", "5.8.2"], 0),
         (["podman-version", "5.8.1"], 1),
+        (["selinux-mode", "Disabled"], 0),
+        (["selinux-mode", "Enforcing"], 1),
+        (["selinux-mode", "Permissive"], 1),
     ],
 )
 def test_target_cli_checks(arguments: list[str], status: int) -> None:
     """Return success only for the configured host and Podman targets."""
     assert main(arguments) == status
+
+
+@pytest.mark.parametrize(
+    ("mode", "matches"),
+    [
+        ("Disabled", True),
+        ("Enforcing", False),
+        ("Permissive", False),
+        ("unknown", False),
+    ],
+)
+def test_selinux_mode_requirement(mode: str, matches: bool) -> None:
+    """Accept only SELinux Disabled without changing its mode."""
+    assert selinux_mode_matches_target(mode) is matches
 
 
 @pytest.mark.parametrize(
@@ -82,13 +106,24 @@ def test_validate_podman_state_accepts_valid_running_target() -> None:
     calls = []
 
     def run_command(*args, **kwargs):
-        command = list(args[0]) if len(args) == 1 and isinstance(args[0], list) else list(args)
+        command = (
+            list(args[0])
+            if len(args) == 1 and isinstance(args[0], (list, tuple))
+            else list(args)
+        )
         calls.append(command)
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
-            return subprocess.CompletedProcess(command, 0, "bridge\n", "")
+            return subprocess.CompletedProcess(command, 0, "bridge\nproject-a\n", "")
         if command == ["podman", "network", "inspect", "bridge"]:
             return subprocess.CompletedProcess(
                 command, 0, json.dumps([{"subnets": [{"subnet": "10.88.0.0/16"}]}]), ""
+            )
+        if command == ["podman", "network", "inspect", "project-a"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps([{"subnets": [{"subnet": "10.89.1.0/24"}]}]),
+                "",
             )
         if command == ["podman", "container", "exists", "api"]:
             return subprocess.CompletedProcess(command, 0, "", "")
@@ -113,13 +148,17 @@ def test_validate_podman_state_accepts_valid_running_target() -> None:
         announce=lambda message: None,
     )
 
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 def test_validate_podman_state_rejects_overlapping_existing_network() -> None:
     """Reject a declared subnet that overlaps an existing Podman network."""
     def run_command(*args, **kwargs):
-        command = list(args[0]) if len(args) == 1 and isinstance(args[0], list) else list(args)
+        command = (
+            list(args[0])
+            if len(args) == 1 and isinstance(args[0], (list, tuple))
+            else list(args)
+        )
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "other\n", "")
         if command == ["podman", "network", "inspect", "other"]:
@@ -141,9 +180,20 @@ def test_validate_podman_state_rejects_overlapping_existing_network() -> None:
 def test_validate_podman_state_reports_stopped_target_as_pending() -> None:
     """Report stopped DNS targets without mutation or failure."""
     def run_command(*args, **kwargs):
-        command = list(args[0]) if len(args) == 1 and isinstance(args[0], list) else list(args)
+        command = (
+            list(args[0])
+            if len(args) == 1 and isinstance(args[0], (list, tuple))
+            else list(args)
+        )
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
-            return subprocess.CompletedProcess(command, 0, "", "")
+            return subprocess.CompletedProcess(command, 0, "project-a\n", "")
+        if command == ["podman", "network", "inspect", "project-a"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps([{"subnets": [{"subnet": "10.89.1.0/24"}]}]),
+                "",
+            )
         if command == ["podman", "container", "exists", "api"]:
             return subprocess.CompletedProcess(command, 0, "", "")
         if command == ["podman", "inspect", "--type", "container", "api"]:
@@ -174,7 +224,11 @@ def test_validate_podman_state_checks_generic_container_networks() -> None:
     calls = []
 
     def run_command(*args, **kwargs):
-        command = list(args[0]) if len(args) == 1 and isinstance(args[0], list) else list(args)
+        command = (
+            list(args[0])
+            if len(args) == 1 and isinstance(args[0], (list, tuple))
+            else list(args)
+        )
         calls.append(command)
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "database\n", "")
@@ -208,7 +262,11 @@ def test_validate_podman_state_checks_generic_container_networks() -> None:
 def test_validate_podman_state_rejects_missing_generic_network() -> None:
     """Require declared networks to exist during generic host checks."""
     def run_command(*args, **kwargs):
-        command = list(args[0]) if len(args) == 1 and isinstance(args[0], list) else list(args)
+        command = (
+            list(args[0])
+            if len(args) == 1 and isinstance(args[0], (list, tuple))
+            else list(args)
+        )
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(f"unexpected command: {command}")
@@ -311,3 +369,101 @@ def test_validate_podman_state_rejects_gateway_networks_before_commands() -> Non
         )
 
     assert calls == []
+
+
+def test_gateway_preflight_is_read_only_without_application_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Report planned networks and pending DNS without querying app containers."""
+    config_path = tmp_path / "gateway-config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "gateway": {"name": "gateway"},
+                "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
+                "containers": [
+                    {"name": "api", "networks": ["project-a"]},
+                    {"name": "nginx", "networks": ["project-a"]},
+                ],
+                "dns_records": [
+                    {
+                        "name": "api.project-a.dev.internal",
+                        "container": "api",
+                        "network": "project-a",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def run_command(
+        command: tuple[str, ...] | list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        normalized = list(command)
+        calls.append(normalized)
+        assert normalized == [
+            "podman",
+            "network",
+            "ls",
+            "--format",
+            "{{.Name}}",
+        ]
+        return subprocess.CompletedProcess(normalized, 0, "", "")
+
+    monkeypatch.setattr(host_preflight.subprocess, "run", run_command)
+
+    assert main(["gateway-networks", str(config_path)]) == 0
+
+    captured = capsys.readouterr()
+    assert (
+        "[host-preflight] PENDING network creation: project-a (10.89.1.0/24)"
+        in captured.out
+    )
+    assert (
+        "[host-preflight] PENDING DNS target: api.project-a.dev.internal "
+        "(api readiness/unverified)"
+    ) in captured.out
+    assert calls == [["podman", "network", "ls", "--format", "{{.Name}}"]]
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize(
+    ("existing_name", "existing_subnet", "message"),
+    [
+        ("other", "10.89.1.128/25", "overlaps existing Podman network"),
+        ("project-a", "10.90.0.0/24", "does not match declared subnet"),
+    ],
+)
+def test_gateway_preflight_rejects_incompatible_network_before_mutation(
+    existing_name: str, existing_subnet: str, message: str
+) -> None:
+    """Reject network overlap or mismatch before any mutating Podman command."""
+    calls = []
+
+    def run_command(
+        command: tuple[str, ...] | list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        normalized = list(command)
+        calls.append(normalized)
+        if normalized == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(normalized, 0, f"{existing_name}\n", "")
+        if normalized == ["podman", "network", "inspect", existing_name]:
+            output = json.dumps([{"subnets": [{"subnet": existing_subnet}]}])
+            return subprocess.CompletedProcess(normalized, 0, output, "")
+        raise AssertionError(f"unexpected command: {normalized}")
+
+    with pytest.raises(ValueError, match=message):
+        validate_gateway_networks(
+            {"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]},
+            run_command=run_command,
+            announce=lambda message: None,
+        )
+
+    assert calls == [
+        ["podman", "network", "ls", "--format", "{{.Name}}"],
+        ["podman", "network", "inspect", existing_name],
+    ]

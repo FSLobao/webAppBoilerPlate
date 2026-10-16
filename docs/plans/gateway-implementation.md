@@ -18,9 +18,9 @@
 - **Route lifecycle; not implemented:** validate pools/endpoints against Podman CIDRs and relevant host/developer-LAN/corporate routes, while allowing intended managed/connected routes and not blanket-rejecting defaults. OpenVPN pushed-route changes are candidate-validated on reconnect. SSH session hooks allocate/check/clean only their own addresses, interfaces, and routes. Ambiguous same-client-prefix ownership fails closed absent explicit policy. Route reconciliation is idempotent and rollback touches only candidate-owned state; no generic background watcher is planned.
 - No extra Linux capabilities are currently requested; Quadlet drops unused `NET_RAW`. OpenVPN, SSH TUN, and routed remote access are not implemented. Tunnel-runtime checks must not block the container-independent, offline base Gateway bootstrap before tunnel activation is enabled. Record runtime acceptance as pending; test TUN device access, forwarding, routes, concurrent sessions, rollback, and the minimum capability set on the target host before changing privileges.
 - The current [startup.sh](../../gateway/development/startup.sh) sets `PermitTunnel no`; it does not support the planned SSH TUN interface. Supporting SSH TUN requires an explicitly restricted tunnel account and target-host validation.
-- **Current implementation gap:** `scripts/gateway/host_preflight.py` still requires configured containers and DNS targets to exist; its legacy Podman-state probe reports stopped containers as pending, but `scripts/deploy-gateway.sh --apply` asks permission to start stopped DNS targets. `scripts/gateway/dns_records.py` fails when a DNS target is absent or stopped. Gateway `--check` currently permits missing declared networks but does not report them as planned creation; `--apply` creates them. This is current behavior, not the approved plan: future Gateway `--check` must not probe containers and must mark each configured DNS declaration `pending readiness/unverified` from config alone. Later implementation must remove application-container prerequisites and start permissions, report planned network creation, and keep readiness-aware Podman inspection in the separate DNS refresh handoff. Gateway bootstrap must succeed without application containers and must never create, start, or otherwise operate them.
+- **Phase 1 preflight behavior (2026-10-16):** For application-facing Podman state, Gateway `--check` and `--apply` validate network definitions only; configured application containers and DNS targets are not inspected or operated. Missing networks are reported as planned creation, and configured DNS declarations are reported as `readiness/unverified` from config alone. `--apply` writes only pending DNS comments until the separate readiness-scoped DNS refresh handoff is implemented. The generic `host-preflight.sh --check` retains its container inspection and stopped-container reporting behavior.
 - The Gateway currently loads only gateway-login public keys from `/etc/gateway/authorized_keys`. Application destination keys remain unimplemented. The plan requires one root-managed `authorized_keys` file per container, allowing multiple public keys, read-only consumption, and installation for a dedicated non-root destination account. Host audit records file changes; PAM and operator-session controls remain external and are not revalidated here. Private keys must never be copied to the host or containers.
-- The checked-in JSON declares `shared` (`192.168.7.0/24`) and `webApp` (`192.168.8.0/29`) in the top-level Podman application-network inventory. `shared` is a Podman bridge, not a physical/host interface, host network attachment, VPN route, or tunnel address pool. Gateway attaches to both, `nginx` uses `shared`, and the combined `webApp` plus `postgres` containers use both networks. This matches the all-networks Gateway contract. The approved order is Gateway bootstrap first, then application/NGINX deployment; the top-level declarations may precede those containers. Application deployment owns creating or updating app objects in the same versioned config, creating its containers, readiness, and reconciling the existing Gateway for newly declared networks; it must not create another Gateway or maintain a separate Gateway network list. Pending VPN/tunnel fields remain distinct under `gateway.remote_access`. Current host preflight still requires declared containers to exist, and current DNS generation treats absent/stopped targets as errors; this conflicts with the plan and must be changed later. Static Gateway address and HTTP proxy route validation are implemented; NGINX runtime deployment and target-host Quadlet acceptance remain pending. No services were deployed.
+- The checked-in JSON declares `shared` (`192.168.9.0/24`, Gateway `192.168.9.2`) and `webApp` (`192.168.8.0/29`) in the top-level Podman application-network inventory. `192.168.9.0/24` is the first higher full /24 in the known inventory after the previous `shared` subnet conflicted with host `eth0` at `192.168.7.0/24`. This selection does not prove availability against other host routes or networks. Gateway `--check` validates Podman networks, not the host route table; review all relevant target host networks/routes separately before acceptance. `shared` remains a Podman bridge, not a physical/host interface, host network attachment, VPN route, or tunnel address pool. Gateway attaches to both, `nginx` uses `shared`, and the combined `webApp` plus `postgres` containers use both networks. This matches the all-networks Gateway contract. The approved order is Gateway bootstrap first, then application/NGINX deployment; the top-level declarations may precede those containers. Application deployment owns creating or updating app objects in the same versioned config, creating its containers, readiness, and reconciling the existing Gateway for newly declared networks; it must not create another Gateway or maintain a separate Gateway network list. Pending VPN/tunnel fields remain distinct under `gateway.remote_access`. Static Gateway address and HTTP proxy route validation are implemented; NGINX runtime deployment and target-host Quadlet acceptance remain pending. No services were deployed.
 - Gateway SSH binds `0.0.0.0` for external forwarding; Cockpit stays on `127.0.0.1`. The perimeter controls SSH access. NGINX binds `0.0.0.0:8080` for the DHCP-assigned host address.
 
 ## Host Inputs and State
@@ -37,7 +37,7 @@ Provision Gateway-specific external inputs before `--check`. Application contain
 | `/var/lib/gateway/ssh_host_keys/` | `root:root`, `0700`; private key `0600` | Persistent Ed25519 SSH host identity, created only when both key files are absent. Infrastructure owns backup and restore. |
 | `/var/lib/gateway/generated/config.json` | `root:root`, `0644` | Replaceable copy of the selected versioned configuration. |
 | `/var/lib/gateway/generated/inputs.json` | `root:root`, `0644` | Non-secret file metadata and the SSH host-key public fingerprint. Detects credential/certificate replacement and avoids storing secret hashes or contents. |
-| `/var/lib/gateway/dns/hosts` | `root:root`, `0644` | Replaceable DNSMasq hosts input generated from current Podman addresses. |
+| `/var/lib/gateway/dns/hosts` | `root:root`, `0644` | Replaceable DNSMasq hosts input. Gateway apply records configured names as pending and does not query target containers. |
 | `/etc/containers/systemd/gateway.container` | `root:root`, `0644` | Generated Quadlet definition. The deployment replaces it only when it matches the gateway-owned signature. |
 | `/run/podman/podman.sock` | Rootful Podman socket | Host-managed endpoint. The deployment does not expose it over TCP or change host security policy. The target requires SELinux disabled. |
 | Configured external OpenVPN client profile path | Root-managed, private, outside Git; mounted read-only | External server/client credentials and profile input. The external owner allocates client addresses and provisions routes to Podman CIDRs via the Gateway VPN client. The actual path/profile are deployment inputs. |
@@ -72,12 +72,11 @@ The reusable host preflight can also validate host configurations without a gate
 sudo ./scripts/host-preflight.sh --check config/host_config.json
 ```
 
-Generic checks currently compare declared network subnets with existing Podman networks and inspect
-containers listed in `containers` or `dns_records`; stopped containers are reported as pending.
-They do not require gateway credentials, RHEL 9, or Quadlet. This current behavior is not the
-approved Gateway bootstrap contract: a later implementation must scope Gateway preflight to Gateway
-host/tools/credentials and network prerequisites, not application-container existence or lifecycle.
-Read-only Gateway `--check` must report missing networks as planned creation without changing them.
+Generic checks compare declared network subnets with existing Podman networks and inspect containers
+listed in `containers` or `dns_records`; stopped containers are reported as pending. They do not
+require gateway credentials, RHEL 9, or Quadlet. Gateway checks use a separate network-only
+preflight: missing networks are reported as planned creation and each DNS declaration is reported
+as `readiness/unverified`, without inspecting application containers.
 
 On a disposable RHEL 9.8 host with rootful Podman 5.8.2, run read-only preflight, then apply only after it passes:
 
@@ -86,9 +85,9 @@ sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
-The current `--apply` creates missing declared networks and refreshes DNS, but it still enforces the older DNS-target presence/start behavior described above. It does not create tunnel interfaces, forwarding policy, or routes. Do not claim remote Layer 3 access is available. Base Gateway validation/bootstrap must remain container-independent and offline; lack of an OpenVPN profile or live SSH TUN runtime must not block base Gateway before tunnel activation is enabled. Runtime acceptance is pending.
+`--apply` creates missing declared networks and installs config-only pending DNS comments; it does not inspect, create, start, stop, or otherwise operate application/DNS-target containers. The readiness-scoped DNS refresh handoff remains unimplemented, so pending names do not resolve until that handoff exists. Apply also does not create tunnel interfaces, forwarding policy, or routes. Do not claim remote Layer 3 access is available. Base Gateway validation/bootstrap remains container-independent and offline; lack of an OpenVPN profile or live SSH TUN runtime does not block base Gateway before tunnel activation is enabled. Runtime acceptance is pending.
 
-The approved future handoff is revision-scoped: after its own readiness checks, application deployment requests DNS refresh; Gateway re-inspects Podman and publishes only a live, valid address for the declared network. Absent, stopped, or not-ready targets remain pending, are not started by Gateway, and have no record. Application lifecycle requests refresh after readiness, stop, and replacement. No generic background watcher is planned; protocol session lifecycle hooks are separate, narrowly scoped operations. Unexpected application crashes may leave a prior DNS record until explicit refresh or Gateway restart, but generated state must never fall back to that stale address.
+The approved future handoff is revision-scoped: after its own readiness checks, application deployment requests DNS refresh; a dedicated refresh operation will inspect Podman and publish only a live, valid address for the declared network. Absent, stopped, or not-ready targets remain pending, are not started by Gateway, and have no record. Application lifecycle requests refresh after readiness, stop, and replacement. No generic background watcher is planned; protocol session lifecycle hooks are separate, narrowly scoped operations. Unexpected application crashes may leave a prior DNS record until explicit refresh or Gateway restart, but generated state must never fall back to that stale address.
 
 Inspect and recover with:
 
@@ -126,7 +125,7 @@ The container test uses temporary keys and a self-signed certificate, creates no
 
 Validation on 2026-10-16 used repository revision `b70a962c54954911220eca48dac4b27b7d638013`.
 
-### Local validation
+### Historical local validation before Phase 1
 
 - `podman build --pull=always --file gateway/development/Containerfile --tag localhost/gateway:1 gateway/development` passed.
 - `bash tests/scripts/test-gateway-config.sh` passed.
@@ -136,7 +135,7 @@ Validation on 2026-10-16 used repository revision `b70a962c54954911220eca48dac4b
 - `bash -n scripts/deploy-gateway.sh scripts/host-preflight.sh scripts/bootstrap-file-gateway.sh tests/scripts/test-gateway-config.sh tests/scripts/test-gateway-container.sh` passed.
 - `scripts/deploy-gateway.sh --check` failed before further checks: `SELinux must remain Enforcing; found Disabled.`
 
-The disposable host reports RHEL 9.8, rootful Podman 5.8.2, kernel `5.14.0-687.56.1.el9_8.x86_64`, SELinux `Disabled`, systemd 252, and the Podman Quadlet generator. The configured `shared` network (`192.168.7.0/24`) overlaps the host's connected `eth0` network (`192.168.7.0/24`). Do not apply this configuration on this host until the subnet conflict is resolved.
+At that historical validation, the disposable host reported RHEL 9.8, rootful Podman 5.8.2, kernel `5.14.0-687.56.1.el9_8.x86_64`, SELinux `Disabled`, systemd 252, and the Podman Quadlet generator. The then-configured `shared` network (`192.168.7.0/24`) overlapped the host's connected `eth0` network (`192.168.7.0/24`). Do not use that historical configuration; the selected subnet is now `192.168.9.0/24`.
 
 ### Target-host acceptance
 
@@ -147,6 +146,26 @@ The disposable host reports RHEL 9.8, rootful Podman 5.8.2, kernel `5.14.0-687.5
 - [ ] Validate SSH ProxyJump, direct SSH through tunnels, and independent destination authentication.
 - [ ] Validate Cockpit Podman operations through the Unix socket and the minimum required capabilities and TUN-device access.
 
-No deployment or host-mutating acceptance test ran. The host preflight currently requires SELinux `Enforcing`, contrary to this contract's `Disabled` target. Required external Gateway credentials are also absent. Tunnel acceptance remains unimplemented and requires external VPN/session inputs. Resolve the preflight conflict, network overlap, external inputs, and failing tests before retrying host deployment. Local results do not establish target-host acceptance.
+No deployment or host-mutating acceptance test ran during that historical validation. At that time, host preflight required SELinux `Enforcing`, contrary to this contract's `Disabled` target. Required external Gateway credentials were also absent. Tunnel acceptance remains unimplemented and requires external VPN/session inputs. The follow-up checks below record the Phase 1 fixes; they do not establish target-host acceptance.
+
+### Phase 1 follow-up local validation
+
+The following checks ran on 2026-10-16 in the uncommitted working tree based on repository revision `9124b224b4e5d47ebc7e0817985500a098af5b4e`, using Python 3.9.25 and pytest 6.2.2. `pyproject.toml` requires Python 3.14 or newer; `uv` and Python 3.14 were unavailable, so tests ran through the installed `python3` and pytest. `ip -j -4 route show && printf '\nIPv4 addresses:\n' && ip -j -4 address show` showed the previously recorded connected `eth0` route `192.168.7.0/24`; it showed no `192.168.9.0/24` route. The new range is selected from the known inventory only. This local observation does not prove availability against all target host routes or networks; target preflight remains required.
+
+- `python3 -m pytest -q tests/scripts/test_gateway_host_preflight.py tests/scripts/test_gateway_config_validation.py` passed: 59 passed.
+- `python3 -m pytest -q` passed: 70 passed.
+- `bash tests/scripts/test-gateway-config.sh` passed, including the fake-Podman check that DNS candidate generation does not query application targets.
+- `./scripts/deploy-gateway.sh --validate-config config/host_config.json` passed.
+- `./scripts/host-preflight.sh --validate-config config/host_config.json` passed.
+- `python3 -m scripts.gateway.strict_json config/host_config.json` passed.
+- `bash -n scripts/deploy-gateway.sh scripts/host-preflight.sh tests/scripts/test-gateway-config.sh` passed.
+- `python3 -m compileall -q scripts/gateway/host_preflight.py tests/scripts/test_gateway_host_preflight.py tests/scripts/test_gateway_config_validation.py` passed.
+- The read-only `gateway-networks` preflight fake accepted only Podman network listing, reported planned network creation and pending DNS readiness, and made no container or mutation calls.
+- `shellcheck -s bash scripts/deploy-gateway.sh scripts/host-preflight.sh tests/scripts/test-gateway-config.sh` could not run: `shellcheck` is not installed.
+- Ruff is not configured in `pyproject.toml`; it was not run.
+
+The four historical pytest failures were investigated: the valid-running and generic-container fakes rejected tuple subprocess arguments; the overlap fake did the same before checking overlap; the stopped-target and valid-running fixtures also omitted their declared `project-a` network. The fakes now normalize tuple/list arguments, and target fixtures include existing declared networks where required. Overlap rejection and generic container inspection remain covered.
+
+No Gateway `--apply`, host-setting change, or target-host acceptance test ran. Local checks do not establish target-host acceptance. Validate `192.168.9.0/24` and `192.168.9.2` against all relevant target host networks and routes before acceptance.
 
 Host file-change auditing and PAM controls are assumed from the external security policy, not validated by the boilerplate. Do not claim target acceptance until the remaining gates pass on an authorized disposable RHEL 9.8 / Podman 5.8.2 system with SELinux already disabled.

@@ -1125,7 +1125,7 @@ As seguintes decisões são consideradas parte do contrato:
 | Gateway compartilhado entre redes | Sim; uma interface Podman para cada rede no inventário global `networks` |
 | Acesso do Gateway | A todas as redes e serviços Podman, sem aprovação individual por serviço; componente administrativo confiável |
 | Inventário de redes | `config/host_config.json` declara todas as redes; blocos opcionais configuram serviços do host |
-| Redes iniciais | `shared` `192.168.7.0/24`; `webApp` `192.168.8.0/29`; cada app futuro recebe CIDR único |
+| Redes iniciais | `shared` `192.168.9.0/24`; `webApp` `192.168.8.0/29`; cada app futuro recebe CIDR único |
 | DNS de desenvolvimento | DNSMasq no Gateway |
 | Configuração DNS | Gerada/atualizada pelo deployment |
 | Nomes internos | DNSMasq resolve nomes para endereços atuais de containers; clientes usam rotas aos CIDRs Podman |
@@ -1272,7 +1272,7 @@ Development access          User HTTP access
            │                     │
            └─────────┬───────────┘
                      │
-shared 192.168.7.0/24: Gateway, NGINX, webApp, PostgreSQL
+shared 192.168.9.0/24: Gateway, NGINX, webApp, PostgreSQL
                      │
 webApp 192.168.8.0/29: webApp, PostgreSQL
 ```
@@ -1301,12 +1301,14 @@ Resolva os inputs restantes da seção 29 antes da implementação. Valide Podma
 
 | Rede Podman | CIDR | IP do Gateway | Membros declarados |
 |---|---|---|---|
-| `shared` | `192.168.7.0/24` | `192.168.7.2` | Gateway, NGINX, `webApp` e `postgres` |
+| `shared` | `192.168.9.0/24` | `192.168.9.2` | Gateway, NGINX, `webApp` e `postgres` |
 | `webApp` | `192.168.8.0/29` | `192.168.8.2` | `webApp` e `postgres` |
 
-O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `.2` foram aprovados para as duas interfaces do Gateway.
+O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `192.168.9.2` e `192.168.8.2` foram aprovados para as duas interfaces do Gateway.
 
 `shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` permanece uma área separada para configuração de VPN/túneis planejada; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. As decisões de topologia estão confirmadas; perfis, CIDRs, OS do cliente e regras de roteamento são inputs de deployment.
+
+`192.168.9.0/24` foi selecionado como a primeira rede /24 acima do conflito conhecido, usando o inventário versionado `shared`/`webApp` e a rota host `192.168.7.0/24` observada em `eth0`. Essa escolha não prova disponibilidade contra outras redes ou rotas. Gateway `--check` valida redes Podman, mas não verifica a tabela de rotas do host; a aceitação exige revisão no host-alvo de todas as redes e rotas relevantes.
 
 `192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza somente o inventário top-level `networks` e reconcilia o Gateway existente. Não deve criar outro Gateway nem manter um inventário seletivo de redes no bloco `gateway`.
 
@@ -1314,7 +1316,7 @@ O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços
 
 Inputs operacionais e gates de implementação restantes:
 
-1. Validar no host-alvo a atribuição Quadlet dos IPs aprovados `192.168.7.2` e `192.168.8.2`.
+1. Validar no host-alvo a atribuição Quadlet dos IPs aprovados `192.168.9.2` e `192.168.8.2`.
 2. NGINX usa `0.0.0.0:8080`, mapeado ao TCP `80` do container. A rede externa encaminha tráfego para o IP DHCP atual do host.
 3. `/app` e `/app/api/` apontam ao mesmo `webApp:8000`; FastAPI serve os assets Vite e a API.
 4. Decisão confirmada: FastAPI serve assets e API no mesmo processo `webApp:8000` e mantém credenciais PostgreSQL. Browser assets não são processos do container; teste que build output e respostas HTTP nunca exponham essas credenciais.

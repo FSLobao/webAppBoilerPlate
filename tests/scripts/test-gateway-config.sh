@@ -83,6 +83,23 @@ expected_created_networks=(shared project-a-net newly-added-net)
     fail "Created Podman networks differ from declarations: ${created_networks[*]}"
 printf 'PASS: all declared Podman networks are created\n'
 
+mkdir -p "$TMP_DIR/dns-bin"
+cat > "$TMP_DIR/dns-bin/podman" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$PODMAN_CALL_LOG"
+exit 97
+SH
+chmod 0755 "$TMP_DIR/dns-bin/podman"
+PATH="$TMP_DIR/dns-bin:$PATH" PODMAN_CALL_LOG="$TMP_DIR/dns-podman.log" \
+    bash -c 'source "$1"; generate_dns_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" "$TMP_DIR/dns-hosts"
+grep -Fq \
+    '# PENDING DNS target: backend.project-a.dev.internal (project-a-backend readiness/unverified)' \
+    "$TMP_DIR/dns-hosts" || fail 'DNS candidate did not retain unverified target status'
+[[ ! -s "$TMP_DIR/dns-podman.log" ]] || \
+    fail 'DNS candidate generation queried a target container'
+printf 'PASS: DNS candidate generation does not inspect application containers\n'
+
 jq 'del(.gateway, .http_proxy) | .networks = [{"name":"database","subnet":"10.90.0.0/24"}] |
     .containers = [{"name":"postgres","networks":["database"]}] | .dns_records = []' \
     "$SAMPLE_CONFIG" > "$TMP_DIR/generic-host.json"

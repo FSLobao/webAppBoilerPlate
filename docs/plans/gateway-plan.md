@@ -104,14 +104,14 @@ The selected [host configuration](../../config/host_config.json) declares:
 
 | Podman network | Subnet | Gateway address | Requested members |
 |---|---|---|---|
-| `shared` | `192.168.7.0/24` | `192.168.7.2` | Gateway, NGINX, `webApp`, and `postgres` |
+| `shared` | `192.168.9.0/24` | `192.168.9.2` | Gateway, NGINX, `webApp`, and `postgres` |
 | `webApp` | `192.168.8.0/29` | `192.168.8.2` | `webApp` and `postgres` |
 
 The Gateway is configured on both declared networks, matching the existing all-networks contract. Each app container also joins `shared`; direct connectivity between shared-network members is accepted and authentication belongs to each service. This still means “no routing between app networks” does not isolate services attached to `shared`.
 
 Deployment inputs and implementation gates (not architecture decisions):
 
-1. Validate Quadlet assignment of `192.168.7.2` and `192.168.8.2` on the target host.
+1. Validate Quadlet assignment of `192.168.9.2` and `192.168.8.2` on the target host.
 2. Implement application deployment so it creates each unique Podman app network, adds it only to the global top-level `networks` inventory, then reconciles the existing Gateway, which attaches to every declared network. Do not create a second Gateway or maintain a separate Gateway network list.
 3. Supply the real external OpenVPN profile, assigned VPN client pool/routes, SSH TUN pool/session policy, client OS details, and external server routing as deployment inputs. Do not choose or assume their CIDRs in architecture documentation.
 4. Validate configured Podman, tunnel, host, developer-LAN, and corporate route ranges on the target before installation.

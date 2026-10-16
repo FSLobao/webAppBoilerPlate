@@ -300,16 +300,17 @@ uma rede declarada. Exemplo:
 }
 ```
 
-Escolha CIDRs que não conflitem com as redes existentes no host. **Limitação dos scripts atuais,
-não do contrato aprovado:** o preflight geral (`host-preflight.sh --check`) exige que cada rede
-declarada já exista com o CIDR esperado e verifica os containers listados; containers parados são
-reportados como pendentes. O preflight atual do Gateway aceita redes declaradas ausentes, mas não as
-reporta como criação planejada; também exige ao menos uma rede Podman declarada e um registro DNS.
-O fluxo atual de DNS ainda depende dos targets, podendo solicitar que targets parados sejam iniciados.
-O contrato planejado de bootstrap limpo permite redes ausentes (`--check` informa criação planejada;
-`--apply` as cria) e não exige containers de aplicação, targets DNS ou registros DNS para iniciar o
-Gateway. Consulte o [status de implementação](docs/plans/gateway-implementation.md); esses
-comportamentos ainda não foram implementados.
+O CIDR selecionado para `shared` é `192.168.9.0/24`, com Gateway em `192.168.9.2`; `webApp` permanece
+em `192.168.8.0/29`. A faixa `.9.0/24` segue o inventário conhecido, mas não prova disponibilidade
+contra outras redes/rotas do host. Gateway `--check` verifica redes Podman, não a tabela de rotas
+do host; confira também `ip -j -4 route show` no host-alvo antes da aceitação.
+Escolha CIDRs que não conflitem com as redes e rotas existentes no host. Gateway `--check` verifica
+as redes Podman existentes, informa redes declaradas ausentes como criação planejada e anuncia cada
+registro DNS como `readiness/unverified`, sem consultar containers de aplicação ou targets DNS.
+Gateway `--apply` cria redes ausentes, mas não inspeciona, cria, inicia, para ou altera containers de
+aplicação; registros DNS permanecem pendentes até a implementação do handoff de atualização após
+readiness. O comando geral `host-preflight.sh --check` mantém a inspeção dos containers configurados
+e reporta containers parados como pendentes.
 
 Para conferir um host com outros containers, sem exigir configuração ou credenciais do gateway:
 
@@ -354,16 +355,18 @@ sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
-`--check` exige RHEL 9.8 e Podman 5.8.2 e verifica as credenciais, portas, redes, containers,
-socket rootful e ferramentas exigidas. Não contorne essa verificação nem rode `--apply` em Debian,
-em host live ou antes de aprovação operacional.
+`--check` exige RHEL 9.8, Podman rootful 5.8.2 e SELinux já desativado. Verifica credenciais,
+portas, redes, socket rootful e ferramentas exigidas; não inspeciona containers de aplicação ou
+targets DNS. Redes ausentes são informadas como criação planejada. O comando geral
+`host-preflight.sh --check` continua inspecionando os containers declarados. Não contorne a
+verificação nem rode `--apply` em Debian, em host live ou antes de aprovação operacional.
 
 ### O que o apply cria
 
 - Constrói a imagem Debian 13 `linux/amd64` `localhost/gateway:1`, a partir de
   `gateway/development/Containerfile` e versões fixadas no repositório.
 - Cria `/var/lib/gateway/` e arquivos gerados: cópia da configuração, metadados de
-  entradas, registros DNS e marcador de propriedade.
+  entradas, declarações DNS pendentes e marcador de propriedade.
 - Cria a identidade SSH Ed25519 persistente do gateway somente quando os dois arquivos da chave
   ainda não existem. Uma chave incompleta ou alterada causa falha; não há rotação automática.
 - Cria somente redes Podman declaradas que ainda não existam. Redes existentes precisam ter o CIDR
@@ -385,9 +388,10 @@ de firewall/ACL. O gateway não substitui o perímetro de segurança.
 ### Usar SSH, DNS e Cockpit
 
 O gateway aceita login SSH como `developer` na porta configurada (padrão `2222`), usando a chave
-privada do desenvolvedor que permanece na workstation. O DNSMasq resolve, dentro do gateway, os
-nomes dos targets em execução. O acesso Layer 3 por OpenVPN/SSH TUN e suas rotas ainda estão
-planejados, não implementados.
+privada do desenvolvedor que permanece na workstation. DNSMasq só resolverá os nomes declarados
+depois que o handoff readiness-scoped publicar registros válidos; esse handoff ainda não está
+implementado e os targets permanecem pendentes. O acesso Layer 3 por OpenVPN/SSH TUN e suas rotas
+ainda estão planejados, não implementados.
 
 Quando o SSH TUN estiver implementado, o VS Code Remote-SSH poderá conectar-se diretamente ao
 endereço/DNS do container através das rotas split do túnel. Abaixo está o caminho alternativo
@@ -448,9 +452,10 @@ como somente leitura, esse socket concede amplo controle sobre containers rootfu
 Podman TCP. A aprovação desse limite de autoridade não comprova compatibilidade com o baseline de
 SELinux desativado.
 
-Depois que uma aplicação criar ou recriar um container mapeado, execute `--apply` novamente para
-atualizar o endereço DNS. Targets ausentes ou parados são reportados como pendentes e omitidos; um
-endereço antigo não é mantido. Um target em execução na rede errada causa erro de preflight.
+Targets DNS ficam sem endereço publicado até existir o handoff de atualização com readiness. Gateway
+`--apply` não consulta containers e nunca mantém endereços antigos ao gerar essa configuração
+pendente. A geração readiness-scoped e a atualização após criação, parada ou substituição ainda não
+estão implementadas.
 
 ### Diagnóstico e testes locais
 

@@ -180,7 +180,7 @@ validate_config() {
 }
 # ---------------------------------- #
 
-# Check host prerequisites, secrets, generated state, ports, networks, and DNS targets without mutation.
+# Check Gateway host prerequisites, secrets, generated state, ports, and networks without mutation.
 check_gateway_host_preflight() {
     local config_path=${1:-$DEFAULT_CONFIG}
     local os_id os_version podman_version podman_rootless selinux_mode
@@ -221,7 +221,8 @@ check_gateway_host_preflight() {
     podman_rootless=$(podman info --format '{{.Host.Security.Rootless}}') || fail 'Cannot query Podman host security state.'
     [[ "$podman_rootless" == false ]] || fail 'Rootful Podman is required.'
     selinux_mode=$(getenforce 2>/dev/null) || fail 'Cannot query SELinux mode.'
-    [[ "$selinux_mode" == Enforcing ]] || fail "SELinux must remain Enforcing; found $selinux_mode."
+    run_python_module scripts.gateway.host_preflight selinux-mode "$selinux_mode" || \
+        fail "SELinux must be Disabled; found $selinux_mode."
     if [[ -e "$PODMAN_SOCKET" || -L "$PODMAN_SOCKET" ]]; then
         [[ -S "$PODMAN_SOCKET" && ! -L "$PODMAN_SOCKET" ]] || fail "Rootful Podman socket path is unsafe: $PODMAN_SOCKET"
     elif systemctl is-active --quiet "$UNIT_NAME"; then
@@ -268,11 +269,9 @@ check_gateway_host_preflight() {
     private_public_key=$(openssl pkey -passin pass: -in "$COCKPIT_KEY_FILE" -pubout 2>/dev/null) || fail 'Cannot read Cockpit TLS private key public component.'
     [[ "$certificate_public_key" == "$private_public_key" ]] || fail 'Cockpit TLS certificate and private key do not match.'
 
-    local network_count dns_count
+    local network_count
     network_count=$(jq '.networks | length' "$config_path")
-    dns_count=$(jq '(.dns_records // []) | length' "$config_path")
     (( network_count > 0 )) || fail 'At least one gateway network must be declared before deployment.'
-    (( dns_count > 0 )) || fail 'At least one development DNS record must be declared before deployment.'
 
     for path in "$STATE_DIR" "$STATE_DIR/generated" "$STATE_DIR/dns" "$HOST_KEYS_DIR"; do
         if [[ -e "$path" || -L "$path" ]]; then
@@ -366,8 +365,7 @@ check_gateway_host_preflight() {
         fi
     done
 
-    run_python_module scripts.gateway.host_preflight podman-state \
-        --allow-missing-declared-networks "$config_path"
+    run_python_module scripts.gateway.host_preflight gateway-networks "$config_path"
 }
 # ---------------------------------- #
 

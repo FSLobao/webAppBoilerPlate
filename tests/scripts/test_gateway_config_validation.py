@@ -42,8 +42,8 @@ def test_accepts_static_gateway_addresses_inside_networks() -> None:
             "networks": [
                 {
                     "name": "shared",
-                    "subnet": "192.168.7.0/24",
-                    "gateway_address": "192.168.7.2",
+                    "subnet": "192.168.9.0/24",
+                    "gateway_address": "192.168.9.2",
                 },
                 {
                     "name": "webApp",

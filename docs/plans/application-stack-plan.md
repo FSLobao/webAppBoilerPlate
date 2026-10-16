@@ -22,7 +22,7 @@ Selected Podman membership:
 - NGINX: `shared`.
 - Development Gateway: every declared network, including `shared` and `webApp`.
 
-The global top-level `networks` array contains the Podman application networks and their non-overlapping CIDRs; it does not describe host interfaces, physical/host network attachments, VPN routes, or tunnel address pools. The `webApp` network uses `192.168.8.0/29`; `shared` uses `192.168.7.0/24`. The `/29` provides six usable addresses for the host bridge, Gateway, `webApp`, PostgreSQL, and future headroom. PostgreSQL has no published host port by default. App deployment assigns a unique, non-overlapping CIDR to each future app network, creates it, adds it only to the global top-level `networks` inventory, and reconciles the existing Gateway to attach it.
+The global top-level `networks` array contains the Podman application networks and their non-overlapping CIDRs; it does not describe host interfaces, physical/host network attachments, VPN routes, or tunnel address pools. The `webApp` network uses `192.168.8.0/29`; `shared` uses `192.168.9.0/24`. The `/29` provides six usable addresses for the host bridge, Gateway, `webApp`, PostgreSQL, and future headroom. PostgreSQL has no published host port by default. App deployment assigns a unique, non-overlapping CIDR to each future app network, creates it, adds it only to the global top-level `networks` inventory, and reconciles the existing Gateway to attach it.
 
 ### Shared-network security boundary
 
@@ -54,7 +54,7 @@ The `192.168.8.0/29` subnet is reserved for this `webApp` network. Reusing it fo
 - Only after an app target passes its declared health/readiness checks does application deployment request a revision-scoped DNS refresh. Gateway re-inspects Podman and publishes only the current valid address on the target's declared network. Absent, stopped, unhealthy, unattached, or not-ready targets remain pending and have no DNS record; Gateway never starts them.
 - App start, stop, failure, and replacement paths request DNS refresh so the address is added, updated, or removed. A refresh must never retain the previous address as fallback. There is no background watcher in scope, so an unannounced process crash can leave DNS stale until an explicit refresh or Gateway restart; that limitation must be visible in operations.
 
-Application lifecycle, container readiness, and dependency checks belong to this application phase, not Gateway host preflight. The current scripts still impose older Gateway container prerequisites and may start stopped DNS targets; that runtime behavior is not this plan and must be changed before clean-host Gateway-first acceptance. The top-level `networks` array remains strictly the Podman network inventory; VPN/tunnel routes and host interfaces remain separate configuration.
+Application lifecycle, container readiness, and dependency checks belong to this application phase, not Gateway host preflight. Gateway checks no longer impose application-container prerequisites, and Gateway apply does not start stopped DNS targets. The readiness-scoped DNS refresh handoff remains unimplemented. The top-level `networks` array remains strictly the Podman network inventory; VPN/tunnel routes and host interfaces remain separate configuration.
 
 ## 3. Frontend and API Alternatives
 

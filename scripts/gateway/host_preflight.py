@@ -1,8 +1,8 @@
 """Run Python-only, read-only host and Podman preflight checks.
 
-The CLI checks Podman versions, Cockpit password-file content, and configured
-Podman networks and containers. State checks are read-only and report stopped
-containers as pending.
+Gateway network checks report planned creation and DNS readiness without
+inspecting application containers. Generic host checks also inspect declared
+container state and report stopped containers as pending.
 """
 
 from __future__ import annotations
@@ -45,6 +45,11 @@ def podman_version_matches_target(version: str) -> bool:
     return version.removeprefix("v") == TARGET_PODMAN_VERSION
 
 
+def selinux_mode_matches_target(mode: str) -> bool:
+    """Return whether SELinux is already disabled on the deployment host."""
+    return mode == "Disabled"
+
+
 def cockpit_password_is_valid(password_path: str | pathlib.Path) -> bool:
     """Return whether a Cockpit secret contains one non-empty line.
 
@@ -78,43 +83,43 @@ def _network_subnets(network: dict[str, Any]) -> list[ipaddress.IPv4Network | ip
     ]
 
 
-def validate_podman_state(
-    config: dict[str, Any],
-    run_command: CommandRunner = subprocess.run,
-    announce: Callable[[str], None] = print,
-    allow_missing_declared_networks: bool = False,
-) -> None:
-    """Check declared host networks and container attachments against Podman.
-
-    Args:
-        config: Structurally validated host configuration. ``gateway`` is
-            optional; declared Podman networks may be created during deployment.
-        run_command: Subprocess-compatible runner, injectable for tests.
-        announce: Receives pending-target messages; defaults to standard output.
-        allow_missing_declared_networks: Permit declared Podman networks to be
-            absent before deployment creates them.
-
-    Raises:
-        RuntimeError: A Podman command fails.
-        KeyError, TypeError, ValueError: Inspected state conflicts with config.
-        subprocess.CalledProcessError: Listing Podman networks fails.
-
-    External commands: ``podman network ls``, ``podman network inspect``,
-    ``podman container exists``, and ``podman inspect``. The function is
-    read-only and does not start containers or create networks.
-    """
-    validate_host_config(config)
+def _inspect_podman_networks(
+    run_command: CommandRunner,
+) -> dict[str, list[ipaddress.IPv4Network | ipaddress.IPv6Network]]:
+    """Read all existing Podman network names and subnets."""
     names_output = run_command(
         ["podman", "network", "ls", "--format", "{{.Name}}"],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    existing_networks = {}
+    networks = {}
     for name in names_output.splitlines():
         details = _run_json(run_command, "podman", "network", "inspect", name)[0]
-        existing_networks[name] = _network_subnets(details)
+        networks[name] = _network_subnets(details)
+    return networks
 
+
+def _validate_declared_networks(
+    config: dict[str, Any],
+    existing_networks: dict[
+        str, list[ipaddress.IPv4Network | ipaddress.IPv6Network]
+    ],
+    *,
+    allow_missing: bool,
+    announce: Callable[[str], None] = print,
+) -> dict[str, ipaddress.IPv4Network]:
+    """Validate configured IPv4 networks against inspected Podman state.
+
+    Args:
+        config: Structurally validated host configuration.
+        existing_networks: Inspected Podman network subnets.
+        allow_missing: Permit absent declared networks and report planned creation.
+        announce: Receives planned network messages.
+
+    Raises:
+        KeyError, TypeError, ValueError: Inspected state conflicts with config.
+    """
     declared_networks = {
         entry["name"]: ipaddress.ip_network(entry["subnet"], strict=True)
         for entry in config["networks"]
@@ -124,14 +129,20 @@ def validate_podman_state(
             if existing_name == name:
                 continue
             for existing_subnet in subnets:
-                if subnet.overlaps(existing_subnet):
+                if (
+                    subnet.version == existing_subnet.version
+                    and subnet.overlaps(existing_subnet)
+                ):
                     raise ValueError(
                         f"declared network '{name}' subnet {subnet} overlaps existing "
                         f"Podman network '{existing_name}' subnet {existing_subnet}"
                     )
 
         if name not in existing_networks:
-            if allow_missing_declared_networks:
+            if allow_missing:
+                announce(
+                    f"[host-preflight] PENDING network creation: {name} ({subnet})"
+                )
                 continue
             raise ValueError(f"declared host network '{name}' is absent")
         ipv4_subnets = [
@@ -139,9 +150,78 @@ def validate_podman_state(
         ]
         if ipv4_subnets != [subnet]:
             raise ValueError(
-                f"existing Podman network '{name}' does not match declared subnet {subnet}"
+                f"existing Podman network '{name}' does not match "
+                f"declared subnet {subnet}"
             )
+    return declared_networks
 
+
+def validate_gateway_networks(
+    config: dict[str, Any],
+    run_command: CommandRunner | None = None,
+    announce: Callable[[str], None] = print,
+) -> None:
+    """Check Gateway networks and report DNS readiness from config alone.
+
+    Args:
+        config: Structurally validated host configuration.
+        run_command: Subprocess-compatible runner, injectable for tests.
+        announce: Receives planned network and pending DNS messages.
+
+    Raises:
+        RuntimeError: A Podman command fails.
+        KeyError, TypeError, ValueError: Inspected network state conflicts with config.
+        subprocess.CalledProcessError: Listing Podman networks fails.
+
+    External commands: ``podman network ls`` and ``podman network inspect``.
+    The function never inspects application containers or mutates host state.
+    """
+    validate_host_config(config)
+    command_runner = run_command or subprocess.run
+    existing_networks = _inspect_podman_networks(command_runner)
+    _validate_declared_networks(
+        config,
+        existing_networks,
+        allow_missing=True,
+        announce=announce,
+    )
+    for record in config.get("dns_records", []):
+        announce(
+            f"[host-preflight] PENDING DNS target: {record['name']} "
+            f"({record['container']} readiness/unverified)"
+        )
+
+
+def validate_podman_state(
+    config: dict[str, Any],
+    run_command: CommandRunner | None = None,
+    announce: Callable[[str], None] = print,
+) -> None:
+    """Check existing declared networks and generic container attachments.
+
+    Args:
+        config: Structurally validated host configuration. ``gateway`` is optional.
+        run_command: Subprocess-compatible runner, injectable for tests.
+        announce: Receives stopped-container messages; defaults to standard output.
+
+    Raises:
+        RuntimeError: A Podman command fails.
+        KeyError, TypeError, ValueError: Inspected state conflicts with config.
+        subprocess.CalledProcessError: Listing Podman networks fails.
+
+    External commands: ``podman network ls``, ``podman network inspect``,
+    ``podman container exists``, and ``podman inspect``. This generic check is
+    read-only and retains its container-inspection behavior.
+    """
+    validate_host_config(config)
+    command_runner = run_command or subprocess.run
+    existing_networks = _inspect_podman_networks(command_runner)
+    declared_networks = _validate_declared_networks(
+        config,
+        existing_networks,
+        allow_missing=False,
+        announce=announce,
+    )
     container_networks: dict[str, set[str]] = {}
     for declaration in config.get("containers", []):
         container_networks.setdefault(declaration["name"], set()).update(
@@ -153,7 +233,7 @@ def validate_podman_state(
         dns_records_by_container.setdefault(record["container"], []).append(record)
 
     for container_name, network_names in container_networks.items():
-        result = run_command(
+        result = command_runner(
             ["podman", "container", "exists", container_name],
             check=False,
             capture_output=True,
@@ -168,7 +248,7 @@ def validate_podman_state(
             )
 
         container = _run_json(
-            run_command,
+            command_runner,
             "podman",
             "inspect",
             "--type",
@@ -220,6 +300,10 @@ def main(argv: list[str] | None = None) -> int:
         "podman-version", help="check Podman client version is 5.8.2"
     )
     version_parser.add_argument("version", help="Podman client version")
+    selinux_parser = commands.add_parser(
+        "selinux-mode", help="check SELinux is Disabled"
+    )
+    selinux_parser.add_argument("mode", help="current SELinux mode")
     password_parser = commands.add_parser(
         "password-file", help="check that a Cockpit password file has one non-empty line"
     )
@@ -228,26 +312,28 @@ def main(argv: list[str] | None = None) -> int:
         "podman-state", help="check declared host networks and containers against Podman"
     )
     state_parser.add_argument("config", help="JSON host configuration")
-    state_parser.add_argument(
-        "--allow-missing-declared-networks",
-        action="store_true",
-        help="allow declared Podman networks to be created during deployment",
+    gateway_parser = commands.add_parser(
+        "gateway-networks",
+        help="check Gateway networks and report planned network/DNS readiness",
     )
+    gateway_parser.add_argument("config", help="JSON host configuration")
     args = parser.parse_args(argv)
 
     if args.check == "host-platform":
         return 0 if host_platform_matches_target(args.os_id, args.os_version) else 1
     if args.check == "podman-version":
         return 0 if podman_version_matches_target(args.version) else 1
+    if args.check == "selinux-mode":
+        return 0 if selinux_mode_matches_target(args.mode) else 1
     if args.check == "password-file":
         return 0 if cockpit_password_is_valid(args.path) else 1
 
     try:
         config = load_host_config(args.config)
-        validate_podman_state(
-            config,
-            allow_missing_declared_networks=args.allow_missing_declared_networks,
-        )
+        if args.check == "gateway-networks":
+            validate_gateway_networks(config, run_command=subprocess.run)
+        else:
+            validate_podman_state(config, run_command=subprocess.run)
     except (
         OSError,
         KeyError,

@@ -18,7 +18,6 @@ SERVICE_WAS_ENABLED=0
 SOCKET_WAS_ACTIVE=0
 ACTIVATION_ATTEMPTED=0
 NETWORKS_CREATED=()
-APPLICATION_CONTAINERS_STARTED=()
 
 usage() {
     printf 'Usage: %s --validate-config|--check|--apply [host_config.json]\n' "${0##*/}"
@@ -64,13 +63,20 @@ create_declared_networks() {
     done < <(jq -r '.networks[].name' "$config_path")
 }
 
+# Write config-only pending DNS declarations without probing target containers.
+# Arguments: host config path and staged DNS output path. Writes only that output.
 generate_dns_candidate() {
-    local config_path=$1 output_path=$2
+    local config_path=$1 output_path=$2 dns_name container
 
     printf '# Managed by scripts/deploy-gateway.sh\n' > "$output_path"
-    run_python_module scripts.gateway.dns_records "$config_path" >> "$output_path"
+    while IFS=$'\t' read -r dns_name container; do
+        [[ -n "$dns_name" ]] || continue
+        printf '# PENDING DNS target: %s (%s readiness/unverified)\n' \
+            "$dns_name" "$container" >> "$output_path"
+    done < <(jq -r '.dns_records[]? | [.name, .container] | @tsv' "$config_path")
     chmod 0644 "$output_path"
 }
+# ---------------------------------- #
 
 generate_input_metadata() {
     local config_path=$1 output_path=$2 authorized_keys_path host_key_fingerprint
@@ -315,54 +321,6 @@ check_gateway_health() {
     done < "$dns_file"
 }
 
-# Ask before starting stopped DNS targets and record starts for failure recovery.
-ensure_dns_targets_running() {
-    local config_path=$1 container running answer
-    local -A checked_containers=()
-
-    while IFS= read -r container; do
-        [[ -n "$container" ]] || continue
-        [[ -n "${checked_containers[$container]+x}" ]] && continue
-        checked_containers["$container"]=1
-
-        running=$(podman inspect --format '{{.State.Running}}' "$container") || \
-            fail "Cannot inspect configured DNS target container '$container'."
-        [[ "$running" == true ]] && continue
-        [[ -t 0 ]] || fail "DNS target container '$container' is stopped; rerun --apply in a terminal to choose whether to start it."
-        if ! read -r -p "DNS target container '$container' is stopped. Start it? [y/N] " answer; then
-            fail "Could not read confirmation for stopped DNS target container '$container'."
-        fi
-        case "$answer" in
-            y|Y|yes|YES|Yes)
-                APPLICATION_CONTAINERS_STARTED+=("$container")
-                podman start "$container" >/dev/null || fail "Could not start DNS target container '$container'."
-                ;;
-            *) fail "Stopped DNS target container '$container' was not started; apply cancelled." ;;
-        esac
-    done < <(jq -r '[.dns_records[].container] | unique[]' "$config_path")
-}
-# ---------------------------------- #
-
-# Stop application containers started by this apply when deployment fails.
-restore_started_application_containers() {
-    local container running
-
-    for container in "${APPLICATION_CONTAINERS_STARTED[@]}"; do
-        if ! podman container exists "$container" >/dev/null 2>&1; then
-            printf '[gateway] ERROR: started application container disappeared before recovery: %s\n' "$container" >&2
-            continue
-        fi
-        running=$(podman inspect --format '{{.State.Running}}' "$container") || {
-            printf '[gateway] ERROR: cannot inspect started application container during recovery: %s\n' "$container" >&2
-            continue
-        }
-        [[ "$running" == true ]] || continue
-        podman stop "$container" >/dev/null || \
-            printf '[gateway] ERROR: could not restore stopped state for application container: %s\n' "$container" >&2
-    done
-}
-# ---------------------------------- #
-
 cleanup_after_apply() {
     local status=$?
     trap - EXIT
@@ -373,7 +331,6 @@ cleanup_after_apply() {
         else
             printf '[gateway] Apply stopped before activation; additive directories, host keys, networks, or image layers may remain. No data or secrets were removed.\n' >&2
         fi
-        restore_started_application_containers
     fi
     [[ -z "$STAGED_CONFIG" ]] || rm -f -- "$STAGED_CONFIG"
     [[ -z "$STAGED_INPUTS" ]] || rm -f -- "$STAGED_INPUTS"
@@ -388,6 +345,7 @@ cleanup_after_apply() {
     fi
     exit "$status"
 }
+# ---------------------------------- #
 
 apply_deployment() {
     local config_path=$1 previous_container_image='' previous_tagged_image=''
@@ -397,10 +355,6 @@ apply_deployment() {
     "$PREFLIGHT_SCRIPT" --check-gateway "$config_path"
     APPLY_MUTATING=1
     trap cleanup_after_apply EXIT
-    ensure_dns_targets_running "$config_path"
-    if (( ${#APPLICATION_CONTAINERS_STARTED[@]} > 0 )); then
-        "$PREFLIGHT_SCRIPT" --check-gateway "$config_path"
-    fi
 
     if systemctl is-active --quiet "$UNIT_NAME"; then SERVICE_WAS_ACTIVE=1; fi
     if systemctl is-enabled --quiet "$UNIT_NAME"; then SERVICE_WAS_ENABLED=1; fi
@@ -480,12 +434,10 @@ apply_deployment() {
     if (( ${#NETWORKS_CREATED[@]} > 0 )); then
         printf '[gateway] Created application networks: %s\n' "${NETWORKS_CREATED[*]}"
     fi
-    if (( ${#APPLICATION_CONTAINERS_STARTED[@]} > 0 )); then
-        printf '[gateway] Started application containers with operator approval: %s\n' "${APPLICATION_CONTAINERS_STARTED[*]}"
-    fi
     printf '[gateway] Service status: %s\n' "$(systemctl is-active "$UNIT_NAME")"
     printf '[gateway] Recovery: journalctl -u %s; rerun --check before another apply.\n' "$UNIT_NAME"
 }
+# ---------------------------------- #
 
 main() {
     [[ $# -ge 1 ]] || { usage >&2; exit 2; }

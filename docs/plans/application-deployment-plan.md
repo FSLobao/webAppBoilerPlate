@@ -29,11 +29,11 @@ The shared Development Gateway attaches to every network in the top-level invent
 
 ### Requested initial topology
 
-The current config declares `shared` (`192.168.7.0/24`) and `webApp` (`192.168.8.0/29`) as Podman networks. Gateway attaches to both networks; NGINX uses `shared`; the combined `webApp` container and PostgreSQL use both networks. This matches the all-networks Gateway contract. The requester accepts direct communication among shared-network members and relies on service authentication.
+The current config declares `shared` (`192.168.9.0/24`) and `webApp` (`192.168.8.0/29`) as Podman networks. Gateway attaches to both networks; NGINX uses `shared`; the combined `webApp` container and PostgreSQL use both networks. This matches the all-networks Gateway contract. The requester accepts direct communication among shared-network members and relies on service authentication.
 
-Application deployment owns creating each unique app network. It updates the shared top-level `networks` inventory and reconciles the existing Gateway, which attaches to every declared network. It must not maintain a second Gateway network list or create another Gateway. Future app deployments must find and reuse the healthy Gateway and compatible existing networks. The current host preflight still requires declared containers to exist; this is an implementation gap, not the desired clean-host contract. Application lifecycle and NGINX runtime deployment are not implemented yet.
+Application deployment owns creating each unique app network. It updates the shared top-level `networks` inventory and reconciles the existing Gateway, which attaches to every declared network. It must not maintain a second Gateway network list or create another Gateway. Future app deployments must find and reuse the healthy Gateway and compatible existing networks. Gateway host preflight now checks networks without requiring declared containers to exist, and Gateway apply never starts application or DNS-target containers. The readiness-scoped DNS refresh handoff and NGINX runtime deployment are not implemented yet.
 
-The v1 validator accepts `http_proxy` routes and static `gateway_address` fields. The approved initial addresses are `192.168.7.2` and `192.168.8.2`. An enabled `http_proxy` section means that NGINX/routes are desired and statically validated; it does not mean NGINX or its upstreams are deployed or runtime-ready. NGINX runtime deployment and target-host Quadlet acceptance remain unimplemented.
+The v1 validator accepts `http_proxy` routes and static `gateway_address` fields. The approved initial addresses are `192.168.9.2` and `192.168.8.2`. An enabled `http_proxy` section means that NGINX/routes are desired and statically validated; it does not mean NGINX or its upstreams are deployed or runtime-ready. NGINX runtime deployment and target-host Quadlet acceptance remain unimplemented.
 
 ### Clean-host deployment sequence
 
