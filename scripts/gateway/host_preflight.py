@@ -81,7 +81,12 @@ def cockpit_password_is_valid(password_path: str | pathlib.Path) -> bool:
         password = pathlib.Path(password_path).read_bytes().rstrip(b"\n")
     except OSError:
         return False
-    return bool(password) and b"\n" not in password and b"\r" not in password and b"\0" not in password
+    return (
+        bool(password)
+        and b"\n" not in password
+        and b"\r" not in password
+        and b"\0" not in password
+    )
 
 
 def _run_json(run_command: CommandRunner, *args: str) -> Any:
@@ -92,7 +97,9 @@ def _run_json(run_command: CommandRunner, *args: str) -> Any:
     return json.loads(result.stdout)
 
 
-def _network_subnets(network: dict[str, Any]) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+def _network_subnets(
+    network: dict[str, Any],
+) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
     """Return parsed subnets from one Podman network inspection result."""
     raw_subnets = network.get("subnets", [])
     if isinstance(raw_subnets, dict):
@@ -303,11 +310,13 @@ def _validate_remote_access_routes(
     transports = {
         "openvpn": remote_access.get("openvpn"),
         "ssh_tun": remote_access.get("ssh_tun"),
+        "wireguard": remote_access.get("wireguard"),
     }
     active_routes: list[OwnedRoute] = []
     active_owners: dict[str, list[RouteOwner]] = {
         "openvpn": [],
         "ssh_tun": [],
+        "wireguard": [],
     }
     networks = config.get("networks", [])
     addresses = [
@@ -324,9 +333,11 @@ def _validate_remote_access_routes(
     )
     if addresses:
         for transport, metadata in transports.items():
-            if not isinstance(metadata, dict) or metadata.get("enabled") is not True:
+            if not isinstance(metadata, dict):
                 continue
             pool_field = "client_pool" if transport == "openvpn" else "address_pool"
+            if pool_field not in metadata:
+                continue
             expected_pool = ipaddress.ip_network(metadata[pool_field], strict=True)
             expected_gateway = addresses[0][1]
             owner = RouteOwner(transport, f"{transport}-managed-return-route")
@@ -414,6 +425,55 @@ def _validate_ssh_tun_keys_file(config: dict[str, Any]) -> None:
         )
 
 
+def _require_external_key_path(
+    key_path: pathlib.Path, repository_root: pathlib.Path
+) -> None:
+    """Reject a WireGuard server key resolved inside the checked-out repository."""
+    try:
+        resolved_key_path = key_path.resolve(strict=True)
+        resolved_repository_root = repository_root.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ValueError("configured WireGuard server key is unavailable") from error
+    if resolved_key_path.is_relative_to(resolved_repository_root):
+        raise ValueError(
+            "configured WireGuard server key must be outside the Git repository"
+        )
+
+
+def _validate_wireguard_inputs(config: dict[str, Any]) -> None:
+    """Check kernel support and server-key metadata without opening the key."""
+    gateway = config.get("gateway")
+    remote_access = gateway.get("remote_access") if isinstance(gateway, dict) else None
+    wireguard = (
+        remote_access.get("wireguard") if isinstance(remote_access, dict) else None
+    )
+    if not isinstance(wireguard, dict) or wireguard.get("enabled") is not True:
+        return
+    if not pathlib.Path("/sys/module/wireguard").is_dir():
+        raise ValueError(
+            "WireGuard kernel support is not loaded; load it through host policy, "
+            "not Gateway deployment"
+        )
+    key_path = pathlib.Path(wireguard["server_private_key_path"])
+    repository_root = pathlib.Path(__file__).resolve().parents[2]
+    _require_external_key_path(key_path, repository_root)
+    try:
+        key_stat = key_path.lstat()
+    except OSError as error:
+        raise ValueError("configured WireGuard server key is unavailable") from error
+    mode = stat.S_IMODE(key_stat.st_mode)
+    if (
+        not stat.S_ISREG(key_stat.st_mode)
+        or key_path.is_symlink()
+        or key_stat.st_uid != 0
+        or mode & 0o077
+        or not mode & 0o400
+    ):
+        raise ValueError(
+            "WireGuard server key must be a readable, root-owned private regular file"
+        )
+
+
 def validate_gateway_networks(
     config: dict[str, Any],
     run_command: CommandRunner | None = None,
@@ -440,6 +500,7 @@ def validate_gateway_networks(
     validate_remote_access_config(config)
     _validate_openvpn_profile_file(config)
     _validate_ssh_tun_keys_file(config)
+    _validate_wireguard_inputs(config)
     command_runner = run_command or subprocess.run
     existing_networks = _inspect_podman_networks(command_runner)
     declared_networks = _validate_declared_networks(
@@ -513,8 +574,7 @@ def validate_podman_state(
             raise ValueError(f"configured container '{container_name}' is absent")
         if result.returncode:
             raise RuntimeError(
-                result.stderr.strip()
-                or f"cannot inspect container '{container_name}'"
+                result.stderr.strip() or f"cannot inspect container '{container_name}'"
             )
 
         container = _run_json(
@@ -535,7 +595,9 @@ def validate_podman_state(
                         f"({container_name} is stopped)"
                     )
             else:
-                announce(f"[host-preflight] PENDING container: {container_name} is stopped")
+                announce(
+                    f"[host-preflight] PENDING container: {container_name} is stopped"
+                )
             continue
 
         for network_name in sorted(network_names):
@@ -575,11 +637,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     selinux_parser.add_argument("mode", help="current SELinux mode")
     password_parser = commands.add_parser(
-        "password-file", help="check that a Cockpit password file has one non-empty line"
+        "password-file",
+        help="check that a Cockpit password file has one non-empty line",
     )
     password_parser.add_argument("path", help="Cockpit password file")
     state_parser = commands.add_parser(
-        "podman-state", help="check declared host networks and containers against Podman"
+        "podman-state",
+        help="check declared host networks and containers against Podman",
     )
     state_parser.add_argument("config", help="JSON host configuration")
     gateway_parser = commands.add_parser(

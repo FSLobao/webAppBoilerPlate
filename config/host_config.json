@@ -26,6 +26,9 @@
             },
             "ssh_tun": {
                 "enabled": false
+            },
+            "wireguard": {
+                "enabled": false
             }
         }
     },

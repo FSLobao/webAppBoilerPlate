@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly IMAGE=localhost/gateway:1
+readonly IMAGE=${GATEWAY_TEST_IMAGE:-localhost/gateway:1}
 readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly TMP_DIR="$(mktemp -d)"
 readonly TEST_SUFFIX="$$"
@@ -10,7 +10,7 @@ readonly NETWORK_NAME="gateway-dns-runtime-${TEST_SUFFIX}"
 readonly TARGET_NAME="gateway-dns-target-${TEST_SUFFIX}"
 readonly BLOCKER_NAME="gateway-dns-blocker-${TEST_SUFFIX}"
 readonly REPLACEMENT_NAME="$TARGET_NAME"
-readonly DNS_NAME=target.project-a.dev.internal
+readonly DNS_NAME=target.project-a.dev.anatel
 readonly PODMAN_SOCKET="$TMP_DIR/podman/podman.sock"
 readonly PODMAN_SERVICE_LOG="$TMP_DIR/podman-service.log"
 PODMAN_SERVICE_PID=''
@@ -192,7 +192,7 @@ printf 'test-only-password\n' > "$TMP_DIR/run/cockpit-password"
 chmod 0600 "$TMP_DIR/run/cockpit-password"
 jq --arg network "$NETWORK_NAME" --arg subnet "$TARGET_SUBNET" --arg target "$TARGET_NAME" \
   '.networks = [{"name":$network,"subnet":$subnet}] |
-   .dns_records = [{"name":"target.project-a.dev.internal","container":$target,"network":$network}]' \
+   .dns_records = [{"name":"target.project-a.dev.anatel","container":$target,"network":$network}]' \
   "$REPO_ROOT/config/host_config.json" > "$TMP_DIR/config/config.json"
 chmod 0644 "$TMP_DIR/config/config.json"
 printf '# generated test record\n' > "$TMP_DIR/dns/hosts"

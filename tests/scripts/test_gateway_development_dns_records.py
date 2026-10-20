@@ -16,7 +16,7 @@ def _config() -> dict[str, Any]:
         "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
         "dns_records": [
             {
-                "name": "api.project-a.dev.internal",
+                "name": "api.project-a.dev.anatel",
                 "container": "api",
                 "network": "project-a",
             }

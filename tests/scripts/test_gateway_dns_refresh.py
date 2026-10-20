@@ -30,12 +30,12 @@ def _config() -> dict[str, Any]:
         ],
         "dns_records": [
             {
-                "name": "api.project-a.dev.internal",
+                "name": "api.project-a.dev.anatel",
                 "container": "api",
                 "network": "project-a-net",
             },
             {
-                "name": "worker.project-b.dev.internal",
+                "name": "worker.project-b.dev.anatel",
                 "container": "worker",
                 "network": "project-b-net",
             },
@@ -124,8 +124,8 @@ def test_valid_handoff_updates_only_its_configured_target_scope() -> None:
     request = _request(config, ["api"], [{"container": "api", "id": API_ID}])
     current = (
         "# generated\n"
-        "10.89.1.4 api.project-a.dev.internal\n"
-        "10.89.2.8 worker.project-b.dev.internal\n"
+        "10.89.1.4 api.project-a.dev.anatel\n"
+        "10.89.2.8 worker.project-b.dev.anatel\n"
     )
     inspected = _inspect_result("api", API_ID, "10.89.1.9", "project-a-net")
 
@@ -136,9 +136,9 @@ def test_valid_handoff_updates_only_its_configured_target_scope() -> None:
         _runner_for(inspected, API_ID),
     )
 
-    assert "10.89.1.9 api.project-a.dev.internal" in result
-    assert "10.89.1.4 api.project-a.dev.internal" not in result
-    assert "10.89.2.8 worker.project-b.dev.internal" in result
+    assert "10.89.1.9 api.project-a.dev.anatel" in result
+    assert "10.89.1.4 api.project-a.dev.anatel" not in result
+    assert "10.89.2.8 worker.project-b.dev.anatel" in result
 
 
 def test_stopped_or_failed_event_removes_scoped_old_record() -> None:
@@ -146,8 +146,7 @@ def test_stopped_or_failed_event_removes_scoped_old_record() -> None:
     config = _config()
     request = _request(config, ["api"], [])
     current = (
-        "10.89.1.4 api.project-a.dev.internal\n"
-        "10.89.2.8 worker.project-b.dev.internal\n"
+        "10.89.1.4 api.project-a.dev.anatel\n10.89.2.8 worker.project-b.dev.anatel\n"
     )
 
     def unexpected_command(
@@ -157,16 +156,16 @@ def test_stopped_or_failed_event_removes_scoped_old_record() -> None:
 
     result = render_handoff(config, request, current, unexpected_command)
 
-    assert "10.89.1.4 api.project-a.dev.internal" not in result
-    assert "# PENDING DNS target: api.project-a.dev.internal" in result
-    assert "10.89.2.8 worker.project-b.dev.internal" in result
+    assert "10.89.1.4 api.project-a.dev.anatel" not in result
+    assert "# PENDING DNS target: api.project-a.dev.anatel" in result
+    assert "10.89.2.8 worker.project-b.dev.anatel" in result
 
 
 def test_replacement_identity_publishes_new_address_without_old_fallback() -> None:
     """Replace a container ID and address within one scoped handoff."""
     config = _config()
     request = _request(config, ["api"], [{"container": "api", "id": NEW_API_ID}])
-    current = "10.89.1.4 api.project-a.dev.internal\n"
+    current = "10.89.1.4 api.project-a.dev.anatel\n"
     inspected = _inspect_result("api", NEW_API_ID, "10.89.1.11", "project-a-net")
 
     result = render_handoff(
@@ -176,8 +175,8 @@ def test_replacement_identity_publishes_new_address_without_old_fallback() -> No
         _runner_for(inspected, NEW_API_ID),
     )
 
-    assert "10.89.1.11 api.project-a.dev.internal" in result
-    assert "10.89.1.4 api.project-a.dev.internal" not in result
+    assert "10.89.1.11 api.project-a.dev.anatel" in result
+    assert "10.89.1.4 api.project-a.dev.anatel" not in result
 
 
 @pytest.mark.parametrize(
@@ -200,15 +199,15 @@ def test_unready_handoff_removes_old_address_and_never_falls_back(
     result = render_handoff(
         config,
         request,
-        "10.89.1.4 api.project-a.dev.internal\n",
+        "10.89.1.4 api.project-a.dev.anatel\n",
         _runner_for(inspected, API_ID),
     )
 
-    assert "10.89.1.4 api.project-a.dev.internal" not in result
+    assert "10.89.1.4 api.project-a.dev.anatel" not in result
     if expected_address:
-        assert f"{expected_address} api.project-a.dev.internal" in result
+        assert f"{expected_address} api.project-a.dev.anatel" in result
     else:
-        assert "# PENDING DNS target: api.project-a.dev.internal" in result
+        assert "# PENDING DNS target: api.project-a.dev.anatel" in result
 
 
 @pytest.mark.parametrize(
@@ -258,13 +257,13 @@ def test_merge_drops_unconfigured_host_entries() -> None:
     """Do not preserve entries outside the single configured DNS inventory."""
     result = merge_scoped_hosts(
         _config(),
-        "10.89.1.4 api.project-a.dev.internal\n192.0.2.4 unmanaged.example\n",
+        "10.89.1.4 api.project-a.dev.anatel\n192.0.2.4 unmanaged.example\n",
         ["api"],
         [],
     )
 
     assert "unmanaged.example" not in result
-    assert "10.89.1.4 api.project-a.dev.internal" not in result
+    assert "10.89.1.4 api.project-a.dev.anatel" not in result
 
 
 def test_request_revision_cli_rejects_duplicate_keys(

@@ -65,6 +65,7 @@ def _rules(interfaces: Sequence[str], owner_tag: str) -> str:
         f"    iifname {{ {podman_set} }} oifname {{ {podman_set} }} drop\n"
         "    ct state established,related accept\n"
         f'    iifname "tun*" oifname {{ {podman_set} }} accept\n'
+        f'    iifname "wg0" oifname {{ {podman_set} }} accept\n'
         "  }\n"
         "}\n"
     )

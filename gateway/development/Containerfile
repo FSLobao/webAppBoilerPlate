@@ -27,6 +27,7 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
         procps=2:4.0.4-9 \
         python3-minimal=3.13.5-1 \
         util-linux=2.41.5-0+deb13u1 \
+        wireguard-tools=1.0.20210914-3 \
     && rm -f /usr/sbin/policy-rc.d \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/ssh/ssh_host_* \
@@ -55,12 +56,15 @@ COPY dns_refresh.py /usr/local/lib/gateway/dns_refresh.py
 COPY openvpn_runtime.py /usr/local/lib/gateway/openvpn_runtime.py
 COPY remote_forwarding.py /usr/local/lib/gateway/remote_forwarding.py
 COPY ssh_tun_runtime.py /usr/local/lib/gateway/ssh_tun_runtime.py
+COPY wireguard.py /usr/local/lib/gateway/wireguard.py
 RUN chmod 0755 /usr/local/sbin/gateway-startup \
         /usr/local/lib/gateway/openvpn_runtime.py \
         /usr/local/lib/gateway/ssh_tun_runtime.py \
+        /usr/local/lib/gateway/wireguard.py \
     && ln -s /usr/local/lib/gateway/openvpn_runtime.py /usr/local/bin/gateway-openvpn-up \
     && ln -s /usr/local/lib/gateway/openvpn_runtime.py /usr/local/bin/gateway-openvpn-down \
-    && ln -s /usr/local/lib/gateway/openvpn_runtime.py /usr/local/bin/gateway-openvpn-route-up
+    && ln -s /usr/local/lib/gateway/openvpn_runtime.py /usr/local/bin/gateway-openvpn-route-up \
+    && ln -s /usr/local/lib/gateway/wireguard.py /usr/local/bin/gateway-wireguard
 
 EXPOSE 22/tcp 53/tcp 53/udp 9090/tcp
 ENTRYPOINT ["/usr/local/sbin/gateway-startup"]

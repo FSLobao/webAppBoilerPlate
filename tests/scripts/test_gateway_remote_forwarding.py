@@ -98,6 +98,7 @@ def test_rules_allow_tun_to_podman_without_nat_or_podman_peering() -> None:
     rules = forwarding._rules(("eth1", "eth0"), f"gateway-runtime:{'a' * 64}")
 
     assert 'iifname "tun*" oifname { "eth0", "eth1" } accept' in rules
+    assert 'iifname "wg0" oifname { "eth0", "eth1" } accept' in rules
     assert 'iifname { "eth0", "eth1" } oifname { "eth0", "eth1" } drop' in rules
     assert "ct state established,related accept" in rules
     assert "snat" not in rules.lower()

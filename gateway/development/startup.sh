@@ -10,6 +10,8 @@ readonly HOST_PUBLIC_KEY=/run/ssh-host-keys/ssh_host_ed25519_key.pub
 readonly COCKPIT_CERT=/etc/cockpit/ws-certs.d/gateway.cert
 readonly COCKPIT_KEY=/etc/cockpit/ws-certs.d/gateway.key
 readonly DNS_HOSTS=/run/gateway/dns/hosts
+readonly WIREGUARD_KEY=/run/gateway/wireguard/server.key
+readonly WIREGUARD_STATE=/var/lib/gateway/wireguard
 
 fail() {
     printf '[gateway] ERROR: %s\n' "$*" >&2
@@ -80,6 +82,22 @@ jq -e '
 ' "$CONFIG" >/dev/null 2>&1 || fail "Invalid gateway configuration: $CONFIG"
 openvpn_enabled=$(jq -r '.gateway.remote_access.openvpn.enabled // false' "$CONFIG")
 ssh_tun_enabled=$(jq -r '.gateway.remote_access.ssh_tun.enabled // false' "$CONFIG")
+wireguard_enabled=$(jq -r '.gateway.remote_access.wireguard.enabled // false' "$CONFIG")
+[[ "$wireguard_enabled" == true || "$wireguard_enabled" == false ]] || \
+    fail 'WireGuard enabled setting must be boolean.'
+if [[ "$wireguard_enabled" == true ]]; then
+    require_file "$WIREGUARD_KEY"
+    require_root_owned "$WIREGUARD_KEY"
+    require_private_mode "$WIREGUARD_KEY"
+    require_read_only_mount "$WIREGUARD_KEY"
+    [[ -d "$WIREGUARD_STATE" && ! -L "$WIREGUARD_STATE" && \
+        "$(stat -c %u "$WIREGUARD_STATE")" == 0 ]] || \
+        fail 'WireGuard peer storage must be a root-owned mounted directory.'
+    mode=$(stat -c %a "$WIREGUARD_STATE")
+    (( (8#$mode & 0077) == 0 )) || fail 'WireGuard peer storage permissions are unsafe.'
+    findmnt -n -o VFS-OPTIONS --target "$WIREGUARD_STATE" | grep -qvE '(^|,)ro(,|$)' || \
+        fail 'WireGuard peer storage must be writable.'
+fi
 use_pam=no
 allow_users=developer
 if [[ "$ssh_tun_enabled" == true ]]; then
@@ -188,6 +206,18 @@ children+=("$!")
 if [[ "$openvpn_enabled" == true ]]; then
     python3 /usr/local/lib/gateway/openvpn_runtime.py run "$CONFIG" &
     children+=("$!")
+fi
+if [[ "$wireguard_enabled" == true ]]; then
+    if [[ -e "$WIREGUARD_STATE/critical-failure" || -L "$WIREGUARD_STATE/critical-failure" ]]; then
+        if python3 /usr/local/lib/gateway/wireguard.py fail-stop "$CONFIG"; then
+            printf '[gateway] WireGuard fail-stop marker detected; firewall drop installed; WireGuard remains disabled pending operator recovery.\n' >&2
+        else
+            printf '[gateway] CRITICAL: WireGuard fail-stop marker detected; runtime remains disabled; firewall drop installation failed and kernel interface state is unverified.\n' >&2
+        fi
+    else
+        python3 /usr/local/lib/gateway/wireguard.py run "$CONFIG" &
+        children+=("$!")
+    fi
 fi
 
 if wait -n "${children[@]}"; then

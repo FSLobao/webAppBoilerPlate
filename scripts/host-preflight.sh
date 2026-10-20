@@ -71,9 +71,9 @@ validate_config() {
         def podman_name:
             type == "string" and test("^[A-Za-z0-9][A-Za-z0-9_.-]*$");
         def dns_name:
-            type == "string" and length <= 253 and endswith(".dev.internal") and
+            type == "string" and length <= 253 and endswith(".dev.anatel") and
             (split(".") as $labels |
-                ($labels | length) >= 4 and
+                ($labels | length) >= 3 and
                 all($labels[]; length > 0 and length <= 63 and
                     test("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")));
         def port:
@@ -186,7 +186,8 @@ check_gateway_host_preflight() {
     local config_path=${1:-$DEFAULT_CONFIG}
     local os_id os_version podman_version podman_rootless selinux_mode
     local authorized_keys_path ssh_port cockpit_port listener mode owner bind_address
-    local ssh_bind_address cockpit_bind_address
+    local ssh_bind_address cockpit_bind_address wireguard_enabled wireguard_bind_address
+    local wireguard_port
     local source_asset
     local gateway_managed=0 host_private_key="$HOST_KEYS_DIR/ssh_host_ed25519_key"
     local host_public_key="$HOST_KEYS_DIR/ssh_host_ed25519_key.pub" certificate_public_key private_public_key
@@ -274,13 +275,13 @@ check_gateway_host_preflight() {
     network_count=$(jq '.networks | length' "$config_path")
     (( network_count > 0 )) || fail 'At least one gateway network must be declared before deployment.'
 
-    for path in "$STATE_DIR" "$STATE_DIR/generated" "$STATE_DIR/dns" "$HOST_KEYS_DIR"; do
+    for path in "$STATE_DIR" "$STATE_DIR/generated" "$STATE_DIR/dns" "$HOST_KEYS_DIR" "$STATE_DIR/wireguard"; do
         if [[ -e "$path" || -L "$path" ]]; then
             [[ -d "$path" && ! -L "$path" ]] || fail "Persistent state path is not a safe directory: $path"
             owner=$(stat -c %u "$path")
             [[ "$owner" == 0 ]] || fail "Persistent state directory must be owned by root: $path"
             case "$path" in
-                "$HOST_KEYS_DIR") expected_mode=700 ;;
+                "$HOST_KEYS_DIR"|"$STATE_DIR/wireguard") expected_mode=700 ;;
                 *) expected_mode=755 ;;
             esac
             mode=$(stat -c %a "$path")
@@ -365,6 +366,21 @@ check_gateway_host_preflight() {
             fail "TCP port $port is already in use by another service."
         fi
     done
+    wireguard_enabled=$(jq -r '.gateway.remote_access.wireguard.enabled // false' "$config_path")
+    if [[ "$wireguard_enabled" == true ]]; then
+        wireguard_bind_address=$(jq -r '.gateway.remote_access.wireguard.host_bind_address' "$config_path")
+        wireguard_port=$(jq -r '.gateway.remote_access.wireguard.listen_port' "$config_path")
+        if [[ "$wireguard_bind_address" != 127.0.0.1 && "$wireguard_bind_address" != 0.0.0.0 ]]; then
+            ip -j -4 address show | jq -e --arg address "$wireguard_bind_address" \
+                'any(.[].addr_info[]; .local == $address)' >/dev/null || \
+                fail "Configured WireGuard bind address is not assigned to this host: $wireguard_bind_address"
+        fi
+        listener=$(ss -H -lun "sport = :$wireguard_port") || \
+            fail "Cannot check whether UDP port $wireguard_port is available."
+        if [[ -n "$listener" && "$gateway_managed" != 1 ]]; then
+            fail "UDP port $wireguard_port is already in use by another service."
+        fi
+    fi
 
     run_python_module scripts.gateway.host_preflight gateway-networks "$config_path"
 }

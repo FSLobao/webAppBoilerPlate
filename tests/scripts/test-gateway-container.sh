@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly IMAGE=localhost/gateway:1
+readonly IMAGE=${GATEWAY_TEST_IMAGE:-localhost/gateway:1}
 readonly REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 readonly TMP_DIR="$(mktemp -d)"
 readonly TEST_NAME="gateway-test-$$"
@@ -38,6 +38,9 @@ cleanup() {
 # ---------------------------------- #
 trap cleanup EXIT
 
+grep -Fxq 'Restart=always' "$REPO_ROOT/deploy/quadlet/gateway.container" || \
+    fail 'Gateway Quadlet must restore Restart=always'
+
 for tool in podman jq ssh-keygen openssl; do
     command -v "$tool" >/dev/null 2>&1 || fail "Required test tool is missing: $tool"
 done
@@ -61,19 +64,23 @@ else
 fi
 if podman run --rm --network none --entrypoint /bin/sh "$IMAGE" -c \
     'command -v openvpn >/dev/null && command -v nft >/dev/null &&
+        command -v wg >/dev/null &&
         test -x /usr/local/lib/gateway/openvpn_runtime.py &&
+        test -x /usr/local/lib/gateway/wireguard.py &&
         test -f /usr/local/lib/gateway/remote_forwarding.py &&
         test -L /usr/local/bin/gateway-openvpn-up &&
         test -x /usr/local/lib/gateway/ssh_tun_runtime.py &&
         getent passwd gateway-tunnel | awk -F: '\''$3 != 0 && $7 == "/bin/sh" { found = 1 } END { exit !found }'\'' &&
         python3 /usr/local/lib/gateway/openvpn_runtime.py --help >/dev/null &&
+        /usr/local/bin/gateway-wireguard --help >/dev/null &&
         python3 /usr/local/lib/gateway/ssh_tun_runtime.py --help >/dev/null'; then
     printf 'PASS: image contains restricted SSH TUN and shared OpenVPN forwarding runtimes\n'
 else
     fail 'Image is missing a restricted remote-access runtime or forwarding tool'
 fi
 
-install -d -m 0700 "$TMP_DIR/ssh" "$TMP_DIR/tls" "$TMP_DIR/run" "$TMP_DIR/config" "$TMP_DIR/dns" "$TMP_DIR/client"
+install -d -m 0700 "$TMP_DIR/ssh" "$TMP_DIR/tls" "$TMP_DIR/run" "$TMP_DIR/config" \
+    "$TMP_DIR/dns" "$TMP_DIR/client" "$TMP_DIR/wireguard/state"
 ssh-keygen -q -t ed25519 -N '' -f "$TMP_DIR/ssh/developer"
 cp -- "$TMP_DIR/ssh/developer.pub" "$TMP_DIR/ssh/authorized_keys"
 cp -- "$TMP_DIR/ssh/developer" "$TMP_DIR/client/developer"
@@ -85,11 +92,25 @@ chmod 0600 "$TMP_DIR/tls/gateway.key"
 chmod 0644 "$TMP_DIR/tls/gateway.cert"
 printf 'test-only-password\n' > "$TMP_DIR/run/cockpit-password"
 chmod 0600 "$TMP_DIR/run/cockpit-password"
-jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24"}] |
-    .dns_records = [{"name":"backend.project-a.dev.internal","container":"project-a-backend","network":"project-a-net"}]' \
+jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24","gateway_address":"10.89.1.1"}] |
+    .gateway.remote_access.wireguard = {
+        "enabled":true,
+        "host_bind_address":"0.0.0.0",
+        "listen_port":54000,
+        "endpoint":"192.0.2.1",
+        "address_pool":"198.18.0.0/24",
+        "server_address":"10.254.0.1",
+        "dns_server":"10.89.1.1",
+        "server_private_key_path":"/etc/gateway/wireguard/server.key"
+    } |
+    .dns_records = [{"name":"backend.project-a.dev.anatel","container":"project-a-backend","network":"project-a-net"}]' \
     "$REPO_ROOT/config/host_config.json" > "$TMP_DIR/config/config.json"
 chmod 0644 "$TMP_DIR/config/config.json"
-printf '# generated test record\n192.0.2.2 backend.project-a.dev.internal\n' > "$TMP_DIR/dns/hosts"
+printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n' > "$TMP_DIR/wireguard/server.key"
+chmod 0600 "$TMP_DIR/wireguard/server.key"
+printf 'critical test marker\n' > "$TMP_DIR/wireguard/state/critical-failure"
+chmod 0600 "$TMP_DIR/wireguard/state/critical-failure"
+printf '# generated test record\n192.0.2.2 backend.project-a.dev.anatel\n' > "$TMP_DIR/dns/hosts"
 chmod 0644 "$TMP_DIR/dns/hosts"
 printf 'nameserver 127.0.0.1\noptions attempts:1 timeout:1\n' > "$TMP_DIR/run/resolv.conf"
 chmod 0644 "$TMP_DIR/run/resolv.conf"
@@ -104,6 +125,8 @@ if ! TEST_CONTAINER_ID=$(podman run --detach --rm --network none --cap-drop=NET_
     --volume "$TMP_DIR/tls/gateway.key:/etc/cockpit/ws-certs.d/gateway.key:ro" \
     --volume "$TMP_DIR/client:/run/test-client:ro" \
     --volume "$TMP_DIR/dns:/run/gateway/dns:ro" \
+    --volume "$TMP_DIR/wireguard/server.key:/run/gateway/wireguard/server.key:ro" \
+    --volume "$TMP_DIR/wireguard/state:/var/lib/gateway/wireguard:rw" \
     --volume "$TMP_DIR/run/resolv.conf:/etc/resolv.conf:ro" "$IMAGE"); then
     fail 'Could not start the isolated gateway container'
 fi
@@ -122,18 +145,22 @@ wait_for_listener() {
 local_dns_ip() {
     local expected=$1 attempt resolved
     for attempt in {1..30}; do
-        if resolved=$(podman exec "$TEST_CONTAINER_ID" getent hosts backend.project-a.dev.internal 2>/dev/null | awk 'NR == 1 { print $1 }'); then
+        if resolved=$(podman exec "$TEST_CONTAINER_ID" getent hosts backend.project-a.dev.anatel 2>/dev/null | awk 'NR == 1 { print $1 }'); then
             [[ "$resolved" == "$expected" ]] && return 0
         fi
     done
     podman exec "$TEST_CONTAINER_ID" cat /etc/resolv.conf >&2 || true
     podman exec "$TEST_CONTAINER_ID" ss -lnut >&2 || true
-    podman exec "$TEST_CONTAINER_ID" getent hosts backend.project-a.dev.internal >&2 || true
+    podman exec "$TEST_CONTAINER_ID" getent hosts backend.project-a.dev.anatel >&2 || true
     fail "DNSMasq did not return expected address $expected"
 }
 
 wait_for_listener 22
 wait_for_listener 9090
+podman exec "$TEST_CONTAINER_ID" test -f /var/lib/gateway/wireguard/critical-failure || \
+    fail 'WireGuard fail-stop marker was not retained'
+podman exec "$TEST_CONTAINER_ID" test ! -e /sys/class/net/wg0 || \
+    fail 'WireGuard interface was created despite the fail-stop marker'
 podman exec "$TEST_CONTAINER_ID" ssh -i /run/test-client/developer -o BatchMode=yes \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
     developer@127.0.0.1 true >/dev/null 2>&1 || fail 'Gateway rejected the configured developer public key'
@@ -142,7 +169,7 @@ podman exec "$TEST_CONTAINER_ID" openssl s_client -connect 127.0.0.1:9090 -serve
 local_dns_ip 192.0.2.2
 
 temporary_hosts=$(mktemp "$TMP_DIR/dns/.hosts.XXXXXX")
-printf '# updated test record\n192.0.2.3 backend.project-a.dev.internal\n' > "$temporary_hosts"
+printf '# updated test record\n192.0.2.3 backend.project-a.dev.anatel\n' > "$temporary_hosts"
 chmod 0644 "$temporary_hosts"
 mv -f -- "$temporary_hosts" "$TMP_DIR/dns/hosts"
 podman exec "$TEST_CONTAINER_ID" pkill -HUP dnsmasq || fail 'Could not signal DNSMasq to reload records'
@@ -151,4 +178,4 @@ podman stop --time 10 "$TEST_CONTAINER_ID" >/dev/null || fail 'Gateway container
 if podman container exists "$TEST_CONTAINER_ID" >/dev/null 2>&1; then
     fail 'Stopped test container was not removed'
 fi
-printf 'PASS: SSH, DNSMasq, and Cockpit stayed up; DNS refreshed after atomic replacement; SIGTERM shutdown succeeded\n'
+printf 'PASS: SSH, DNSMasq, and Cockpit stayed up with WireGuard marker; marker remained and wg0 was not created; DNS refresh and SIGTERM shutdown succeeded\n'

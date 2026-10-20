@@ -1,12 +1,12 @@
 # WireGuard peer onboarding on Windows 11
 
-> **Draft for a future service. Not executable today.** The Gateway has no WireGuard runtime, peer
-> service, schema, or key-delivery channel. Do not connect or create a peer from this recipe. Service
-> operation names, UI, and API are intentionally unspecified.
+> WireGuard runtime and peer CLI are implemented, but checked-in config keeps the server disabled.
+> Do not activate it until deployment inputs, server key, kernel support, and route preflight pass.
+> Peer operations require Gateway root and a direct, non-recording terminal.
 
 ## Approved network contract
 
-- WireGuard will be an additive IPv4-only server in the Gateway. It will not replace the OpenVPN
+- WireGuard is an additive IPv4-only server in the Gateway. It does not replace the OpenVPN
   client or SSH TUN.
 - Every approved peer must route every top-level Podman CIDR, including application and PostgreSQL
   networks. Current CIDRs are `192.168.9.0/24` (`shared`) and `192.168.8.0/29` (`webApp`).
@@ -14,57 +14,82 @@
 - `dev.anatel` is the internal-only, non-public DNS suffix. DNS returns A records only.
 - Keep the normal Windows default route, public DNS, and unrelated routes unchanged. Do not use
   `0.0.0.0/0`, `::/0`, or any all-traffic route.
-- WireGuard does not push routes or DNS. The peer profile must carry all Podman routes and resolver
-  reachability in `AllowedIPs`.
-- The host must publish the selected Gateway UDP listener. Endpoint, UDP port, server address,
-  peer pool, and resolver are not selected. `51820/UDP` is only an unapproved suggestion.
+- WireGuard does not push routes or DNS. The peer profile carries exactly the configured Podman
+  CIDRs in `AllowedIPs`; the configured resolver is a Gateway address inside those CIDRs.
+- The host must publish the selected Gateway UDP listener. Endpoint, UDP bind/port, server address,
+  peer pool, and resolver remain deployment inputs.
 - No external firewall/perimeter change is required by this plan. Host port publication does not
   prove endpoint reachability.
 
-## Peer request, approval, and key handling
+## Peer generation, approval, and key handling
 
-1. Request a peer through the approved internal administrative process when that process exists.
-   Identify the developer, Windows device, owner, purpose, and requested expiry. Do not send a
-   private key or public endpoint in a public ticket.
-2. An authorized operator verifies the developer identity and obtains explicit approval. The
-   operator records approval, peer identity, assigned IPv4 address, expiry, and audit reference.
-   Exact identity checks, approval roles, and audit format remain pending design input.
-3. The future peer service generates the peer private/public key pair **inside Gateway**. It adds
-   only the peer public key and approved metadata to active server state. The client private key is
-   plaintext transiently in Gateway memory, but must never be persisted or logged.
-4. The service delivers the generated private key and client profile once through a yet-to-be
-   designed authenticated channel. A person with Gateway-container administrative privilege can
-   perform peer operations and can reach all configured networks, including PostgreSQL. Treat each
-   such administrator as a trusted network administrator.
-5. Verify the one-time delivery is for the approved Windows user/device. Do not copy it to email,
-   chat, clipboard history, cloud sync, screenshots, logs, or a shared folder. Protect the profile
-   with Windows account controls. Do not assume deletion can erase prior backups or storage
-   snapshots.
-6. If delivery fails, do not recover a saved private key. Revoke that peer and create a newly
-   approved replacement. Rotation requires approving a replacement, delivering its key once, then
-   revoking the old peer. Revocation must remove active server authorization.
-7. Record the public-key fingerprint and operation result, never the private key or full profile.
-   Service authentication remains required after tunnel connection; WireGuard does not grant
-   application or PostgreSQL credentials.
+1. A trusted Gateway administrator verifies Windows user/device identity and records owner,
+   purpose, approval reference, and expiry. Do not send private keys or public endpoints in a
+   public ticket.
+2. Confirm the operator terminal is direct and is not recorded or multiplexed. Generate the peer
+   with a foreground interactive TTY:
 
-The following fields describe the future client profile; placeholders are not deployment values.
-The service must generate the actual configuration. Do not paste a made-up private key or address:
+   ```bash
+   podman exec --interactive --tty --user 0 gateway \
+     gateway-wireguard peer generate \
+     --id "windows-device-01" \
+     --owner "approved-owner-id" \
+     --purpose "development access"
+   ```
+
+   Gateway stores pending public metadata, then prints the profile once to `/dev/tty`. The private
+   key exists transiently in Gateway memory. It is never stored in inventory or written to logs,
+   command arguments, or environment.
+3. If output fails or may have been recorded, do not retry or recover the key. Revoke that pending
+   peer using its ID and public fingerprint, then obtain approval for a replacement.
+4. Activate only after approval, with an approved reference and future timezone-aware expiry:
+
+   ```bash
+   podman exec --user 0 gateway gateway-wireguard peer approve \
+     "windows-device-01" \
+     --approval-reference "approved-change-reference" \
+     --expires-at "YYYY-MM-DDTHH:MM:SS+00:00"
+   ```
+
+5. Any Gateway-container administrator can operate peers and reach every configured network,
+   including PostgreSQL. Treat each as a trusted network administrator. Service credentials remain
+   required.
+6. `peer list` returns public metadata, fingerprints, and audit events only:
+
+   ```bash
+   podman exec --user 0 gateway gateway-wireguard peer list
+   ```
+
+7. Revoke only the named peer when access ends or output may have been recorded:
+
+   ```bash
+   podman exec --user 0 gateway gateway-wireguard peer revoke \
+     "windows-device-01" --reason "device access ended"
+   ```
+
+8. Store the one-time profile in an approved protected Windows location. Keep it out of email, chat,
+   clipboard history, cloud sync, screenshots, logs, shared folders, and source control. Deletion
+   may not erase backups or snapshots. Service authentication remains required.
+
+The CLI generates this client profile shape from explicit deployment inputs. Placeholders below
+are not deployment values:
 
 ```ini
 [Interface]
 PrivateKey = <ONE_TIME_PRIVATE_KEY_FROM_GATEWAY>
 Address = <ASSIGNED_PEER_IPV4_PREFIX>
+# Split DNS resolver; configure per OS: <GATEWAY_DNS_IPV4>
 
 [Peer]
 PublicKey = <GATEWAY_SERVER_PUBLIC_KEY>
 Endpoint = <APPROVED_PUBLIC_ENDPOINT>:<HOST_PUBLISHED_UDP_PORT>
-AllowedIPs = <EVERY_TOP_LEVEL_PODMAN_CIDR>, <RESOLVER_IPV4_PREFIX_IF_NEEDED>
+AllowedIPs = <EVERY_TOP_LEVEL_PODMAN_CIDR>
 ```
 
 Confirm the server public-key fingerprint through an independent trusted channel. `AllowedIPs` must
-contain both current CIDRs and every configured Podman network added later. Add the resolver address
-when it is not already covered by those routes. It must not contain a default route or IPv6 route.
-Do not infer DNS settings from a WireGuard profile.
+contain exactly every configured top-level Podman CIDR, including PostgreSQL networks. The Gateway
+resolver address belongs to those CIDRs, so add no separate resolver route. Do not add default or
+IPv6 routes. Do not infer DNS settings from a WireGuard profile.
 
 ## Install and connect
 
@@ -86,8 +111,8 @@ Get-NetRoute -AddressFamily IPv4
 ## Split DNS for `dev.anatel`
 
 Use a Windows DNS Client NRPT rule for the exact suffix. Do not change the global adapter DNS server,
-create a default-suffix rule, or send public DNS through Gateway. The resolver IPv4 address is still
-unset; substitute only an operator-approved reachable address.
+create a default-suffix rule, or send public DNS through Gateway. Read the resolver IPv4 address
+from the generated profile comment. The profile has no `DNS` directive, so it cannot replace global DNS.
 
 After confirming no conflicting policy or existing NRPT rule, an administrator can add a uniquely
 named rule. These are Windows-native examples, not WireGuard service commands:
@@ -131,8 +156,14 @@ suffix-scoped change.
 - Request and approve a replacement through the same identity and audit process.
 - Receive the replacement profile once. Confirm its public-key fingerprint and assigned address.
 - Connect and verify split routes and DNS before the operator revokes the old peer.
-- Ask the operator to remove the old public key from active server configuration and inventory.
-  Confirm its existing tunnel loses access.
+- Revoke the old peer by exact ID:
+
+  ```bash
+  podman exec --user 0 gateway gateway-wireguard peer revoke \
+    "windows-device-01" --reason "rotation"
+  ```
+
+- Confirm its existing tunnel loses access. Peer expiry also revokes server authorization.
 - Disconnect and remove only the obsolete client profile and this recipe's NRPT rule. Do not remove
   unrelated Windows DNS policy.
 - Report a lost device promptly for revocation. Do not rely on profile deletion as revocation.

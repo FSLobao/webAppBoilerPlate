@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-Transport = Literal["openvpn", "ssh_tun"]
+Transport = Literal["openvpn", "ssh_tun", "wireguard"]
 """Supported remote-access transport names."""
 RoutePlane = Literal["gateway", "host"]
 """Routing namespace that contains a route."""
@@ -128,6 +128,21 @@ def _validate_authorized_keys_path(value: object) -> None:
         )
 
 
+def _validate_private_key_path(value: object) -> None:
+    """Validate an absolute path for a root-managed private key."""
+    if (
+        not isinstance(value, str)
+        or not value.startswith("/")
+        or "\0" in value
+        or any(part in (".", "..") for part in value.split("/"))
+        or not re.fullmatch(r"/[A-Za-z0-9/_.-]+", value)
+    ):
+        raise ValueError(
+            "gateway.remote_access.wireguard.server_private_key_path "
+            "must be an absolute safe path"
+        )
+
+
 def _validate_endpoint(value: object, label: str) -> ipaddress.IPv4Address | None:
     """Validate an optional endpoint literal or DNS name."""
     if not isinstance(value, str) or not value:
@@ -198,9 +213,13 @@ def validate_remote_access_config(config: Mapping[str, object]) -> None:
     if not isinstance(gateway, dict) or "remote_access" not in gateway:
         return
     remote = gateway["remote_access"]
-    if not isinstance(remote, dict) or set(remote) != {"openvpn", "ssh_tun"}:
+    if not isinstance(remote, dict) or set(remote) != {
+        "openvpn",
+        "ssh_tun",
+        "wireguard",
+    }:
         raise ValueError(
-            "gateway.remote_access must contain only openvpn and ssh_tun objects"
+            "gateway.remote_access must contain openvpn, ssh_tun, and wireguard objects"
         )
 
     openvpn = remote["openvpn"]
@@ -378,6 +397,130 @@ def validate_remote_access_config(config: Mapping[str, object]) -> None:
         raise ValueError(
             f"SSH TUN pool {ssh_pool} overlaps OpenVPN client pool {openvpn_pool}"
         )
+
+    wireguard = remote["wireguard"]
+    wireguard_keys = {
+        "enabled",
+        "host_bind_address",
+        "listen_port",
+        "endpoint",
+        "address_pool",
+        "server_address",
+        "dns_server",
+        "server_private_key_path",
+    }
+    if (
+        not isinstance(wireguard, dict)
+        or set(wireguard) - wireguard_keys
+        or "enabled" not in wireguard
+    ):
+        raise ValueError(
+            "gateway.remote_access.wireguard has missing or unsupported fields"
+        )
+    if not isinstance(wireguard["enabled"], bool):
+        raise TypeError("gateway.remote_access.wireguard.enabled must be boolean")
+    wg_pool = None
+    if wireguard["enabled"] or set(wireguard) != {"enabled"}:
+        if set(wireguard) != wireguard_keys:
+            raise ValueError(
+                "enabled WireGuard requires explicit host bind, UDP port, endpoint, "
+                "address pool, server address, DNS resolver, and server key path"
+            )
+        bind_address = _validate_endpoint(
+            wireguard["host_bind_address"],
+            "gateway.remote_access.wireguard.host_bind_address",
+        )
+        if bind_address is None:
+            raise ValueError(
+                "gateway.remote_access.wireguard.host_bind_address must be an IPv4 address"
+            )
+        listen_port = wireguard["listen_port"]
+        if (
+            isinstance(listen_port, bool)
+            or not isinstance(listen_port, int)
+            or not 1 <= listen_port <= 65535
+        ):
+            raise ValueError(
+                "gateway.remote_access.wireguard.listen_port must be between 1 and 65535"
+            )
+        wg_endpoint = _validate_endpoint(
+            wireguard["endpoint"], "gateway.remote_access.wireguard.endpoint"
+        )
+        wg_pool = _ipv4_network(
+            wireguard["address_pool"], "gateway.remote_access.wireguard.address_pool"
+        )
+        server_address = wireguard["server_address"]
+        resolver_address = wireguard["dns_server"]
+        for value, label in (
+            (server_address, "server_address"),
+            (resolver_address, "dns_server"),
+        ):
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"gateway.remote_access.wireguard.{label} must be an IPv4 address"
+                )
+            parsed = ipaddress.ip_address(value)
+            if parsed.version != 4:
+                raise ValueError(
+                    f"gateway.remote_access.wireguard.{label} must be an IPv4 address"
+                )
+            if label == "server_address":
+                server_address_ip = parsed
+            else:
+                resolver_address_ip = parsed
+        if server_address_ip in wg_pool:
+            raise ValueError(
+                "WireGuard server_address must not overlap its peer address_pool"
+            )
+        if wg_endpoint is not None:
+            for network in networks:
+                if wg_endpoint in network.subnet:
+                    raise ValueError(
+                        f"WireGuard endpoint {wg_endpoint} overlaps Podman network "
+                        f"'{network.name}' subnet {network.subnet}"
+                    )
+        _validate_private_key_path(wireguard["server_private_key_path"])
+        if not any(network.address == resolver_address_ip for network in networks):
+            raise ValueError(
+                "WireGuard dns_server must match a configured Gateway network address"
+            )
+        if wg_endpoint is not None:
+            if wg_endpoint in wg_pool:
+                raise ValueError(
+                    f"WireGuard endpoint {wg_endpoint} overlaps WireGuard peer pool {wg_pool}"
+                )
+            for name, pool in pools:
+                if wg_endpoint in pool:
+                    raise ValueError(
+                        f"WireGuard endpoint {wg_endpoint} overlaps {name} {pool}"
+                    )
+        pools.append(("WireGuard peer pool", wg_pool))
+        if wireguard["enabled"] and not any(
+            network.address is not None for network in networks
+        ):
+            raise ValueError(
+                "enabled WireGuard requires a Gateway address for the host return route"
+            )
+
+    for name, pool in pools:
+        if (
+            wg_pool is not None
+            and name != "WireGuard peer pool"
+            and pool.overlaps(wg_pool)
+        ):
+            raise ValueError(f"WireGuard peer pool {wg_pool} overlaps {name} {pool}")
+    if wg_pool is not None:
+        for network in networks:
+            if wg_pool.overlaps(network.subnet):
+                raise ValueError(
+                    f"WireGuard peer pool {wg_pool} overlaps Podman network "
+                    f"'{network.name}' subnet {network.subnet}"
+                )
+            if server_address_ip in network.subnet:
+                raise ValueError(
+                    f"WireGuard server_address {server_address_ip} overlaps "
+                    f"Podman network '{network.name}' subnet {network.subnet}"
+                )
     if endpoint is not None:
         for name, pool in pools:
             if endpoint in pool:
@@ -440,6 +583,17 @@ def validate_remote_access_host_routes(
                 ),
             )
         )
+    wireguard = remote.get("wireguard")
+    if isinstance(wireguard, dict) and "address_pool" in wireguard:
+        configured_pools.append(
+            (
+                "wireguard",
+                _ipv4_network(
+                    wireguard.get("address_pool"),
+                    "gateway.remote_access.wireguard.address_pool",
+                ),
+            )
+        )
 
     for route in routes:
         raw_destination = route.get("dst")
@@ -485,6 +639,27 @@ def validate_remote_access_host_routes(
                         f"OpenVPN endpoint {endpoint} conflicts with local host "
                         f"route {destination}"
                     )
+    if isinstance(remote.get("wireguard"), dict):
+        wireguard = remote["wireguard"]
+        if wireguard.get("enabled") is True:
+            wg_endpoint = _validate_endpoint(
+                wireguard["endpoint"], "gateway.remote_access.wireguard.endpoint"
+            )
+            if wg_endpoint is not None:
+                for route in routes:
+                    if route.get("type") != "local":
+                        continue
+                    raw_destination = route.get("dst")
+                    if raw_destination == "default" or raw_destination is None:
+                        continue
+                    destination = ipaddress.ip_network(
+                        str(raw_destination), strict=False
+                    )
+                    if destination.version == 4 and wg_endpoint in destination:
+                        raise ValueError(
+                            f"WireGuard endpoint {wg_endpoint} conflicts with local host "
+                            f"route {destination}"
+                        )
 
 
 def validate_activation_addresses(

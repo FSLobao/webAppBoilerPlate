@@ -16,7 +16,7 @@ def _config() -> dict[str, Any]:
         "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
         "dns_records": [
             {
-                "name": "api.project-a.dev.internal",
+                "name": "api.project-a.dev.anatel",
                 "container": "api",
                 "network": "project-a",
             }
@@ -76,7 +76,7 @@ def test_generate_dns_records_uses_healthy_exact_container_identity() -> None:
 
     records = generate_dns_records(_config(), {"api": API_ID}, run_command=run_command)
 
-    assert records == ["10.89.1.5 api.project-a.dev.internal"]
+    assert records == ["10.89.1.5 api.project-a.dev.anatel"]
     assert calls[0] == ["podman", "container", "exists", API_ID]
     assert calls[1][0:5] == [
         "podman",
@@ -98,7 +98,7 @@ def test_generate_dns_records_uses_healthy_exact_container_identity() -> None:
         (
             {"Running": True, "Health": {"Status": "healthy"}},
             {"project-a": {"IPAddress": "10.89.1.5"}},
-            ["10.89.1.5 api.project-a.dev.internal"],
+            ["10.89.1.5 api.project-a.dev.anatel"],
         ),
     ],
 )

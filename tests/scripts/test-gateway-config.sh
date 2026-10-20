@@ -46,7 +46,7 @@ jq '.networks = [
             "backend_port":8000
         }]
     } |
-    .dns_records = [{"name":"backend.project-a.dev.internal","container":"project-a-backend","network":"project-a-net"}]' \
+    .dns_records = [{"name":"backend.project-a.dev.anatel","container":"project-a-backend","network":"project-a-net"}]' \
     "$SAMPLE_CONFIG" > "$TMP_DIR/valid.json"
 "$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 "$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
@@ -115,6 +115,36 @@ grep -Fxq \
     'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.0.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/ssh-tun.container" || fail 'SSH TUN owned host route cleanup was not rendered'
 printf 'PASS: SSH TUN opt-in renders read-only keys, minimum capability, and one deterministic host route\n'
+jq '.gateway.remote_access.wireguard = {
+        "enabled":true,
+        "host_bind_address":"127.0.0.1",
+        "listen_port":54000,
+        "endpoint":"203.0.113.20",
+        "address_pool":"198.18.1.0/24",
+        "server_address":"10.254.0.1",
+        "dns_server":"10.89.1.2",
+        "server_private_key_path":"/etc/gateway/wireguard/test-server.key"
+    }' "$TMP_DIR/valid.json" > "$TMP_DIR/wireguard-enabled.json"
+"$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/wireguard-enabled.json" >/dev/null
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard-enabled.json" "$TMP_DIR/wireguard.container"
+grep -Fxq \
+    'Volume=/etc/gateway/wireguard/test-server.key:/run/gateway/wireguard/server.key:ro' \
+    "$TMP_DIR/wireguard.container" || fail 'WireGuard server key was not mounted read-only'
+grep -Fxq \
+    'Volume=/var/lib/gateway/wireguard:/var/lib/gateway/wireguard:rw' \
+    "$TMP_DIR/wireguard.container" || fail 'WireGuard public peer inventory was not persisted'
+grep -Fxq 'AddCapability=NET_ADMIN' "$TMP_DIR/wireguard.container" || \
+    fail 'WireGuard minimum network capability was not added'
+grep -Fxq 'PublishPort=127.0.0.1:54000:54000/udp' "$TMP_DIR/wireguard.container" || \
+    fail 'WireGuard UDP host publication was not rendered'
+grep -Fxq \
+    'ExecStartPost=/usr/sbin/ip -4 route add 198.18.1.0/24 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route was not rendered'
+grep -Fxq \
+    'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.1.0/24 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route cleanup was not rendered'
+printf 'PASS: WireGuard renders explicit UDP bind, read-only server key, persistent public peers, minimum capability, and owned return route\n'
 jq '.gateway.remote_access.openvpn |= . + {
         "enabled":true,
         "profile_reviewed":true,
@@ -127,6 +157,23 @@ bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
 [[ "$(grep -c '^AddCapability=NET_ADMIN$' "$TMP_DIR/shared.container")" == 1 ]] || \
     fail 'Shared OpenVPN and SSH TUN runtime duplicated NET_ADMIN grants'
 printf 'PASS: concurrent OpenVPN and SSH TUN use one shared device grant and capability\n'
+jq '.gateway.remote_access.wireguard = {
+        "enabled":true,
+        "host_bind_address":"127.0.0.1",
+        "listen_port":54000,
+        "endpoint":"203.0.113.20",
+        "address_pool":"198.18.1.0/24",
+        "server_address":"10.254.0.1",
+        "dns_server":"10.89.1.2",
+        "server_private_key_path":"/etc/gateway/wireguard/test-server.key"
+    }' "$TMP_DIR/shared-remote-access.json" > "$TMP_DIR/all-remotes.json"
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/all-remotes.json" "$TMP_DIR/all-remotes.container"
+[[ "$(grep -c '^AddCapability=NET_ADMIN$' "$TMP_DIR/all-remotes.container")" == 1 ]] || \
+    fail 'Concurrent remote transports duplicated NET_ADMIN grants'
+[[ "$(grep -c '^PublishPort=.*\/udp$' "$TMP_DIR/all-remotes.container")" == 1 ]] || \
+    fail 'Concurrent remote transports rendered an unexpected UDP publication'
+printf 'PASS: all remote transports share one minimum NET_ADMIN grant\n'
 
 mkdir -p "$TMP_DIR/route-bin"
 cat > "$TMP_DIR/route-bin/ip" <<'SH'
@@ -210,7 +257,7 @@ PATH="$TMP_DIR/dns-bin:$PATH" PODMAN_CALL_LOG="$TMP_DIR/dns-podman.log" \
     bash -c 'source "$1"; generate_dns_candidate "$2" "$3"' \
     _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" "$TMP_DIR/dns-hosts"
 grep -Fq \
-    '# PENDING DNS target: backend.project-a.dev.internal (project-a-backend readiness/unverified)' \
+    '# PENDING DNS target: backend.project-a.dev.anatel (project-a-backend readiness/unverified)' \
     "$TMP_DIR/dns-hosts" || fail 'DNS candidate did not retain unverified target status'
 [[ ! -s "$TMP_DIR/dns-podman.log" ]] || \
     fail 'DNS candidate generation queried a target container'
@@ -319,7 +366,7 @@ jq '.dns_records[0].network = "undeclared-net"' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/undeclared-network.json"
 expect_invalid 'DNS record on undeclared network' "$TMP_DIR/undeclared-network.json"
 
-jq '.dns_records[0].name = "Backend.project-a.dev.internal"' \
+jq '.dns_records[0].name = "Backend.project-a.dev.anatel"' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/malformed-dns-name.json"
 expect_invalid 'malformed DNS name' "$TMP_DIR/malformed-dns-name.json"
 

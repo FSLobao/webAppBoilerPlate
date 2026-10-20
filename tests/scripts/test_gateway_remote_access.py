@@ -56,8 +56,24 @@ def _config(
             "remote_access": {
                 "openvpn": openvpn or OPENVPN_CONFIG.copy(),
                 "ssh_tun": ssh_tun or {"enabled": False},
+                "wireguard": {"enabled": False},
             }
         },
+    }
+
+
+def _wireguard_config(**overrides: object) -> dict[str, object]:
+    """Return synthetic, fully explicit WireGuard activation values."""
+    return {
+        "enabled": True,
+        "host_bind_address": "127.0.0.1",
+        "listen_port": 54000,
+        "endpoint": "203.0.113.18",
+        "address_pool": "198.18.1.0/24",
+        "server_address": "10.254.0.1",
+        "dns_server": "192.168.9.2",
+        "server_private_key_path": "/etc/gateway/wireguard/server.key",
+        **overrides,
     }
 
 
@@ -82,6 +98,39 @@ def test_accepts_optional_remote_access_metadata_without_reading_profile() -> No
     config = {"schema_version": 1, **_config()}
 
     validate_remote_access_config(config)
+
+
+def test_accepts_fully_configured_wireguard_only_when_explicitly_enabled() -> None:
+    """Validate IPv4-only WireGuard values without reading the server key."""
+    validate_remote_access_config(
+        _config()
+        | {
+            "gateway": {
+                "remote_access": {
+                    "openvpn": OPENVPN_CONFIG.copy(),
+                    "ssh_tun": {"enabled": False},
+                    "wireguard": _wireguard_config(),
+                }
+            }
+        }
+    )
+
+
+def test_wireguard_disabled_can_retain_prior_pool_for_owned_route_cleanup() -> None:
+    """Allow validated inactive settings so deployment can remove its old route."""
+    wireguard = _wireguard_config(enabled=False)
+    validate_remote_access_config(
+        _config()
+        | {
+            "gateway": {
+                "remote_access": {
+                    "openvpn": OPENVPN_CONFIG.copy(),
+                    "ssh_tun": {"enabled": False},
+                    "wireguard": wireguard,
+                }
+            }
+        }
+    )
 
 
 def test_enabled_openvpn_requires_operator_review_of_opaque_profile() -> None:
@@ -244,6 +293,27 @@ def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route() -> N
         _validate_remote_access_routes(
             config,
             [owned_route | {"protocol": "static"}],
+        )
+
+
+def test_preflight_recognizes_only_exact_tagged_wireguard_return_route() -> None:
+    """Allow only the exact WireGuard pool route through its configured gateway."""
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = _wireguard_config()
+    owned_route = {
+        "dst": "198.18.1.0/24",
+        "gateway": "192.168.8.2",
+        "dev": "podman1",
+        "protocol": "186",
+        "table": 254,
+    }
+
+    _validate_remote_access_routes(config, [owned_route])
+
+    with pytest.raises(ValueError, match="overlaps host IPv4 route"):
+        _validate_remote_access_routes(
+            config,
+            [owned_route | {"gateway": "192.168.8.3"}],
         )
 
 

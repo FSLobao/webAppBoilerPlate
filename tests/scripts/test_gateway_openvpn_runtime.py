@@ -23,6 +23,7 @@ from gateway.development.openvpn_runtime import (
     restore_forwarding,
     run_openvpn,
 )
+from gateway.development.remote_forwarding import _rules as shared_forwarding_rules
 
 
 def _config(*, enabled: bool = True, profile_reviewed: bool = True) -> dict:
@@ -637,7 +638,7 @@ def test_interleaved_foreign_table_creation_fails_exclusive_install_without_muta
         ),
         (
             ["nft", "-f", "-"],
-            _netfilter_rules(("eth0",), runtime_id),
+            shared_forwarding_rules(("eth0",), f"gateway-runtime:{runtime_id}"),
         ),
     ]
     assert foreign_table == {"comment": "foreign-owner", "rules": ["foreign rule"]}

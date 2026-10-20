@@ -10,7 +10,7 @@ import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 REFRESH_SCRIPT = REPOSITORY_ROOT / "scripts/refresh-gateway-dns.sh"
-DNS_NAME = "api.project-a.dev.internal"
+DNS_NAME = "api.project-a.dev.anatel"
 OLD_ADDRESS = "10.89.1.4"
 REVISION = f"sha256:{'a' * 64}"
 CANDIDATE = (

@@ -28,13 +28,12 @@ Ele descreve o host-alvo RHEL 9.8 com Podman rootful 5.8.2, os gateways, as rede
 o DNS de desenvolvimento, os secrets e os critérios para a implementação.
 
 **Estado atual:** o código da aplicação ainda é um scaffold Python. O bootstrap do Development
-Gateway tem configuração, imagem Debian, startup, Quadlet, runtimes OpenVPN e SSH TUN opt-in e
-handoff explícito de DNS por readiness versionados. Ambos seguem desativados. O servidor WireGuard
-aditivo e onboarding de peers estão planejados somente nos documentos; não existem no runtime. O
-schema de acesso remoto rejeita a futura seção WireGuard; split DNS para `dev.anatel` ainda não foi
-integrado.
-A aceitação em RHEL 9.8 com
-Podman rootful 5.8.2, Quadlet e SELinux permanece pendente. Não implante em host live; consulte
+Gateway tem configuração, imagem Debian, startup, Quadlet, runtimes opt-in de OpenVPN, SSH TUN e
+WireGuard, CLI root-only de peers e handoff explícito de DNS por readiness. Todos permanecem
+desativados na configuração versionada. Os valores de deployment WireGuard seguem ausentes. O host
+RHEL 9.8 atual não tem módulo WireGuard nem ferramenta `wg`; aceitação de túnel e forwarding do
+kernel não foi validada. Receitas de split DNS para `dev.anatel` existem para Windows 11, Linux e
+macOS, mas exigem validação em cada sistema. Não implante em host live; consulte
 [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
@@ -49,7 +48,7 @@ flowchart LR
     S[Perímetro externo<br/>VPN, firewall, ACL e autenticação]
     D[Desenvolvedores]
     U[Usuários e consumidores]
-    DG[Gateway compartilhado<br/>WireGuard planejado, OpenVPN client, SSH TUN, DNSMasq, Cockpit]
+    DG[Gateway compartilhado<br/>WireGuard IPv4, OpenVPN client, SSH TUN, DNSMasq, Cockpit]
     HP[Proxy HTTP NGINX opcional]
     subgraph A[Aplicação A: rede Podman isolada]
         ABE[webApp<br/>FastAPI + SPA<br/>TCP 8000]
@@ -82,7 +81,8 @@ Componentes e limites principais:
   agora é opt-in e permanece desativado na configuração versionada; requer revisão humana do perfil.
   O runtime SSH TUN simultâneo também está implementado, opt-in e desativado na configuração
   versionada. A aceitação em host-alvo continua pendente. O acesso a portas de serviços não exige
-  publicação no host; o servidor WireGuard planejado exigirá publicar seu listener UDP no host.
+  publicação no host; WireGuard publica seu listener UDP somente quando habilitado com valores
+  explícitos de deployment.
   Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico, Cockpit e `cockpit-podman`; não é
   proxy de usuários.
 - **Proxy HTTP NGINX:** opcional, compartilhado e limitado a reverse proxy HTTP. Pode encaminhar
@@ -106,22 +106,24 @@ O contrato confirmado é roteamento Layer 3 IPv4 split-tunnel para todos os CIDR
 sem forwarding por serviço. Destinos, pools, pares de endereço, rotas de retorno e registros DNS do
 Gateway usam IPv4; DNS gera registros A, não AAAA. Isso não desativa IPv6 no host nem nos clientes.
 O runtime não força a família do SSH externo; use `ssh -4` no cliente quando precisar de conexão
-externa IPv4. O cliente OpenVPN e SSH TUN existentes permanecem separados. O servidor WireGuard
-planejado será aditivo no Gateway e ainda não está implementado. Todos os peers WireGuard aprovados
-deverão alcançar todos os CIDRs Podman, inclusive PostgreSQL, sem NAT, forwarding entre aplicações
-ou rota default pelo túnel. `dev.anatel` é o domínio interno-only planejado; o serviço de peer e o
-split DNS não existem no runtime. O host publicará o listener UDP WireGuard; endpoint e porta seguem
-sem decisão. Nenhum requisito de firewall/perímetro externo foi aprovado, e publicação não prova
-alcançabilidade. Nenhuma rota default do cliente será substituída. Consulte o [plano
+externa IPv4. O cliente OpenVPN, SSH TUN e servidor WireGuard aditivo permanecem separados.
+WireGuard é opt-in e, quando ativo, peers aprovados alcançam todos os CIDRs Podman, inclusive
+PostgreSQL, sem NAT, forwarding entre aplicações ou rota default pelo túnel. `dev.anatel` é o
+domínio interno-only; o schema aceita o sufixo e as receitas implementam split DNS por sistema
+operacional. O serviço não define endpoint, porta, pool, resolver ou caminho de chave de produção.
+O host publica o listener UDP apenas quando habilitado. Nenhum requisito de firewall/perímetro
+externo foi aprovado, e publicação não prova alcançabilidade. Nenhuma rota default do cliente será
+substituída. Consulte o [plano
 do Gateway](docs/plans/gateway-plan.md), o [status de implementação](docs/plans/gateway-implementation.md)
 e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
 
 O cliente OpenVPN permanece separado: `push_domains: ["anatel.gov.br"]` não será reutilizado como
 domínio WireGuard.
 
-Rascunhos de onboarding e split DNS por sistema operacional: [Windows 11](docs/recipes/wireguard-windows-11.md),
-[Linux](docs/recipes/wireguard-linux.md) e [macOS](docs/recipes/wireguard-macos.md). Não são executáveis
-até o serviço de peer, o schema e o canal autenticado de entrega única de chave serem implementados.
+Receitas de onboarding e split DNS por sistema operacional: [Windows 11](docs/recipes/wireguard-windows-11.md),
+[Linux](docs/recipes/wireguard-linux.md) e [macOS](docs/recipes/wireguard-macos.md). O fluxo usa CLI
+root-only via `podman exec`, sem API pública. Gere perfis somente em terminal direto, confiável e
+nunca gravado. Leia o plano de implementação para limites, valores pendentes e aceitação bloqueada.
 
 O cliente OpenVPN agora tem execução supervisionada, verificação de perfil sem leitura do conteúdo,
 TUN dedicado, regras de forwarding no namespace do container e rota de retorno do pool marcada
@@ -129,7 +131,8 @@ TUN dedicado, regras de forwarding no namespace do container e rota de retorno d
 as redes Podman já são diretamente conectadas. Perfil só monta em leitura e só pode ativar com
 `profile_reviewed: true`, declaração de revisão humana. A configuração versionada continua
 desativada. O perfil real não foi aberto nem testado; túnel, source-preservation e retorno exigem
-aceitação isolada em RHEL 9.8 / Podman 5.8.2. SSH TUN permanece pendente.
+aceitação isolada em RHEL 9.8 / Podman 5.8.2. SSH TUN está implementado, mas permanece desativado
+e aguarda aceitação no host-alvo.
 
 O bootstrap do Gateway não inspeciona containers de aplicação. Após evento de readiness, o chamador
 explícito usa `scripts/refresh-gateway-dns.sh --revision` para obter revisão da configuração ativa e
@@ -183,7 +186,7 @@ limites de segurança definidos no contrato arquitetural devem permanecer explí
 O desenvolvimento cotidiano deve ocorrer pelo VS Code, usando Git, terminal, testes e ferramentas
 de debugging. O Gateway fornece acesso roteado aos serviços e portas configurados, sem exigir
 publicação das portas dos serviços no host ou acesso administrativo permanente ao host RHEL. O
-listener UDP do WireGuard planejado é uma exceção e deverá ser publicado no host.
+listener UDP WireGuard é publicado no host somente quando o runtime for explicitamente habilitado.
 
 O host de execução fornece Podman e armazenamento persistente. A equipe de infraestrutura realiza
 a configuração inicial e operações excepcionais do host. Os containers permanecem substituíveis;
@@ -305,9 +308,9 @@ Comece ajustando `config/host_config.json`. `networks` declara as redes Podman d
 nome e CIDR IPv4 esperado. O Gateway conecta-se automaticamente a todas as redes declaradas;
 nenhuma lista seletiva de redes é mantida no bloco `gateway`. `containers` lista serviços e redes
 que o preflight deve conferir. Cada registro DNS futuro associará um nome `.dev.anatel` a um
-container e a uma rede declarada. O gerador DNS usa os nomes declarados sem sufixo fixo, mas
-`dns_records` permanece vazio e não há split DNS WireGuard. Exemplo de formato planejado, não
-configuração ativa:
+container e a uma rede declarada. O schema aceita nomes sob `dev.anatel`; o gerador DNS usa nomes
+declarados sem sufixo fixo. `dns_records` permanece vazio, então não há respostas ativas. Receitas
+de split DNS WireGuard por sistema operacional existem, mas precisam de validação nesse sistema:
 
 ```json
 {
@@ -347,8 +350,8 @@ Gateway `--check` verifica as redes Podman existentes, informa redes declaradas 
 criação planejada e anuncia cada registro DNS como `readiness/unverified`, sem consultar containers
 de aplicação ou targets DNS.
 Gateway `--apply` cria redes ausentes, mas não inspeciona, cria, inicia, para ou altera containers de
-aplicação; registros DNS permanecem pendentes até a implementação do handoff de atualização após
-readiness. O comando geral `host-preflight.sh --check` também verifica conflitos de rotas IPv4,
+aplicação; registros DNS permanecem pendentes até o handoff de atualização após readiness. O comando
+geral `host-preflight.sh --check` também verifica conflitos de rotas IPv4,
 mantém a inspeção dos containers configurados e reporta containers parados como pendentes.
 
 Para conferir um host com outros containers, sem exigir configuração ou credenciais do gateway:
@@ -375,6 +378,7 @@ precisa das chaves privadas dos desenvolvedores.
 | `/etc/gateway/tls/gateway.cert` | Certificado TLS válido do Cockpit. |
 | `/etc/gateway/tls/gateway.key` | Chave privada correspondente; root-owned e sem acesso por grupo/outros (normalmente modo `0600`). |
 | `/etc/gateway/openvpn/ERMXDF02.ovpn` | Perfil OpenVPN externo; arquivo regular root-owned, legível apenas por root (normalmente modo `0600`), montado somente para leitura quando o runtime é habilitado. O código não abre nem copia seu conteúdo. |
+| Caminho definido em `gateway.remote_access.wireguard.server_private_key_path` | Chave privada do servidor WireGuard; obrigatória somente quando habilitado, explicitamente configurada, root-owned e montada somente para leitura. Não há valor ou caminho padrão; mantenha fora do Git. |
 
 Os certificados e secrets são entradas externas. O deployment os monta como somente leitura. A
 chave pública em `authorized_keys` autoriza acesso ao gateway, não aos containers de aplicação.
@@ -398,7 +402,9 @@ sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 `--check` exige RHEL 9.8, Podman rootful 5.8.2 e SELinux já desativado. Verifica credenciais,
 portas, redes, rotas IPv4 do host, socket rootful e ferramentas exigidas; não inspeciona containers
 de aplicação ou targets DNS. Se OpenVPN estiver habilitado, verifica apenas metadados de propriedade,
-modo e arquivo regular do perfil; não lê seu conteúdo. Redes ausentes são informadas como criação planejada. O comando geral
+modo e arquivo regular do perfil; não lê seu conteúdo. Se WireGuard estiver habilitado, verifica
+inputs, suporte do kernel/ferramentas, metadados da chave e bind/porta UDP antes de qualquer mutação.
+Redes ausentes são informadas como criação planejada. O comando geral
 `host-preflight.sh --check` também verifica rotas e continua inspecionando os containers declarados.
 Não contorne a verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
 operacional.
@@ -421,6 +427,10 @@ operacional.
   `/dev/net/tun` e `NET_ADMIN`, instala forwarding restrito TUN-para-Podman e gerencia somente a
   rota IPv4 do pool com protocolo reservado `186`. A configuração versionada não habilita esse
   runtime.
+- Com WireGuard habilitado e inputs explícitos, monta a chave privada do servidor somente para
+  leitura, publica o bind/porta UDP configurados, adiciona `NET_ADMIN` e instala a rota de retorno
+  exata para o pool. O preflight não carrega módulo; se suporte do kernel estiver ausente, falha
+  antes da mutação. A configuração versionada não habilita esse runtime.
 
 O script não cria as credenciais externas, containers de aplicação, volumes ou dados de aplicação.
 Também não usa `--privileged`, não expõe a API Podman por TCP e não altera SELinux. Se o apply falhar,
@@ -435,12 +445,12 @@ de firewall/ACL. O gateway não substitui o perímetro de segurança.
 
 O gateway aceita login SSH como `developer` na porta configurada (padrão `2222`), usando a chave
 privada do desenvolvedor que permanece na workstation. DNSMasq só resolverá os nomes declarados
-depois que o handoff readiness-scoped publicar registros válidos; esse handoff ainda não está
-implementado e os targets permanecem pendentes. O acesso Layer 3 por OpenVPN/SSH TUN e suas rotas
-ainda estão planejados, não implementados.
+depois que o handoff readiness-scoped publicar registros válidos; nenhum target DNS está declarado
+atualmente. Os runtimes Layer 3 OpenVPN, SSH TUN e WireGuard estão implementados, mas desativados
+na configuração versionada. Ativação e aceitação no host-alvo permanecem pendentes.
 
-Quando o SSH TUN estiver implementado, o VS Code Remote-SSH poderá conectar-se diretamente ao
-endereço/DNS do container através das rotas split do túnel. Abaixo está o caminho alternativo
+Com SSH TUN habilitado e suas rotas split ativas, o VS Code Remote-SSH poderá conectar-se
+diretamente ao endereço/DNS do container. Abaixo está o caminho alternativo
 ProxyJump, que funciona sem SSH TUN e encaminha somente TCP/22. Os aliases separam a identidade do
 Gateway e a identidade/chave pública autorizada no destino:
 
@@ -562,9 +572,11 @@ Princípios obrigatórios:
 
 Os caminhos externos de credenciais e os mounts do gateway estão definidos em
 [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
-As capabilities mínimas, compatibilidade com o baseline de SELinux desativado e runtime Layer 3 continuam pendentes de teste em
-RHEL 9.8 / Podman 5.8.2. A integração com um Secret Manager fica fora da primeira versão; o servidor
-OpenVPN permanece externo e o Gateway OpenVPN client/SSH TUN estão planejados.
+As capabilities mínimas, compatibilidade com o baseline de SELinux desativado e runtime Layer 3
+continuam pendentes de aceitação em RHEL 9.8 / Podman 5.8.2. O host atual não tem módulo WireGuard
+nem ferramenta `wg`; integração de kernel não foi testada. A integração com um Secret Manager fica
+fora da primeira versão; o servidor OpenVPN permanece externo e os runtimes OpenVPN client, SSH TUN
+e WireGuard estão implementados, mas desativados.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -582,12 +594,12 @@ decisões arquiteturais em aberto. Permanecem em aberto:
 - health checks, logs e atualização/versionamento de imagens;
 - configuração de exposição direta por serviço não HTTP.
 
-Próxima etapa do gateway: executar os gates de aceitação em um host RHEL 9.8 / Podman 5.8.2
-descartável e registrar os resultados de Quadlet, reboot, SELinux, capabilities, forwarding e
-Cockpit/Podman, incluindo concorrência de clientes OpenVPN/SSH TUN, conflito/reconciliação/rollback
-de rotas e cleanup de sessões. O runtime de túnel continua planejado e não implementado. Não use um
-host live para essa validação. As decisões restantes da aplicação e do proxy HTTP devem ser tratadas
-separadamente.
+Próxima etapa do gateway: executar os gates de aceitação em host RHEL 9.8 / Podman 5.8.2 descartável
+com suporte WireGuard no kernel e registrar Quadlet, reboot, SELinux, capabilities, forwarding e
+Cockpit/Podman. Testar concorrência de OpenVPN/SSH TUN/WireGuard, conflito/reconciliação/rollback
+de rotas, cleanup de sessões, revogação e split DNS nos três sistemas. O código está implementado;
+aceitação de kernel/túnel permanece bloqueada no host atual. Não use um host live para essa
+validação. As decisões restantes da aplicação e do proxy HTTP devem ser tratadas separadamente.
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 

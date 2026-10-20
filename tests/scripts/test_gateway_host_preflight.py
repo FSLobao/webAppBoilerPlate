@@ -23,6 +23,31 @@ from scripts.gateway.host_preflight import (
 IP_ROUTE_COMMAND = ["ip", "-j", "-4", "route", "show", "table", "all"]
 
 
+def test_wireguard_server_key_path_must_resolve_outside_repository(
+    tmp_path: Path,
+) -> None:
+    """Reject key paths and parent symlinks that resolve into the source tree."""
+    repository = tmp_path / "repository"
+    secret_directory = repository / "secrets"
+    secret_directory.mkdir(parents=True)
+    repository_key = secret_directory / "server.key"
+    repository_key.write_text("synthetic", encoding="ascii")
+    external_directory = tmp_path / "host-secrets"
+    external_directory.mkdir()
+    external_key = external_directory / "server.key"
+    external_key.write_text("synthetic", encoding="ascii")
+    link_directory = tmp_path / "host-link"
+    link_directory.symlink_to(secret_directory, target_is_directory=True)
+
+    host_preflight._require_external_key_path(external_key, repository)
+    with pytest.raises(ValueError, match="outside the Git repository"):
+        host_preflight._require_external_key_path(repository_key, repository)
+    with pytest.raises(ValueError, match="outside the Git repository"):
+        host_preflight._require_external_key_path(
+            link_directory / "server.key", repository
+        )
+
+
 def _fake_ip_routes(
     command: list[str], routes: list[dict[str, Any]] | None = None
 ) -> subprocess.CompletedProcess[str] | None:
@@ -432,7 +457,7 @@ def test_validate_podman_state_accepts_valid_running_target() -> None:
             "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
             "dns_records": [
                 {
-                    "name": "api.project-a.dev.internal",
+                    "name": "api.project-a.dev.anatel",
                     "container": "api",
                     "network": "project-a",
                 }
@@ -513,7 +538,7 @@ def test_validate_podman_state_reports_stopped_target_as_pending() -> None:
             "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
             "dns_records": [
                 {
-                    "name": "api.project-a.dev.internal",
+                    "name": "api.project-a.dev.anatel",
                     "container": "api",
                     "network": "project-a",
                 }
@@ -524,7 +549,7 @@ def test_validate_podman_state_reports_stopped_target_as_pending() -> None:
     )
 
     assert messages == [
-        "[host-preflight] PENDING DNS target: api.project-a.dev.internal (api is stopped)"
+        "[host-preflight] PENDING DNS target: api.project-a.dev.anatel (api is stopped)"
     ]
 
 
@@ -708,7 +733,7 @@ def test_gateway_preflight_is_read_only_without_application_targets(
                 ],
                 "dns_records": [
                     {
-                        "name": "api.project-a.dev.internal",
+                        "name": "api.project-a.dev.anatel",
                         "container": "api",
                         "network": "project-a",
                     }
@@ -746,7 +771,7 @@ def test_gateway_preflight_is_read_only_without_application_targets(
         in captured.out
     )
     assert (
-        "[host-preflight] PENDING DNS target: api.project-a.dev.internal "
+        "[host-preflight] PENDING DNS target: api.project-a.dev.anatel "
         "(api readiness/unverified)"
     ) in captured.out
     assert calls == [
