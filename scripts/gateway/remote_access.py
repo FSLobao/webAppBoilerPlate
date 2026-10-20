@@ -203,14 +203,13 @@ def validate_remote_access_config(
 ) -> None:
     """Validate the optional, strict ``gateway.remote_access`` configuration.
 
-    Unknown keys are rejected. Retired OpenVPN fields from earlier schema-v1
-    configs are warned about and ignored. Disabled sections remain inert;
-    enabling OpenVPN requires an endpoint, while enabling SSH TUN requires
-    an explicit account and a separately chosen address pool.
+    Unknown keys are rejected. Disabled sections remain inert. OpenVPN client
+    pools are optional; without one, allocation checks and a managed host return
+    route are unavailable.
 
     Args:
         config: Parsed schema-version-1 host configuration.
-        announce: Optional recipient for compatibility warnings.
+        announce: Optional recipient for validation warnings.
 
     Raises:
         TypeError: A remote-access field has an unsupported type.
@@ -233,38 +232,16 @@ def validate_remote_access_config(
     openvpn_keys = {
         "enabled",
         "profile_path",
-        "client_pool",
     }
-    optional_openvpn_keys = {"endpoint", "profile_reviewed"}
-    retired_openvpn_keys = {
-        "protocol",
-        "port",
-        "device",
-        "topology",
-        "client_to_client",
-        "auth",
-        "cipher",
-        "push_domains",
-    }
+    optional_openvpn_keys = {"client_pool", "profile_reviewed"}
     if (
         not isinstance(openvpn, dict)
-        or set(openvpn) - openvpn_keys - optional_openvpn_keys - retired_openvpn_keys
+        or set(openvpn) - openvpn_keys - optional_openvpn_keys
         or openvpn_keys - set(openvpn)
     ):
         raise ValueError(
             "gateway.remote_access.openvpn has missing or unsupported fields"
         )
-    retired_fields = sorted(set(openvpn) & retired_openvpn_keys)
-    if retired_fields:
-        warning = (
-            "Legacy OpenVPN fields are ignored: "
-            f"{', '.join(retired_fields)}; remove them from the "
-            "schema-version-1 configuration."
-        )
-        if announce is None:
-            logging.getLogger(__name__).warning("%s", warning)
-        else:
-            announce(warning)
     if not isinstance(openvpn["enabled"], bool):
         raise TypeError("gateway.remote_access.openvpn.enabled must be boolean")
     if "profile_reviewed" in openvpn and not isinstance(
@@ -278,19 +255,22 @@ def validate_remote_access_config(
             "enabled OpenVPN requires operator-reviewed profile_reviewed: true"
         )
     _validate_profile_path(openvpn["profile_path"])
-    openvpn_pool = _ipv4_network(
-        openvpn["client_pool"], "gateway.remote_access.openvpn.client_pool"
-    )
-
-    endpoint = None
-    if "endpoint" in openvpn:
-        endpoint = _validate_endpoint(
-            openvpn["endpoint"], "gateway.remote_access.openvpn.endpoint"
+    openvpn_pool = None
+    if "client_pool" in openvpn:
+        openvpn_pool = _ipv4_network(
+            openvpn["client_pool"], "gateway.remote_access.openvpn.client_pool"
         )
-    elif openvpn["enabled"]:
-        raise ValueError(
-            "enabled OpenVPN requires gateway.remote_access.openvpn.endpoint"
+    else:
+        warning = (
+            "OpenVPN client_pool is not configured; assigned prefix cannot be "
+            "checked against the client allocation, no managed host return route "
+            "will be installed or validated, and symmetric client reply routing "
+            "is not guaranteed."
         )
+        if announce is None:
+            logging.getLogger(__name__).warning("%s", warning)
+        else:
+            announce(warning)
 
     ssh_tun = remote["ssh_tun"]
     if (
@@ -359,13 +339,15 @@ def validate_remote_access_config(
         )
 
     networks = _configured_networks(config)
-    if openvpn["enabled"] and not any(
-        network.address is not None for network in networks
+    if (
+        openvpn["enabled"]
+        and openvpn_pool is not None
+        and not any(network.address is not None for network in networks)
     ):
         raise ValueError(
             "enabled OpenVPN requires a Gateway address for the host return route"
         )
-    pools = [("OpenVPN client pool", openvpn_pool)]
+    pools = [("OpenVPN client pool", openvpn_pool)] if openvpn_pool is not None else []
     if ssh_pool is not None:
         pools.append(("SSH TUN pool", ssh_pool))
     for name, pool in pools:
@@ -375,7 +357,11 @@ def validate_remote_access_config(
                     f"{name} {pool} overlaps Podman network '{network.name}' "
                     f"subnet {network.subnet}"
                 )
-    if ssh_pool is not None and openvpn_pool.overlaps(ssh_pool):
+    if (
+        ssh_pool is not None
+        and openvpn_pool is not None
+        and openvpn_pool.overlaps(ssh_pool)
+    ):
         raise ValueError(
             f"SSH TUN pool {ssh_pool} overlaps OpenVPN client pool {openvpn_pool}"
         )
@@ -503,16 +489,6 @@ def validate_remote_access_config(
                     f"WireGuard server_address {server_address_ip} overlaps "
                     f"Podman network '{network.name}' subnet {network.subnet}"
                 )
-    if endpoint is not None:
-        for name, pool in pools:
-            if endpoint in pool:
-                raise ValueError(f"OpenVPN endpoint {endpoint} overlaps {name} {pool}")
-        for network in networks:
-            if endpoint in network.subnet:
-                raise ValueError(
-                    f"OpenVPN endpoint {endpoint} overlaps Podman network "
-                    f"'{network.name}' subnet {network.subnet}"
-                )
 
 
 def validate_remote_access_host_routes(
@@ -544,7 +520,7 @@ def validate_remote_access_host_routes(
 
     configured_pools: list[tuple[Transport, ipaddress.IPv4Network]] = []
     openvpn = remote.get("openvpn")
-    if isinstance(openvpn, dict):
+    if isinstance(openvpn, dict) and "client_pool" in openvpn:
         configured_pools.append(
             (
                 "openvpn",
@@ -604,23 +580,6 @@ def validate_remote_access_host_routes(
                     f"dev={route.get('dev', 'unspecified')})"
                 )
 
-    if isinstance(openvpn, dict) and "endpoint" in openvpn:
-        endpoint = _validate_endpoint(
-            openvpn["endpoint"], "gateway.remote_access.openvpn.endpoint"
-        )
-        if endpoint is not None:
-            for route in routes:
-                if route.get("type") != "local":
-                    continue
-                raw_destination = route.get("dst")
-                if raw_destination == "default" or raw_destination is None:
-                    continue
-                destination = ipaddress.ip_network(str(raw_destination), strict=False)
-                if destination.version == 4 and endpoint in destination:
-                    raise ValueError(
-                        f"OpenVPN endpoint {endpoint} conflicts with local host "
-                        f"route {destination}"
-                    )
     if isinstance(remote.get("wireguard"), dict):
         wireguard = remote["wireguard"]
         if wireguard.get("enabled") is True:
@@ -650,7 +609,7 @@ def validate_activation_addresses(
     assigned_addresses: Sequence[str],
     endpoint_address: str,
     client_prefix: str,
-    openvpn_pool: str,
+    openvpn_pool: str | None,
     ssh_pool: str | None,
     networks: Sequence[GatewayNetwork],
     host_routes: Sequence[Mapping[str, object]],
@@ -662,7 +621,7 @@ def validate_activation_addresses(
         assigned_addresses: One OpenVPN address or one SSH TUN point-to-point pair.
         endpoint_address: Remote tunnel endpoint IPv4 address.
         client_prefix: Remote client destination prefix, contained in its pool.
-        openvpn_pool: External server's OpenVPN client pool.
+        openvpn_pool: External server's OpenVPN client pool, or None when unknown.
         ssh_pool: Explicit SSH TUN pool, or None while SSH TUN is disabled.
         networks: Configured Gateway Podman networks.
         host_routes: One read-only host route-table snapshot.
@@ -682,30 +641,34 @@ def validate_activation_addresses(
         raise ValueError(
             f"{transport} activation requires {required_addresses} unique assigned address(es)"
         )
-    vpn_pool = _ipv4_network(openvpn_pool, "OpenVPN client pool")
+    vpn_pool = (
+        _ipv4_network(openvpn_pool, "OpenVPN client pool")
+        if openvpn_pool is not None
+        else None
+    )
     tunnel_pool = (
         _ipv4_network(ssh_pool, "SSH TUN pool") if ssh_pool is not None else None
     )
     pool = vpn_pool if transport == "openvpn" else tunnel_pool
-    if pool is None:
+    if transport == "ssh_tun" and pool is None:
         raise ValueError("SSH TUN activation requires an explicit SSH TUN pool")
     prefix = _ipv4_network(client_prefix, "remote client prefix", pool=False)
-    if not prefix.subnet_of(pool):
+    if pool is not None and not prefix.subnet_of(pool):
         raise ValueError(
             f"remote client prefix {prefix} is outside {transport} pool {pool}"
         )
     for address in assigned:
-        if address not in pool:
+        if pool is not None and address not in pool:
             raise ValueError(
                 f"assigned address {address} is outside {transport} pool {pool}"
             )
-    pools = [("OpenVPN client pool", vpn_pool)]
+    pools = [("OpenVPN client pool", vpn_pool)] if vpn_pool is not None else []
     if tunnel_pool is not None:
         pools.append(("SSH TUN pool", tunnel_pool))
     for name, other_pool in pools:
         if endpoint in other_pool:
             raise ValueError(f"endpoint {endpoint} overlaps {name} {other_pool}")
-    if endpoint in pool:
+    if pool is not None and endpoint in pool:
         raise ValueError(f"endpoint {endpoint} overlaps {transport} client pool {pool}")
     other_pool = tunnel_pool if transport == "openvpn" else vpn_pool
     for address in assigned:
@@ -786,8 +749,9 @@ def plan_remote_routes(
     networks: Sequence[GatewayNetwork],
     observed_routes: Sequence[RouteSpec],
     active_routes: Sequence[OwnedRoute],
+    install_host_return: bool = True,
 ) -> RoutePlan:
-    """Plan candidate tunnel routes and one deterministic host return route.
+    """Plan candidate tunnel routes and an optional deterministic host route.
 
     Only exact observed routes owned by this same transport session are
     idempotent. Foreign, ambiguous, default, and Podman-overlapping routes
@@ -801,6 +765,7 @@ def plan_remote_routes(
         networks: Configured Gateway Podman networks.
         observed_routes: Current routes from the relevant routing namespaces.
         active_routes: Routes with exact ownership records.
+        install_host_return: Whether to manage the host return route.
 
     Returns:
         A plan of candidate additions, exact owned routes, and stale owned routes.
@@ -817,22 +782,28 @@ def plan_remote_routes(
     gateway_routes = _parse_candidate_routes(
         client_prefix, tunnel_interface, pushed_routes, networks
     )
-    gateway_addresses = [network for network in networks if network.address is not None]
-    if not gateway_addresses:
-        raise ValueError("host return route requires a configured Gateway address")
-    gateway_addresses.sort(
-        key=lambda network: (
-            int(network.subnet.network_address),
-            network.subnet.prefixlen,
-            network.name,
+    host_return_routes: list[RouteSpec] = []
+    if install_host_return:
+        gateway_addresses = [
+            network for network in networks if network.address is not None
+        ]
+        if not gateway_addresses:
+            raise ValueError("host return route requires a configured Gateway address")
+        gateway_addresses.sort(
+            key=lambda network: (
+                int(network.subnet.network_address),
+                network.subnet.prefixlen,
+                network.name,
+            )
         )
-    )
-    host_return = RouteSpec(
-        ipaddress.ip_network(client_prefix, strict=True),
-        "host",
-        gateway=gateway_addresses[0].address,
-    )
-    candidates = list(dict.fromkeys([*gateway_routes, host_return]))
+        host_return_routes.append(
+            RouteSpec(
+                ipaddress.ip_network(client_prefix, strict=True),
+                "host",
+                gateway=gateway_addresses[0].address,
+            )
+        )
+    candidates = list(dict.fromkeys([*gateway_routes, *host_return_routes]))
 
     unchanged = []
     additions = []
@@ -867,6 +838,7 @@ def plan_remote_routes(
         if owned.owner == owner
         and owned.route not in desired
         and owned.route in observed_routes
+        and (install_host_return or owned.route.plane != "host")
     )
     return RoutePlan(owner, tuple(additions), tuple(unchanged), removals)
 
@@ -877,7 +849,7 @@ def reconcile_remote_routes(
     assigned_addresses: Sequence[str],
     endpoint_address: str,
     client_prefix: str,
-    openvpn_pool: str,
+    openvpn_pool: str | None,
     ssh_pool: str | None,
     tunnel_interface: str,
     pushed_routes: Sequence[str],
@@ -899,7 +871,7 @@ def reconcile_remote_routes(
         assigned_addresses: One OpenVPN address or one SSH TUN point-to-point pair.
         endpoint_address: Remote tunnel endpoint IPv4 address.
         client_prefix: Remote client destination prefix.
-        openvpn_pool: External server's OpenVPN client pool.
+        openvpn_pool: External server's OpenVPN client pool, or None when unknown.
         ssh_pool: Explicit SSH TUN pool, or None while SSH TUN is disabled.
         tunnel_interface: Active tunnel device name.
         pushed_routes: Candidate routes supplied by the remote endpoint.
@@ -922,7 +894,9 @@ def reconcile_remote_routes(
     route_config = {
         "gateway": {
             "remote_access": {
-                "openvpn": {"client_pool": openvpn_pool},
+                "openvpn": (
+                    {"client_pool": openvpn_pool} if openvpn_pool is not None else {}
+                ),
                 "ssh_tun": ({"address_pool": ssh_pool} if ssh_pool is not None else {}),
             }
         }
@@ -955,6 +929,7 @@ def reconcile_remote_routes(
         networks=networks,
         observed_routes=observed_routes,
         active_routes=active_routes,
+        install_host_return=(owner.transport != "openvpn" or openvpn_pool is not None),
     )
     apply_route_plan(plan, add_route=add_route, remove_route=remove_route)
     return plan

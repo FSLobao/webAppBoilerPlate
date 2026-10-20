@@ -37,7 +37,6 @@ def _config(*, enabled: bool = True, profile_reviewed: bool = True) -> dict:
                     "enabled": enabled,
                     "profile_reviewed": profile_reviewed,
                     "client_pool": "172.24.0.0/21",
-                    "endpoint": "vpn.example.test",
                 }
             }
         },
@@ -57,47 +56,102 @@ def test_openvpn_runtime_requires_operator_profile_review() -> None:
         _openvpn_config(_config(profile_reviewed=False))
 
 
-def test_openvpn_runtime_ignores_legacy_fields_and_keeps_fixed_cli_options(
+def test_openvpn_runtime_without_pool_warns_and_accepts_assigned_address(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Ignore legacy settings without changing fixed runtime options."""
+    """Validate a real assigned address without inventing an allocation pool."""
     config = _config()
-    config["gateway"]["remote_access"]["openvpn"].update(
-        {
-            "protocol": "tcp",
-            "port": 1,
-            "device": "tap",
-            "topology": "net30",
-            "client_to_client": False,
-            "auth": "none",
-            "cipher": "legacy-cipher",
-            "push_domains": ["legacy.example.test"],
-        }
-    )
+    openvpn = config["gateway"]["remote_access"]["openvpn"]
+    del openvpn["client_pool"]
 
     with caplog.at_level("WARNING"):
-        openvpn = _openvpn_config(config)
+        metadata = _openvpn_config(config)
 
-    command = build_openvpn_command()
-    assert openvpn["client_pool"] == "172.24.0.0/21"
-    assert command[command.index("--dev") + 1] == "tun0"
-    assert command[command.index("--topology") + 1] == "subnet"
-    assert command[command.index("--auth") + 1] == "SHA256"
-    assert command[command.index("--cipher") + 1] == "AES-256-CBC"
-    assert command[command.index("--data-ciphers") + 1] == "AES-256-CBC"
-    assert "--port" not in command
-    assert "--proto" not in command
-    assert "ignored" in caplog.text
-    assert "remove them" in caplog.text
+    assert _validate_assigned_address(
+        {
+            "dev": "tun0",
+            "ifconfig_local": "172.25.4.10",
+            "ifconfig_remote_netmask": "255.255.255.0",
+        },
+        metadata,
+        config["networks"],
+    ) == ("172.25.4.10", 24)
+    assert "client_pool is not configured" in caplog.text
+    assert "symmetric client reply routing is not guaranteed" in caplog.text
 
 
-def test_openvpn_runtime_rejects_unrelated_fields() -> None:
-    """Reject unknown fields when runtime bypasses deployment preflight."""
+def test_openvpn_runtime_without_pool_rejects_subnet_boundary_address() -> None:
+    """Reject network and broadcast addresses even when allocation is unknown."""
+    openvpn = _openvpn_config(_config())
+    del openvpn["client_pool"]
+    environment = {
+        "dev": "tun0",
+        "ifconfig_local": "172.25.4.0",
+        "ifconfig_remote_netmask": "255.255.255.0",
+    }
+
+    with pytest.raises(RuntimeErrorSafe, match="invalid tunnel address"):
+        _validate_assigned_address(environment, openvpn)
+
+
+def test_openvpn_runtime_rejects_assigned_podman_overlap_before_mutation(
+    tmp_path: Path,
+) -> None:
+    """Reject an assigned tunnel subnet before inspecting or changing interfaces."""
     config = _config()
-    config["gateway"]["remote_access"]["openvpn"]["unrelated"] = "value"
+    del config["gateway"]["remote_access"]["openvpn"]["client_pool"]
+    environment = _route_environment("c" * 64)
+    environment.update(
+        {
+            "ifconfig_local": "192.168.9.10",
+            "ifconfig_remote_netmask": "255.255.254.0",
+        }
+    )
+    calls: list[list[str]] = []
+
+    def runner(arguments: list[str], **kwargs):
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, "", "")
+
+    forwarding_path = tmp_path / "ip_forward"
+    forwarding_path.write_text("0", encoding="ascii")
+    with pytest.raises(RuntimeErrorSafe, match="overlaps a configured Podman network"):
+        _tunnel_route_up(
+            environment,
+            config,
+            runner=runner,
+            state_path=tmp_path / "private" / "state.json",
+            forwarding_path=forwarding_path,
+        )
+
+    assert calls == []
+    assert forwarding_path.read_text(encoding="ascii") == "0"
+    assert not (tmp_path / "private").exists()
+
+
+@pytest.mark.parametrize(
+    "retired_field",
+    [
+        "protocol",
+        "port",
+        "device",
+        "topology",
+        "client_to_client",
+        "auth",
+        "cipher",
+        "push_domains",
+        "endpoint",
+    ],
+)
+def test_openvpn_runtime_entrypoint_rejects_retired_fields(
+    retired_field: str,
+) -> None:
+    """Reject each retired field before the runtime performs host operations."""
+    config = _config()
+    config["gateway"]["remote_access"]["openvpn"][retired_field] = "retired"
 
     with pytest.raises(RuntimeErrorSafe, match="unsupported fields"):
-        _openvpn_config(config)
+        run_openvpn(config)
 
 
 def test_disabled_openvpn_cannot_start_runtime() -> None:

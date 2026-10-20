@@ -83,41 +83,32 @@ def _openvpn_config(config: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeErrorSafe(
             "OpenVPN activation requires an operator-reviewed profile."
         )
-    retired_fields = {
-        "protocol",
-        "port",
-        "device",
-        "topology",
-        "client_to_client",
-        "auth",
-        "cipher",
-        "push_domains",
-    }
     allowed_fields = {
         "enabled",
         "profile_path",
         "client_pool",
-        "endpoint",
         "profile_reviewed",
     }
-    unsupported_fields = set(openvpn) - allowed_fields - retired_fields
+    unsupported_fields = set(openvpn) - allowed_fields
     if unsupported_fields:
         raise RuntimeErrorSafe("OpenVPN configuration contains unsupported fields.")
-    legacy_fields = sorted(set(openvpn) & retired_fields)
-    if legacy_fields:
+    pool = None
+    if "client_pool" in openvpn:
+        try:
+            pool = ipaddress.IPv4Network(str(openvpn["client_pool"]), strict=True)
+        except ValueError as error:
+            raise RuntimeErrorSafe(
+                "OpenVPN client pool metadata is invalid."
+            ) from error
+        if pool.prefixlen == 0 or pool.num_addresses < 4:
+            raise RuntimeErrorSafe("OpenVPN client pool is not a usable IPv4 range.")
+    else:
         logging.getLogger(__name__).warning(
-            "Legacy OpenVPN fields are ignored: %s; remove them from the "
-            "schema-version-1 configuration.",
-            ", ".join(legacy_fields),
+            "OpenVPN client_pool is not configured; assigned prefix cannot be "
+            "checked against the client allocation, no managed host return route "
+            "will be installed or validated, and symmetric client reply routing "
+            "is not guaranteed."
         )
-    if not isinstance(openvpn.get("endpoint"), str) or not openvpn["endpoint"]:
-        raise RuntimeErrorSafe("OpenVPN endpoint metadata is missing.")
-    try:
-        pool = ipaddress.IPv4Network(str(openvpn["client_pool"]), strict=True)
-    except (KeyError, ValueError) as error:
-        raise RuntimeErrorSafe("OpenVPN client pool metadata is invalid.") from error
-    if pool.prefixlen == 0 or pool.num_addresses < 4:
-        raise RuntimeErrorSafe("OpenVPN client pool is not a usable IPv4 range.")
     networks = config.get("networks")
     if not isinstance(networks, list) or not networks:
         raise RuntimeErrorSafe("OpenVPN requires configured Podman networks.")
@@ -130,7 +121,7 @@ def _openvpn_config(config: Mapping[str, Any]) -> dict[str, Any]:
             raise RuntimeErrorSafe(
                 "Configured Podman network subnet is invalid."
             ) from error
-        if pool.overlaps(subnet):
+        if pool is not None and pool.overlaps(subnet):
             raise RuntimeErrorSafe(
                 "OpenVPN client pool overlaps a configured Podman network."
             )
@@ -514,6 +505,7 @@ def _sanitized_diagnostic(line: str) -> str | None:
 def _validate_assigned_address(
     environment: Mapping[str, str],
     openvpn: Mapping[str, Any],
+    networks: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[str, int]:
     """Validate the OpenVPN address candidate before configuring TUN."""
     raw_address = environment.get("ifconfig_local")
@@ -527,17 +519,49 @@ def _validate_assigned_address(
         address = ipaddress.IPv4Address(raw_address)
         mask = ipaddress.IPv4Address(raw_netmask)
         prefix = ipaddress.IPv4Network(f"0.0.0.0/{mask}").prefixlen
-        pool = ipaddress.IPv4Network(str(openvpn["client_pool"]), strict=True)
+        pool = (
+            ipaddress.IPv4Network(str(openvpn["client_pool"]), strict=True)
+            if "client_pool" in openvpn
+            else None
+        )
+        assigned_network = ipaddress.IPv4Network(f"{address}/{prefix}", strict=False)
     except (KeyError, ValueError) as error:
         raise RuntimeErrorSafe("OpenVPN tunnel address metadata is invalid.") from error
     if (
-        address not in pool
-        or address in (pool.network_address, pool.broadcast_address)
-        or prefix != pool.prefixlen
-    ):
-        raise RuntimeErrorSafe(
-            "OpenVPN assigned an address outside the configured client pool."
+        address.is_unspecified
+        or address.is_multicast
+        or prefix == 0
+        or (
+            pool is None
+            and prefix < 31
+            and address
+            in (assigned_network.network_address, assigned_network.broadcast_address)
         )
+        or (
+            pool is not None
+            and (
+                address not in pool
+                or address in (pool.network_address, pool.broadcast_address)
+                or prefix != pool.prefixlen
+            )
+        )
+    ):
+        if pool is not None:
+            raise RuntimeErrorSafe(
+                "OpenVPN assigned an address outside the configured client pool."
+            )
+        raise RuntimeErrorSafe("OpenVPN assigned an invalid tunnel address.")
+    for network in networks:
+        try:
+            subnet = ipaddress.IPv4Network(network["subnet"], strict=True)
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeErrorSafe(
+                "Configured Podman network subnet is invalid."
+            ) from error
+        if assigned_network.overlaps(subnet):
+            raise RuntimeErrorSafe(
+                "OpenVPN assigned tunnel subnet overlaps a configured Podman network."
+            )
     return str(address), prefix
 
 
@@ -741,7 +765,7 @@ def _tunnel_up(
     """Validate candidates before OpenVPN reaches its route-up activation hook."""
     openvpn = _openvpn_config(config)
     _runtime_id(environment)
-    _validate_assigned_address(environment, openvpn)
+    _validate_assigned_address(environment, openvpn, config["networks"])
     _validate_route_candidates(environment)
 
 
@@ -756,7 +780,9 @@ def _tunnel_route_up(
     """Activate forwarding only after address and all route candidates validate."""
     openvpn = _openvpn_config(config)
     runtime_id = _runtime_id(environment)
-    address, prefix = _validate_assigned_address(environment, openvpn)
+    address, prefix = _validate_assigned_address(
+        environment, openvpn, config["networks"]
+    )
     _validate_route_candidates(environment)
     state = _read_runtime_state(runtime_id, state_path=state_path)
     current_addresses = _tunnel_addresses(runner=runner)

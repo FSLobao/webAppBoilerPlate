@@ -41,6 +41,17 @@ def _config(*, max_sessions: int = 2) -> dict[str, Any]:
     }
 
 
+def test_ssh_tun_overlap_check_requires_configured_openvpn_pool() -> None:
+    """Skip allocation overlap checks only when OpenVPN pool is unknown."""
+    config = _config()
+    del config["gateway"]["remote_access"]["openvpn"]["client_pool"]
+    runtime._enabled_config(config)
+
+    config["gateway"]["remote_access"]["openvpn"]["client_pool"] = "198.18.0.0/24"
+    with pytest.raises(runtime.TunnelRuntimeError, match="overlaps the OpenVPN"):
+        runtime._enabled_config(config)
+
+
 def _key() -> str:
     """Return a structurally valid synthetic Ed25519 public-key blob."""
     raw = (

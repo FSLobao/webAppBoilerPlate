@@ -117,11 +117,20 @@ substituída. Consulte o [plano
 do Gateway](docs/plans/gateway-plan.md), o [status de implementação](docs/plans/gateway-implementation.md)
 e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
 
-O cliente OpenVPN permanece separado. Protocolo, porta, topologia e opções de domínio recebidas do
-servidor pertencem ao servidor/perfil externo; `client_to_client` também é configuração do servidor.
-Esses valores não pertencem mais ao JSON do Gateway. O schema permanece na versão 1, mas rejeita
-esses campos antigos; remova-os ao atualizar uma configuração existente. Os demais controles fixos
-do cliente OpenVPN permanecem no runtime.
+O cliente OpenVPN permanece separado. Protocolo, porta, dispositivo, topologia, autenticação,
+cipher, opções de domínio e `client_to_client` pertencem ao servidor/perfil externo; endpoint também
+é propriedade do perfil, não do JSON do Gateway. Este é um setup novo, sem migração ou compatibilidade
+de configuração para os campos OpenVPN retirados: `protocol`, `port`, `device`, `topology`,
+`client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` são rejeitados, inclusive em
+configurações schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus
+contratos continuam determinando compatibilidade. O campo `client_pool` permanece opcional porque o
+perfil externo é opaco e pode determinar a alocação. Sem esse campo, validação emite um aviso; o
+runtime valida o endereço e a máscara recebidos contra as redes Podman, mas não pode verificar a
+alocação do cliente nem instalar ou validar uma rota de retorno no host. O caminho de resposta
+simétrico não é garantido nesse caso. Com `client_pool`, as validações de conflito e a rota de retorno
+existente continuam ativas. `profile_reviewed: true` continua obrigatório ao habilitar OpenVPN: é
+uma confirmação humana para o perfil opaco, que pode carregar plugins ou scripts. O schema permanece
+na versão 1 e mantém controles fixos do cliente no runtime.
 
 Receitas de onboarding e split DNS por sistema operacional: [Windows 11](docs/recipes/wireguard-windows-11.md),
 [Linux](docs/recipes/wireguard-linux.md) e [macOS](docs/recipes/wireguard-macos.md). O fluxo usa CLI

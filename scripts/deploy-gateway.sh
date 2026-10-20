@@ -128,9 +128,11 @@ render_quadlet_candidate() {
     published_lines=$(printf 'PublishPort=%s:%s:22\nPublishPort=%s:%s:9090' \
         "$ssh_bind_address" "$ssh_port" "$cockpit_bind_address" "$cockpit_port")
     openvpn_enabled=$(jq -r '.gateway.remote_access.openvpn.enabled // false' "$config_path")
+    client_pool=$(jq -r '.gateway.remote_access.openvpn.client_pool // empty' "$config_path")
     ssh_tun_enabled=$(jq -r '.gateway.remote_access.ssh_tun.enabled // false' "$config_path")
     wireguard_enabled=$(jq -r '.gateway.remote_access.wireguard.enabled // false' "$config_path")
-    if [[ "$openvpn_enabled" == true || "$ssh_tun_enabled" == true || "$wireguard_enabled" == true ]]; then
+    if [[ "$ssh_tun_enabled" == true || "$wireguard_enabled" == true || \
+        ( "$openvpn_enabled" == true && -n "$client_pool" ) ]]; then
         route_gateway=$(jq -r '
             [.networks[] | select(has("gateway_address"))] |
             sort_by([
@@ -143,12 +145,13 @@ render_quadlet_candidate() {
     fi
     if [[ "$openvpn_enabled" == true ]]; then
         profile_path=$(jq -r '.gateway.remote_access.openvpn.profile_path' "$config_path")
-        client_pool=$(jq -r '.gateway.remote_access.openvpn.client_pool' "$config_path")
         openvpn_volume="Volume=${profile_path}:/run/openvpn/client.ovpn:ro"
         openvpn_runtime=$'AddDevice=/dev/net/tun\nAddCapability=NET_ADMIN'
-        openvpn_host_route=$(printf \
-            'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
-            "$client_pool" "$route_gateway" "$client_pool" "$route_gateway")
+        if [[ -n "$client_pool" ]]; then
+            openvpn_host_route=$(printf \
+                'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
+                "$client_pool" "$route_gateway" "$client_pool" "$route_gateway")
+        fi
     fi
     if [[ "$ssh_tun_enabled" == true ]]; then
         ssh_tun_pool=$(jq -r '.gateway.remote_access.ssh_tun.address_pool' "$config_path")

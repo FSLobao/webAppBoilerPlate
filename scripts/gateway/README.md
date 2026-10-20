@@ -11,7 +11,9 @@ runtimes in [`gateway/development/`](../../gateway/development/).
 `remote_access` validates disabled-by-default OpenVPN, SSH TUN, and WireGuard
 metadata, plans candidate routes and session ownership, and exposes
 callback-based application and rollback for tests. Gateway preflight checks
-configured pools and literal endpoints against read-only host route state.
+configured pools and WireGuard endpoints against read-only host route state.
+OpenVPN has no endpoint configuration field; its optional `client_pool` enables
+allocation checks and the managed host return route.
 All transports remain disabled until deployment inputs and target acceptance.
 The Gateway remote-access path is IPv4-only: configured Podman destinations,
 tunnel pools and pairs, host return routes, and generated DNS A records use
@@ -36,7 +38,7 @@ bootstrap remains container-independent and offline before tunnel activation.
 | `strict_json` | `load_json(path)`, `loads_json(contents)`; CLI: `python3 -m scripts.gateway.strict_json CONFIG` | Returns parsed JSON or reports invalid JSON to stderr with status 1. Rejects duplicate object keys recursively before a normal JSON object is constructed. | Reads JSON only. `scripts.gateway.strict_json` re-exports the shared implementation from `gateway.development.strict_json`; the CLI can validate shell inputs before `jq` parses them. |
 | `host_config_validation` | `load_host_config(path)`, `validate_host_config(config)`; CLI: `python3 -m scripts.gateway.host_config_validation CONFIG` | Rejects the removed Gateway-level network override; file loading also rejects duplicate keys. Errors go to stderr with status 1. | Reads JSON only. Shares its implementation with container startup; top-level `networks` is the sole Podman network inventory. |
 | `config_validation` | `validate_address_declarations(config)`; CLI: `python3 -m scripts.gateway.config_validation CONFIG` | CLI returns 0 on success; validation errors go to stderr with status 1. | Reads JSON only. |
-| `remote_access` | `validate_remote_access_config(config)`, `validate_remote_access_host_routes(config, routes)`, `validate_activation_addresses(...)`, `plan_remote_routes(...)`, `apply_route_plan(plan, add_route, remove_route)` | Rejects unknown OpenVPN route/CCD fields and incomplete enabled SSH TUN inputs. OpenVPN activation also requires an operator's `profile_reviewed: true` acknowledgment and a deterministic host return-route gateway. Candidate default routes and Podman-overlapping routes fail. | Pure validation and planning. Apply calls only supplied callbacks and rolls back confirmed completed changes. Callbacks must leave routes unchanged when they raise; partial mutations cannot be detected safely. It never reads an OpenVPN profile or launches host commands. |
+| `remote_access` | `validate_remote_access_config(config)`, `validate_remote_access_host_routes(config, routes)`, `validate_activation_addresses(...)`, `plan_remote_routes(...)`, `apply_route_plan(plan, add_route, remove_route)` | Rejects retired and unknown OpenVPN fields, including legacy JSON `endpoint`, plus unknown route/CCD fields and incomplete enabled SSH TUN inputs. OpenVPN activation requires operator `profile_reviewed: true`; `client_pool` is optional. Without it, validation warns and does not validate allocation membership or plan a managed host return route. Candidate default routes and Podman-overlapping routes fail. | Pure validation and planning. Apply calls only supplied callbacks and rolls back confirmed completed changes. Callbacks must leave routes unchanged when they raise; partial mutations cannot be detected safely. It never reads an OpenVPN profile or launches host commands. |
 | `gateway.development.wireguard` | CLI: `gateway-wireguard run [CONFIG]`; `gateway-wireguard peer generate|approve|revoke|list` | Enabled configuration requires explicit IPv4 server/pool/endpoint/UDP bind and port/resolver/key-path inputs. Generation creates pending public metadata and writes the one-time profile only to verified foreground `/dev/tty`. Approval requires a reference and future timezone-aware expiry. Revocation removes only that peer. If peer rollback, interface deletion, and link-down all fail, the CLI creates a root-owned mode-0600 fail-stop marker and installs nftables drops for wg0, its published UDP input port, and IPv4 UDP output with that source port. The table comment binds its ownership to the marker token; restarts verify an exact existing table without replacing it. The server exits when its health check sees the marker; startup refuses to configure wg0 while it persists, and the Quadlet service holds failed status without automatic restart. | Uses argument-array `wg`/`ip`/`nft` calls. Persists public peer metadata, sanitized audit, and the fixed fail-stop marker only under `/var/lib/gateway/wireguard`; server private key uses the explicit read-only mount. A failed control path can leave live tunnel traffic active despite marker, nft attempt, and server exit. Operator must stop and verify runtime state before removing the marker and restarting. Never stores/logs peer private keys or exposes an HTTP/API. Run peer CLI as container root through `podman exec`; TTY checks cannot detect external recording. |
 | `host_preflight` | `host_platform_matches_target(os_id, os_version)`, `podman_version_matches_target(version)`, `selinux_mode_matches_target(mode)`, `cockpit_password_is_valid(path)`, `validate_gateway_networks(config, run_command, announce)`, `validate_podman_state(config, run_command, announce)`; CLI actions: `host-platform`, `podman-version`, `selinux-mode`, `password-file`, `gateway-networks`, `podman-state` | Gateway network checks report missing networks as planned creation and configured DNS targets as `readiness/unverified`. When WireGuard is enabled, preflight checks kernel/tool support, server-key metadata, UDP bind/port, and route conflicts before mutation. | The host deployment target is exactly RHEL 9.8 with rootful Podman 5.8.2 and SELinux already Disabled. Gateway checks use read-only Podman network commands and `ip -j -4 route show table all`; they do not inspect or operate application containers. Generic podman-state uses the same host-route check, retains read-only inspection of declared containers, and requires declared networks to exist. The Gateway attaches to every network in the global inventory. |
 | `gateway.development.dns_records` | `generate_dns_records(config, ready_targets, run_command)`; host re-export: `scripts.gateway.dns_records` | Returns active `IPv4 name` records only for supplied configured container names and full Podman IDs that inspect as exact, running, healthy targets on configured networks/subnets. Missing, stopped, or unhealthy targets are pending. | Queries only supplied IDs and exact configured network fields through the existing Gateway Podman socket. Formatted output contains target ID/name, running/health state, and that network's IPv4 address; no environment, mounts, or secret-bearing status is printed. Writes no files. |
@@ -59,10 +61,14 @@ and `ip` command tests. Optional `gateway.remote_access` metadata remains
 disabled in the checked-in host config. OpenVPN is described as UDP/1194,
 `tun`, `topology subnet`, `auth SHA256`, `cipher AES-256-CBC`, client pool
 `172.24.0.0/21`, and pushed domain `anatel.gov.br`; no Podman route push or CCD
-entry is declared. The external profile was not read. SSH TUN remains disabled
+entry is declared. The optional pool is present in this disabled example, but
+must not be inferred when absent from another configuration. Without it, runtime
+checks the assigned address/mask against Podman subnets but cannot verify client
+allocation or manage/validate a host return route; symmetric replies are not
+guaranteed. The external profile was not read. SSH TUN remains disabled
 until an operator supplies the dedicated key file, separate address pool, and
 maximum session count. The fixed tunnel account is `gateway-tunnel`. Host
-deployment adds one protocol-186 route for each enabled pool through the
+deployment adds one protocol-186 route for each enabled, configured pool through the
 deterministic Gateway address; no production route is active from checked-in
 configuration.
 
@@ -142,6 +148,10 @@ must contain no IPv6 tunnel or route directives; profile contents remain
 unread by the runtime. Hooks also reject IPv6 tunnel/route variables and all
 IPv4 route candidates. The route-up hook validates the assigned IPv4 address
 and complete route candidates before adding the address or enabling forwarding.
+With no configured `client_pool`, the hook still validates the assigned IPv4
+address/mask and rejects any assigned subnet overlapping a Podman subnet, before
+interface or forwarding mutation. It warns that it cannot verify allocation
+membership or a host return route, so symmetric replies are not guaranteed.
 Private per-process state binds hooks to one runtime, preserves valid reconnect
 state, and lets the supervisor remove only its owned address and forwarding
 changes. A matching pre-existing tunnel address is rejected as unowned. The
@@ -152,8 +162,8 @@ Podman interfaces, permits stateful replies, and drops application-network
 forwarding. OpenVPN, WireGuard, and each SSH session hold a shared lease; one disconnect
 does not remove forwarding still owned by another tunnel. The Gateway changes
 IPv4 forwarding only in its namespace and restores the prior value after the
-last owner exits. Quadlet installs exact protocol-186 host routes for enabled
-OpenVPN, SSH, and WireGuard pools through the deterministic Gateway address. No host
+last owner exits. Quadlet installs exact protocol-186 host routes for enabled,
+configured OpenVPN, SSH, and WireGuard pools through the deterministic Gateway address. No host
 firewall rules or default routes are changed.
 
 For a WireGuard fail-stop marker, do not restart or delete it automatically.
@@ -188,9 +198,10 @@ session-specific teardown, shared forwarding, secret-safe peer lifecycle, and
 the address/route guards. The current host lacks WireGuard kernel support, so
 kernel tunnel, packet forwarding, and source-preservation validation remain
 separate from unit tests and target-host acceptance.
-`profile_reviewed: true` is an operator attestation because profile plugins
-and external file references cannot be verified without reading profile
-contents. Runtime logs are reduced to fixed sanitized diagnostics.
+`profile_reviewed: true` is an operator attestation because profile plugins,
+scripts, and external file references cannot be verified without reading profile
+contents. This human security gate remains required even when no allocation pool
+is configured. Runtime logs are reduced to fixed sanitized diagnostics.
 
 Run the Python tests from the repository root with
 `uv run --locked python -m pytest`. These host-side helpers remain compatible

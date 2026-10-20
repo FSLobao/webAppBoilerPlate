@@ -124,7 +124,7 @@ def _enabled_config(config: Mapping[str, Any]) -> dict[str, Any]:
                 "SSH TUN pool or Gateway address conflicts with a Podman network."
             )
     openvpn = remote.get("openvpn") if isinstance(remote, dict) else None
-    if isinstance(openvpn, dict) and openvpn.get("enabled") is True:
+    if isinstance(openvpn, dict) and "client_pool" in openvpn:
         try:
             openvpn_pool = ipaddress.IPv4Network(
                 str(openvpn["client_pool"]), strict=True

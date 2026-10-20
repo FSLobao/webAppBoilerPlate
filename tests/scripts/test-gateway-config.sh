@@ -66,8 +66,7 @@ printf 'PASS: all declared Podman networks are rendered; HTTP proxy routes are n
 
 jq '.gateway.remote_access.openvpn |= . + {
         "enabled":true,
-        "profile_reviewed":true,
-        "endpoint":"203.0.113.17"
+        "profile_reviewed":true
     }' "$TMP_DIR/valid.json" > "$TMP_DIR/openvpn-enabled.json"
 bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
     _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-enabled.json" "$TMP_DIR/openvpn.container"
@@ -91,7 +90,23 @@ if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
     printf 'PASS: host Quadlet generator accepts opt-in OpenVPN unit without activation\n'
 fi
 printf 'PASS: OpenVPN Quadlet opt-in mounts the opaque profile read-only and owns only the tagged return route\n'
-
+jq '.gateway.remote_access.openvpn |= (del(.client_pool) + {
+        "enabled":true,
+        "profile_reviewed":true
+    })' "$TMP_DIR/valid.json" > "$TMP_DIR/openvpn-no-pool.json"
+"$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/openvpn-no-pool.json" \
+    > "$TMP_DIR/openvpn-no-pool-validation.log" 2>&1
+"$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/openvpn-no-pool.json" \
+    >> "$TMP_DIR/openvpn-no-pool-validation.log" 2>&1
+grep -Fq 'client_pool is not configured' "$TMP_DIR/openvpn-no-pool-validation.log" || \
+    fail 'Missing OpenVPN pool warning was not reported'
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-no-pool.json" "$TMP_DIR/openvpn-no-pool.container"
+if grep -Eq '^Exec(Start|Stop)Post=.*route (add|del) 172\.24\.' \
+    "$TMP_DIR/openvpn-no-pool.container"; then
+    fail 'OpenVPN without a client pool rendered a managed host route'
+fi
+printf 'PASS: enabled OpenVPN accepts missing client_pool with warning and no managed return route\n'
 jq '.gateway.remote_access.ssh_tun = {
         "enabled":true,
         "account":"gateway-tunnel",
@@ -147,8 +162,7 @@ grep -Fxq \
 printf 'PASS: WireGuard renders explicit UDP bind, read-only server key, persistent public peers, minimum capability, and owned return route\n'
 jq '.gateway.remote_access.openvpn |= . + {
         "enabled":true,
-        "profile_reviewed":true,
-        "endpoint":"203.0.113.17"
+        "profile_reviewed":true
     }' "$TMP_DIR/ssh-tun-enabled.json" > "$TMP_DIR/shared-remote-access.json"
 bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
     _ "$DEPLOY_SCRIPT" "$TMP_DIR/shared-remote-access.json" "$TMP_DIR/shared.container"
@@ -212,6 +226,13 @@ PATH="$TMP_DIR/route-bin:$PATH" \
 [[ ! -e "$TMP_DIR/foreign-route-mutations.log" ]] || \
     fail 'Unowned OpenVPN-pool route was removed'
 printf 'PASS: host cleanup removes only the exact protocol-186 return route\n'
+PATH="$TMP_DIR/route-bin:$PATH" \
+    ROUTE_MUTATION_LOG="$TMP_DIR/no-pool-route-mutations.log" \
+    bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-no-pool.json"
+[[ ! -e "$TMP_DIR/no-pool-route-mutations.log" ]] || \
+    fail 'OpenVPN without a client pool inspected or deleted a managed return route'
+printf 'PASS: host cleanup does not inspect or delete OpenVPN routes without client_pool\n'
 jq '.gateway.remote_access.ssh_tun = {
         "enabled":false,
         "address_pool":"198.18.0.0/24"

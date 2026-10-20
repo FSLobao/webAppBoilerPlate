@@ -16,7 +16,8 @@ For any project scripting work in Bash, Python, JavaScript, TypeScript, or anoth
 2. Use `README.md` and `docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md` as architectural context when relevant.
 3. For project scripting in any language, account for `modular-script-development` in the proposed structure, implementation steps, and validation plan. For Bash-related tasks, also account for `../instructions/shellDevGuide.instructions.md` and its required validation. Specify checks for the Coder to run; do not execute them yourself.
 4. Separate confirmed facts from assumptions. Identify blocking decisions before implementation.
-5. Keep the plan narrow. Include affected paths, ordered implementation steps, compatibility or operational risks, and focused validation.
+5. For the new OpenVPN setup, identify allow-warn-ignore paths, validators/runtime paths, tests/fixtures, and documentation claims for explicitly retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains`, and legacy JSON `endpoint`. Plan rejection without compatibility aliases. Preserve optional `client_pool` warning semantics, the `profile_reviewed` safety gate, and unrelated global/schema compatibility.
+6. Keep the plan narrow. Include affected paths, ordered implementation steps, compatibility or operational risks, and focused validation.
 
 ## Output
 Return a concise plan with:

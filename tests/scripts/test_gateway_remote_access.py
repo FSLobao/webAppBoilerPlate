@@ -111,6 +111,7 @@ def test_checked_in_config_omits_retired_openvpn_fields() -> None:
         "auth",
         "cipher",
         "push_domains",
+        "endpoint",
     }.isdisjoint(openvpn)
 
 
@@ -151,7 +152,6 @@ def test_enabled_openvpn_requires_operator_review_of_opaque_profile() -> None:
     """Require human profile review before an enabled OpenVPN runtime."""
     openvpn = OPENVPN_CONFIG.copy() | {
         "enabled": True,
-        "endpoint": "203.0.113.17",
     }
 
     with pytest.raises(ValueError, match="profile_reviewed"):
@@ -162,7 +162,7 @@ def test_enabled_openvpn_requires_operator_review_of_opaque_profile() -> None:
 
 
 @pytest.mark.parametrize(
-    "legacy_field",
+    "retired_field",
     [
         "protocol",
         "port",
@@ -172,41 +172,43 @@ def test_enabled_openvpn_requires_operator_review_of_opaque_profile() -> None:
         "auth",
         "cipher",
         "push_domains",
+        "endpoint",
     ],
 )
-def test_accepts_and_warns_about_retired_openvpn_fields(
-    legacy_field: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Accept legacy schema-v1 data while warning that the field has no effect."""
+def test_rejects_retired_openvpn_fields(retired_field: str) -> None:
+    """Reject retired OpenVPN fields in this schema-v1 setup."""
     openvpn = OPENVPN_CONFIG.copy()
-    openvpn[legacy_field] = "legacy"
+    openvpn[retired_field] = "legacy"
 
-    with caplog.at_level("WARNING"):
+    with pytest.raises(ValueError, match="unsupported fields"):
         validate_remote_access_config(_config(openvpn=openvpn))
 
-    assert legacy_field in caplog.text
-    assert "ignored" in caplog.text
-    assert "remove them" in caplog.text
 
-
-def test_remote_access_warning_uses_preflight_reporter() -> None:
-    """Send compatibility warnings through the existing preflight reporter."""
-    openvpn = OPENVPN_CONFIG.copy() | {"protocol": "tcp"}
+def test_missing_openvpn_pool_warns_and_remains_optional() -> None:
+    """Allow an unknown external allocation without inventing a client range."""
+    openvpn = {"enabled": True, "profile_path": OPENVPN_CONFIG["profile_path"]}
+    config = _config(openvpn=openvpn | {"profile_reviewed": True})
+    config["networks"] = [{"name": "app", "subnet": "203.0.113.0/24"}]
     messages = []
 
-    validate_remote_access_config(_config(openvpn=openvpn), announce=messages.append)
+    validate_remote_access_config(
+        config,
+        announce=messages.append,
+    )
 
-    assert messages == [
-        (
-            "Legacy OpenVPN fields are ignored: protocol; remove them from the "
-            "schema-version-1 configuration."
-        )
-    ]
+    assert len(messages) == 1
+    assert "client_pool is not configured" in messages[0]
+    assert "symmetric client reply routing is not guaranteed" in messages[0]
 
 
-def test_host_preflight_reports_legacy_openvpn_warning() -> None:
-    """Report ignored schema-v1 fields through Gateway preflight output."""
-    config = _config(openvpn=OPENVPN_CONFIG.copy() | {"protocol": "tcp"})
+def test_host_preflight_warns_when_openvpn_pool_is_missing() -> None:
+    """Report unavailable allocation and return-route checks during preflight."""
+    config = _config(
+        openvpn={
+            "enabled": False,
+            "profile_path": OPENVPN_CONFIG["profile_path"],
+        }
+    )
     messages = []
 
     def run_command(
@@ -215,20 +217,19 @@ def test_host_preflight_reports_legacy_openvpn_warning() -> None:
         if arguments == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(arguments, 0, "", "")
         if arguments == ["ip", "-j", "-4", "route", "show", "table", "all"]:
-            return subprocess.CompletedProcess(arguments, 0, "[]", "")
+            return subprocess.CompletedProcess(
+                arguments,
+                0,
+                '[{"dst":"172.24.0.0/16","dev":"eth0","table":"100"}]',
+                "",
+            )
         raise AssertionError(f"unexpected command: {arguments}")
 
-    validate_gateway_networks(
-        config,
-        run_command=run_command,
-        announce=messages.append,
-    )
+    validate_gateway_networks(config, run_command=run_command, announce=messages.append)
 
     assert any(
-        message.startswith("[host-preflight] WARNING: Legacy OpenVPN fields")
-        and "protocol" in message
-        and "ignored" in message
-        and "remove them" in message
+        "client_pool is not configured" in message
+        and "symmetric client reply routing is not guaranteed" in message
         for message in messages
     )
 
@@ -333,7 +334,6 @@ def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route() -> N
     """Allow the managed pool route but reject wrong gateway or route tag."""
     openvpn = OPENVPN_CONFIG.copy() | {
         "enabled": True,
-        "endpoint": "203.0.113.17",
         "profile_reviewed": True,
     }
     config = _config(openvpn=openvpn)
@@ -380,20 +380,6 @@ def test_preflight_recognizes_only_exact_tagged_wireguard_return_route() -> None
         )
 
 
-def test_host_preflight_rejects_local_openvpn_endpoint_collision() -> None:
-    """Reject an endpoint already assigned as a local host address."""
-    openvpn = OPENVPN_CONFIG | {
-        "endpoint": "203.0.113.17",
-    }
-    config = _config(openvpn=openvpn)
-
-    with pytest.raises(ValueError, match="conflicts with local host route"):
-        validate_remote_access_host_routes(
-            config,
-            [{"dst": "203.0.113.17", "type": "local", "dev": "lo"}],
-        )
-
-
 def test_gateway_preflight_rejects_invalid_pool_before_host_commands() -> None:
     """Reject a Podman-overlapping pool before issuing preflight commands."""
     config = _config()
@@ -420,7 +406,6 @@ def test_gateway_preflight_rejects_missing_enabled_profile_without_commands() ->
     openvpn = OPENVPN_CONFIG.copy() | {
         "enabled": True,
         "profile_reviewed": True,
-        "endpoint": "203.0.113.17",
         "profile_path": "/etc/gateway/openvpn/missing-test-profile.ovpn",
     }
     config = _config(openvpn=openvpn)
@@ -566,6 +551,78 @@ def test_activation_requires_two_ssh_tun_addresses_from_explicit_pool() -> None:
         validate_activation_addresses(
             **arguments | {"assigned_addresses": ["198.18.0.1"]}
         )
+
+
+def test_reconcile_without_openvpn_pool_does_not_plan_host_return_route() -> None:
+    """Keep unknown OpenVPN allocations from creating managed host routes."""
+    plan = reconcile_remote_routes(
+        owner=RouteOwner("openvpn", "openvpn-client"),
+        assigned_addresses=["172.25.4.10"],
+        endpoint_address="203.0.113.25",
+        client_prefix="172.25.4.0/24",
+        openvpn_pool=None,
+        ssh_pool=None,
+        tunnel_interface="tun0",
+        pushed_routes=[],
+        networks=_networks(),
+        observed_routes=[],
+        active_routes=[],
+        host_routes=[],
+        add_route=lambda route: None,
+        remove_route=lambda route: None,
+    )
+
+    assert all(route.plane != "host" for route in plan.additions)
+
+
+def test_reconcile_without_openvpn_pool_preserves_existing_host_return_route() -> None:
+    """Leave existing OpenVPN host routes untouched when its pool is unknown."""
+    owner = RouteOwner("openvpn", "openvpn-client")
+    destination = ipaddress.ip_network("172.25.4.0/24")
+    gateway_route = RouteSpec(destination, "gateway", interface="tun0")
+    stale_gateway_route = RouteSpec(
+        ipaddress.ip_network("172.25.3.0/24"),
+        "gateway",
+        interface="tun0",
+    )
+    host_return_route = RouteSpec(
+        destination,
+        "host",
+        gateway=ipaddress.ip_address("192.168.8.2"),
+    )
+    added: list[RouteSpec] = []
+    removed: list[RouteSpec] = []
+
+    reconcile_remote_routes(
+        owner=owner,
+        assigned_addresses=["172.25.4.10"],
+        endpoint_address="203.0.113.25",
+        client_prefix="172.25.4.0/24",
+        openvpn_pool=None,
+        ssh_pool=None,
+        tunnel_interface="tun0",
+        pushed_routes=[],
+        networks=_networks(),
+        observed_routes=[gateway_route, stale_gateway_route, host_return_route],
+        active_routes=[
+            OwnedRoute(gateway_route, owner),
+            OwnedRoute(stale_gateway_route, owner),
+            OwnedRoute(host_return_route, owner),
+        ],
+        host_routes=[
+            {
+                "dst": "172.25.4.0/24",
+                "gateway": "192.168.8.2",
+                "table": "main",
+            }
+        ],
+        add_route=added.append,
+        remove_route=removed.append,
+    )
+
+    assert added == []
+    assert removed == [stale_gateway_route]
+    assert host_return_route not in removed
 
 
 def test_rejects_default_pushed_route_before_mutation() -> None:

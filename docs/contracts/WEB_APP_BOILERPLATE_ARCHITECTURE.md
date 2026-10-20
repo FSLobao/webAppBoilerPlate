@@ -525,9 +525,9 @@ project-c → 10.89.3.0/24
 
 Os CIDRs não podem se sobrepor.
 
-Os endereços de desenvolvedores vêm de pools de túnel dedicados, nunca dos CIDRs Podman. O servidor WireGuard terá pool IPv4 ainda não definido; o servidor OpenVPN externo aloca os endereços de seus clientes; o pool SSH TUN é uma entrada de deployment e aloca pares ponto-a-ponto distintos por sessão. Descubra os endereços/rotas ativos e compare-os com redes Podman e rotas relevantes do host, da LAN dos desenvolvedores e corporativas antes de instalar estado.
+Os endereços de desenvolvedores vêm de pools de túnel dedicados, nunca dos CIDRs Podman. O servidor WireGuard terá pool IPv4 ainda não definido; o servidor OpenVPN externo aloca os endereços de seus clientes; o pool SSH TUN é uma entrada de deployment e aloca pares ponto-a-ponto distintos por sessão. `gateway.remote_access.openvpn.client_pool` é opcional: sem ele, o runtime valida o endereço/máscara recebidos contra subnets Podman, mas não pode conferir a alocação externa nem instalar/validar a rota de retorno no host. O preflight avisa que roteamento simétrico de resposta não é garantido. Com pool configurado, os checks de conflito e a rota de retorno host existentes permanecem obrigatórios. Descubra os endereços/rotas ativos e compare-os com redes Podman e rotas relevantes do host, da LAN dos desenvolvedores e corporativas antes de instalar estado.
 
-O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. O servidor WireGuard é executado pelo Gateway; pool, endereço do servidor, endpoint, bind/porta UDP, resolver e caminho da chave privada são inputs de deployment, não decisões selecionadas. Receitas implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
+O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Este setup novo não mantém compatibilidade de migração de configuração OpenVPN: `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` JSON são campos retirados e rejeitados em schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus contratos continuam definindo compatibilidade. `profile_reviewed: true` continua obrigatório porque o perfil opaco pode usar plugins ou scripts; não ler seu conteúdo mantém essa confirmação como gate humano. O servidor WireGuard é executado pelo Gateway; pool, endereço do servidor, endpoint, bind/porta UDP, resolver e caminho da chave privada são inputs de deployment, não decisões selecionadas. Receitas implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
 
 Endereços IP individuais de containers não devem ser tratados como identificadores permanentes.
 
@@ -686,12 +686,13 @@ próprios usuários, pool, sessões e lifecycle. O servidor OpenVPN externo cont
 externamente e aloca endereços ao cliente OpenVPN do Gateway. Opções de domínio pertencem ao
 servidor/perfil OpenVPN externo e não serão reaproveitadas como domínio WireGuard. Protocolo, porta
 e topologia também pertencem ao servidor/perfil; `client_to_client` é configuração do servidor. O
-JSON do Gateway mantém somente controles próprios do cliente, endpoint, caminho opaco do perfil,
-estado de revisão e `client_pool`. O schema permanece na versão 1 e rejeita campos legados
-removidos; configurações existentes devem removê-los. Os parâmetros fixos de segurança do cliente
-continuam definidos no runtime.
+JSON do Gateway mantém caminho opaco do perfil, estado de revisão e `client_pool` opcional; não
+mantém endpoint OpenVPN. O schema permanece na versão 1 e rejeita os campos OpenVPN retirados
+listados acima, sem compatibilidade de migração. Sem `client_pool`, não há
+checagem de prefixo contra alocação, rota de retorno gerenciada nem garantia de resposta simétrica.
+Os parâmetros fixos de segurança do cliente continuam definidos no runtime.
 
-Pools, endpoints, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede corporativa
+Pools configurados, endpoints WireGuard, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede corporativa
 não podem se sobrepor. Prefixo de cliente ambíguo entre transportes falha fechado; não selecionar
 automaticamente multihoming. Reconnect OpenVPN revalida rotas/endereço candidatos antes de ativá-los.
 Pool WireGuard, endpoint, bind/porta UDP, resolver e caminho da chave privada do servidor são
@@ -713,7 +714,7 @@ Direção de rotas:
 3. No Gateway, cada prefixo de cliente remoto retorna pelo túnel que o possui. Cada sessão SSH TUN possui interface e par de endereços únicos, com rotas alocadas e removidas por lifecycle hook daquela sessão.
 4. Containers enviam replies pela rota Podman normal ao host. O host instala um próximo salto determinístico do Gateway por prefixo de cliente remoto, não cópias concorrentes do mesmo prefixo por cada rede Podman. Se testes mostrarem que tabelas de policy routing são necessárias, elas devem ser explícitas e ter propriedade/reconciliação definida.
 
-Antes de alterar estado, validar pools/endpoints OpenVPN e SSH, rotas candidatas, CIDRs Podman e rotas relevantes do host/LAN/corporativas. Permitir rotas gerenciadas exatas e redes conectadas Podman/túnel necessárias; não rejeitar em bloco rotas default ou ranges conectados necessários. Rotas e regras têm proprietário identificável, reconciliação idempotente e rollback limitado ao estado candidato possuído pelo Gateway/sessão. Candidato inválido não altera rotas, forwarding, DNS ou serviços. Reconnect OpenVPN revalida alterações de rotas pushed antes da ativação. Não há watcher genérico; hooks de sessão são separados e limitados ao ciclo de vida de protocolo.
+Antes de alterar estado, validar pools configurados, endpoints WireGuard, SSH, rotas candidatas, CIDRs Podman e rotas relevantes do host/LAN/corporativas. OpenVPN não tem endpoint JSON. Sem `client_pool`, o runtime verifica endereço/máscara atribuídos contra subnets Podman, mas não valida a alocação externa nem gerencia rota host de retorno; roteamento simétrico não é garantido. Permitir rotas gerenciadas exatas e redes conectadas Podman/túnel necessárias; não rejeitar em bloco rotas default ou ranges conectados necessários. Rotas e regras têm proprietário identificável, reconciliação idempotente e rollback limitado ao estado candidato possuído pelo Gateway/sessão. Candidato inválido não altera rotas, forwarding, DNS ou serviços. Reconnect OpenVPN revalida alterações de rotas pushed antes da ativação. Não há watcher genérico; hooks de sessão são separados e limitados ao ciclo de vida de protocolo.
 
 Containers podem iniciar conexões para qualquer destino externo alcançável pela rota padrão do host. O egress usa o caminho normal do Podman rootful e pode usar masquerading; serviços externos verão o endereço de saída do host. Esse comportamento é separado do acesso remoto de desenvolvedores, que preserva o IP de origem.
 
