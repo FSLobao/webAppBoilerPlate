@@ -29,9 +29,13 @@ o DNS de desenvolvimento, os secrets e os critérios para a implementação.
 
 **Estado atual:** o código da aplicação ainda é um scaffold Python. O bootstrap do Development
 Gateway tem configuração, imagem Debian, startup, Quadlet, runtimes OpenVPN e SSH TUN opt-in e
-handoff explícito de DNS por readiness versionados. Ambos os túneis seguem desativados; a aceitação
-em RHEL 9.8 com Podman rootful 5.8.2, Quadlet e SELinux permanece pendente. Não implante em host live;
-consulte [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
+handoff explícito de DNS por readiness versionados. Ambos seguem desativados. O servidor WireGuard
+aditivo e onboarding de peers estão planejados somente nos documentos; não existem no runtime. O
+schema de acesso remoto rejeita a futura seção WireGuard; split DNS para `dev.anatel` ainda não foi
+integrado.
+A aceitação em RHEL 9.8 com
+Podman rootful 5.8.2, Quadlet e SELinux permanece pendente. Não implante em host live; consulte
+[docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -45,7 +49,7 @@ flowchart LR
     S[Perímetro externo<br/>VPN, firewall, ACL e autenticação]
     D[Desenvolvedores]
     U[Usuários e consumidores]
-    DG[Gateway compartilhado<br/>SSH, DNSMasq, NAT, diagnóstico, Cockpit]
+    DG[Gateway compartilhado<br/>WireGuard planejado, OpenVPN client, SSH TUN, DNSMasq, Cockpit]
     HP[Proxy HTTP NGINX opcional]
     subgraph A[Aplicação A: rede Podman isolada]
         ABE[webApp<br/>FastAPI + SPA<br/>TCP 8000]
@@ -77,8 +81,8 @@ Componentes e limites principais:
   desenvolvedores a todos os serviços e portas configurados. O runtime OpenVPN client Layer 3
   agora é opt-in e permanece desativado na configuração versionada; requer revisão humana do perfil.
   O runtime SSH TUN simultâneo também está implementado, opt-in e desativado na configuração
-  versionada. A aceitação em host-alvo continua pendente. O acesso roteado não exige publicação de
-  portas no host.
+  versionada. A aceitação em host-alvo continua pendente. O acesso a portas de serviços não exige
+  publicação no host; o servidor WireGuard planejado exigirá publicar seu listener UDP no host.
   Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico, Cockpit e `cockpit-podman`; não é
   proxy de usuários.
 - **Proxy HTTP NGINX:** opcional, compartilhado e limitado a reverse proxy HTTP. Pode encaminhar
@@ -98,17 +102,26 @@ Componentes e limites principais:
 - **Perímetro de segurança:** VPN, firewall, ACL e autenticação externa ao boilerplate. O Development
   Gateway não substitui esses controles nem funciona como firewall de autorização.
 
-O contrato confirmado é roteamento Layer 3 IPv4 split-tunnel para os CIDRs Podman configurados, sem
-forwarding por serviço. Destinos, pools, pares de endereço, rotas de retorno e registros DNS do Gateway
-usam IPv4; DNS gera registros A, não AAAA. Isso não desativa IPv6 no host nem nos clientes. O runtime
-não força a família do SSH externo; use `ssh -4` no cliente quando precisar de conexão externa IPv4.
-O OpenVPN server permanece externo, aloca endereços de cliente e a infraestrutura externa instala rotas
-dos CIDRs Podman via OpenVPN client do Gateway. SSH TUN (`ssh -w`) permite múltiplos desenvolvedores
-simultâneos com interface e par de endereços exclusivos por sessão. Pools de túnel são separados dos
-CIDRs Podman; nenhuma rota default do cliente é substituída. Ambos os runtimes continuam opt-in e
-desativados; ativação real e aceitação em host-alvo permanecem pendentes. Consulte o [plano do
-Gateway](docs/plans/gateway-plan.md) e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
-para requisitos de roteamento, conflito, retorno, cleanup e aceitação.
+O contrato confirmado é roteamento Layer 3 IPv4 split-tunnel para todos os CIDRs Podman configurados,
+sem forwarding por serviço. Destinos, pools, pares de endereço, rotas de retorno e registros DNS do
+Gateway usam IPv4; DNS gera registros A, não AAAA. Isso não desativa IPv6 no host nem nos clientes.
+O runtime não força a família do SSH externo; use `ssh -4` no cliente quando precisar de conexão
+externa IPv4. O cliente OpenVPN e SSH TUN existentes permanecem separados. O servidor WireGuard
+planejado será aditivo no Gateway e ainda não está implementado. Todos os peers WireGuard aprovados
+deverão alcançar todos os CIDRs Podman, inclusive PostgreSQL, sem NAT, forwarding entre aplicações
+ou rota default pelo túnel. `dev.anatel` é o domínio interno-only planejado; o serviço de peer e o
+split DNS não existem no runtime. O host publicará o listener UDP WireGuard; endpoint e porta seguem
+sem decisão. Nenhum requisito de firewall/perímetro externo foi aprovado, e publicação não prova
+alcançabilidade. Nenhuma rota default do cliente será substituída. Consulte o [plano
+do Gateway](docs/plans/gateway-plan.md), o [status de implementação](docs/plans/gateway-implementation.md)
+e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
+
+O cliente OpenVPN permanece separado: `push_domains: ["anatel.gov.br"]` não será reutilizado como
+domínio WireGuard.
+
+Rascunhos de onboarding e split DNS por sistema operacional: [Windows 11](docs/recipes/wireguard-windows-11.md),
+[Linux](docs/recipes/wireguard-linux.md) e [macOS](docs/recipes/wireguard-macos.md). Não são executáveis
+até o serviço de peer, o schema e o canal autenticado de entrega única de chave serem implementados.
 
 O cliente OpenVPN agora tem execução supervisionada, verificação de perfil sem leitura do conteúdo,
 TUN dedicado, regras de forwarding no namespace do container e rota de retorno do pool marcada
@@ -169,7 +182,8 @@ limites de segurança definidos no contrato arquitetural devem permanecer explí
 
 O desenvolvimento cotidiano deve ocorrer pelo VS Code, usando Git, terminal, testes e ferramentas
 de debugging. O Gateway fornece acesso roteado aos serviços e portas configurados, sem exigir
-publicação de portas no host ou acesso administrativo permanente ao host RHEL.
+publicação das portas dos serviços no host ou acesso administrativo permanente ao host RHEL. O
+listener UDP do WireGuard planejado é uma exceção e deverá ser publicado no host.
 
 O host de execução fornece Podman e armazenamento persistente. A equipe de infraestrutura realiza
 a configuração inicial e operações excepcionais do host. Os containers permanecem substituíveis;
@@ -245,8 +259,8 @@ para a nova rede e reconcilia o Gateway existente, que deve permanecer conectado
 declaradas.
 
 O deployment deverá gerar ou atualizar os registros do DNSMasq para serviços de desenvolvimento
-selecionados, usando nomes estáveis como `backend.project-a.dev.internal`. A configuração deverá
-acompanhar a recriação dos containers; seus endereços IP não são identidades permanentes. A
+selecionados, usando nomes estáveis sob `dev.anatel`, por exemplo `backend.project-a.dev.anatel`.
+Esse sufixo é interno e não público. A configuração deverá acompanhar a recriação dos containers; seus endereços IP não são identidades permanentes. A
 publicação de um nome DNS não concede conectividade entre redes.
 
 O SSH seguirá o mesmo limite: o Gateway encaminha conexões aos containers de aplicação,
@@ -290,8 +304,10 @@ para o inventário detalhado de paths, decisões e limitações.
 Comece ajustando `config/host_config.json`. `networks` declara as redes Podman da aplicação, com
 nome e CIDR IPv4 esperado. O Gateway conecta-se automaticamente a todas as redes declaradas;
 nenhuma lista seletiva de redes é mantida no bloco `gateway`. `containers` lista serviços e redes
-que o preflight deve conferir. Cada registro DNS associa um nome `.dev.internal` a um container e a
-uma rede declarada. Exemplo:
+que o preflight deve conferir. Cada registro DNS futuro associará um nome `.dev.anatel` a um
+container e a uma rede declarada. O gerador DNS usa os nomes declarados sem sufixo fixo, mas
+`dns_records` permanece vazio e não há split DNS WireGuard. Exemplo de formato planejado, não
+configuração ativa:
 
 ```json
 {
@@ -313,7 +329,7 @@ uma rede declarada. Exemplo:
   ],
   "dns_records": [
     {
-      "name": "backend.project-a.dev.internal",
+      "name": "backend.project-a.dev.anatel",
       "container": "project-a-backend",
       "network": "project-a-net"
     }
@@ -439,7 +455,7 @@ Host dev-gateway-proxy
     UserKnownHostsFile ~/.ssh/known_hosts_gateway
 
 Host backend-project-a-via-proxy
-    HostName backend.project-a.dev.internal
+    HostName backend.project-a.dev.anatel
     User developer
     Port 22
     ProxyJump dev-gateway-proxy
@@ -454,7 +470,7 @@ verificada independentemente:
 
 ```sshconfig
 Host backend-project-a-via-tunnel
-    HostName backend.project-a.dev.internal
+    HostName backend.project-a.dev.anatel
     User developer
     Port 22
     IdentityFile ~/.ssh/id_ed25519_project_a
