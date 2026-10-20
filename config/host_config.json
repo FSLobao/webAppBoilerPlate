@@ -7,7 +7,27 @@
         "cockpit_bind_address": "127.0.0.1",
         "ssh_port": 2222,
         "cockpit_port": 9090,
-        "authorized_keys_path": "/etc/gateway/authorized_keys"
+        "authorized_keys_path": "/etc/gateway/authorized_keys",
+        "remote_access": {
+            "openvpn": {
+                "enabled": false,
+                "profile_path": "/etc/gateway/openvpn/ERMXDF02.ovpn",
+                "protocol": "udp",
+                "port": 1194,
+                "device": "tun",
+                "topology": "subnet",
+                "client_to_client": true,
+                "auth": "SHA256",
+                "cipher": "AES-256-CBC",
+                "client_pool": "172.24.0.0/21",
+                "push_domains": [
+                    "anatel.gov.br"
+                ]
+            },
+            "ssh_tun": {
+                "enabled": false
+            }
+        }
     },
     "http_proxy": {
         "enabled": true,

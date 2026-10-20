@@ -28,9 +28,10 @@ Ele descreve o host-alvo RHEL 9.8 com Podman rootful 5.8.2, os gateways, as rede
 o DNS de desenvolvimento, os secrets e os critérios para a implementação.
 
 **Estado atual:** o código da aplicação ainda é um scaffold Python. O bootstrap do Development
-Gateway tem configuração, imagem Debian, startup e Quadlet versionados. A aceitação em RHEL 9.8
-com Podman rootful 5.8.2, Quadlet e SELinux permanece pendente. Não implante em host live; consulte
-[docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
+Gateway tem configuração, imagem Debian, startup, Quadlet, runtimes OpenVPN e SSH TUN opt-in e
+handoff explícito de DNS por readiness versionados. Ambos os túneis seguem desativados; a aceitação
+em RHEL 9.8 com Podman rootful 5.8.2, Quadlet e SELinux permanece pendente. Não implante em host live;
+consulte [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
 
 <div> <a href="#visão-geral" title="De volta ao topo da página"> <picture> <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg"> <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página"> </picture> </a> <br><br> </div>
 
@@ -73,9 +74,11 @@ flowchart LR
 Componentes e limites principais:
 
 - **Development Gateway:** um container compartilhado exclusivamente para acesso dos
-  desenvolvedores a todos os serviços e portas configurados. O plano aprovado prevê acesso Layer 3
-  split-tunnel às redes Podman por OpenVPN client no Gateway e múltiplas sessões SSH TUN; esse
-  runtime ainda não está implementado. O acesso roteado não exige publicação de portas no host.
+  desenvolvedores a todos os serviços e portas configurados. O runtime OpenVPN client Layer 3
+  agora é opt-in e permanece desativado na configuração versionada; requer revisão humana do perfil.
+  O runtime SSH TUN simultâneo também está implementado, opt-in e desativado na configuração
+  versionada. A aceitação em host-alvo continua pendente. O acesso roteado não exige publicação de
+  portas no host.
   Oferece SSH, DNS de desenvolvimento, forwarding, diagnóstico, Cockpit e `cockpit-podman`; não é
   proxy de usuários.
 - **Proxy HTTP NGINX:** opcional, compartilhado e limitado a reverse proxy HTTP. Pode encaminhar
@@ -95,14 +98,32 @@ Componentes e limites principais:
 - **Perímetro de segurança:** VPN, firewall, ACL e autenticação externa ao boilerplate. O Development
   Gateway não substitui esses controles nem funciona como firewall de autorização.
 
-O contrato confirmado é roteamento Layer 3 split-tunnel para os CIDRs Podman configurados, sem
-forwarding por serviço. O OpenVPN server permanece externo, aloca endereços de cliente e a
-infraestrutura externa instala rotas dos CIDRs Podman via OpenVPN client do Gateway. SSH TUN
-(`ssh -w`) permite múltiplos desenvolvedores simultâneos com interface e par de endereços exclusivos
-por sessão. Pools de túnel são separados dos CIDRs Podman; nenhuma rota default do cliente é
-substituída. Essas capacidades estão planejadas, não implementadas. Consulte o [plano do
+O contrato confirmado é roteamento Layer 3 IPv4 split-tunnel para os CIDRs Podman configurados, sem
+forwarding por serviço. Destinos, pools, pares de endereço, rotas de retorno e registros DNS do Gateway
+usam IPv4; DNS gera registros A, não AAAA. Isso não desativa IPv6 no host nem nos clientes. O runtime
+não força a família do SSH externo; use `ssh -4` no cliente quando precisar de conexão externa IPv4.
+O OpenVPN server permanece externo, aloca endereços de cliente e a infraestrutura externa instala rotas
+dos CIDRs Podman via OpenVPN client do Gateway. SSH TUN (`ssh -w`) permite múltiplos desenvolvedores
+simultâneos com interface e par de endereços exclusivos por sessão. Pools de túnel são separados dos
+CIDRs Podman; nenhuma rota default do cliente é substituída. Ambos os runtimes continuam opt-in e
+desativados; ativação real e aceitação em host-alvo permanecem pendentes. Consulte o [plano do
 Gateway](docs/plans/gateway-plan.md) e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
 para requisitos de roteamento, conflito, retorno, cleanup e aceitação.
+
+O cliente OpenVPN agora tem execução supervisionada, verificação de perfil sem leitura do conteúdo,
+TUN dedicado, regras de forwarding no namespace do container e rota de retorno do pool marcada
+`proto 186`. O runtime ignora mutações de rotas OpenVPN e rejeita candidatos de rota recebidos;
+as redes Podman já são diretamente conectadas. Perfil só monta em leitura e só pode ativar com
+`profile_reviewed: true`, declaração de revisão humana. A configuração versionada continua
+desativada. O perfil real não foi aberto nem testado; túnel, source-preservation e retorno exigem
+aceitação isolada em RHEL 9.8 / Podman 5.8.2. SSH TUN permanece pendente.
+
+O bootstrap do Gateway não inspeciona containers de aplicação. Após evento de readiness, o chamador
+explícito usa `scripts/refresh-gateway-dns.sh --revision` para obter revisão da configuração ativa e
+envia um handoff com escopo de containers DNS configurados e IDs Podman prontos via
+`scripts/refresh-gateway-dns.sh --handoff REQUEST.json`. O Gateway revalida identidade, estado
+running/healthy e a rede exata; stop, falha ou substituição removem endereços antigos quando o
+chamador envia o evento. Nenhum watcher ou integração de lifecycle de aplicação foi adicionado.
 
 O proxy HTTP está selecionado para bind `0.0.0.0:8080` no host, mapeado para TCP `80` no container.
 Como o Gateway permite acesso direto e o listener está em todas as interfaces, rotas protegidas
@@ -301,16 +322,18 @@ uma rede declarada. Exemplo:
 ```
 
 O CIDR selecionado para `shared` é `192.168.9.0/24`, com Gateway em `192.168.9.2`; `webApp` permanece
-em `192.168.8.0/29`. A faixa `.9.0/24` segue o inventário conhecido, mas não prova disponibilidade
-contra outras redes/rotas do host. Gateway `--check` verifica redes Podman, não a tabela de rotas
-do host; confira também `ip -j -4 route show` no host-alvo antes da aceitação.
-Escolha CIDRs que não conflitem com as redes e rotas existentes no host. Gateway `--check` verifica
-as redes Podman existentes, informa redes declaradas ausentes como criação planejada e anuncia cada
-registro DNS como `readiness/unverified`, sem consultar containers de aplicação ou targets DNS.
+em `192.168.8.0/29`. O solicitante confirmou em 2026-10-19 que `192.168.9.0/24` está disponível e
+aprovado para uso. Essa confirmação não é uma medição da tabela de rotas do host. Gateway
+`--check` agora compara as redes declaradas com rotas IPv4 de todas as tabelas, incluindo rotas de
+endereços locais; ignora rotas default e aceita apenas rotas exatas comprovadas pela inspeção das
+redes Podman declaradas. Escolha CIDRs que não conflitem com as redes e rotas existentes no host.
+Gateway `--check` verifica as redes Podman existentes, informa redes declaradas ausentes como
+criação planejada e anuncia cada registro DNS como `readiness/unverified`, sem consultar containers
+de aplicação ou targets DNS.
 Gateway `--apply` cria redes ausentes, mas não inspeciona, cria, inicia, para ou altera containers de
 aplicação; registros DNS permanecem pendentes até a implementação do handoff de atualização após
-readiness. O comando geral `host-preflight.sh --check` mantém a inspeção dos containers configurados
-e reporta containers parados como pendentes.
+readiness. O comando geral `host-preflight.sh --check` também verifica conflitos de rotas IPv4,
+mantém a inspeção dos containers configurados e reporta containers parados como pendentes.
 
 Para conferir um host com outros containers, sem exigir configuração ou credenciais do gateway:
 
@@ -335,6 +358,7 @@ precisa das chaves privadas dos desenvolvedores.
 | `/etc/gateway/cockpit-password` | Uma senha em uma linha para `gateway-admin`; propriedade `root:root`, sem acesso por grupo/outros (normalmente modo `0600`). |
 | `/etc/gateway/tls/gateway.cert` | Certificado TLS válido do Cockpit. |
 | `/etc/gateway/tls/gateway.key` | Chave privada correspondente; root-owned e sem acesso por grupo/outros (normalmente modo `0600`). |
+| `/etc/gateway/openvpn/ERMXDF02.ovpn` | Perfil OpenVPN externo; arquivo regular root-owned, legível apenas por root (normalmente modo `0600`), montado somente para leitura quando o runtime é habilitado. O código não abre nem copia seu conteúdo. |
 
 Os certificados e secrets são entradas externas. O deployment os monta como somente leitura. A
 chave pública em `authorized_keys` autoriza acesso ao gateway, não aos containers de aplicação.
@@ -356,10 +380,12 @@ sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
 `--check` exige RHEL 9.8, Podman rootful 5.8.2 e SELinux já desativado. Verifica credenciais,
-portas, redes, socket rootful e ferramentas exigidas; não inspeciona containers de aplicação ou
-targets DNS. Redes ausentes são informadas como criação planejada. O comando geral
-`host-preflight.sh --check` continua inspecionando os containers declarados. Não contorne a
-verificação nem rode `--apply` em Debian, em host live ou antes de aprovação operacional.
+portas, redes, rotas IPv4 do host, socket rootful e ferramentas exigidas; não inspeciona containers
+de aplicação ou targets DNS. Se OpenVPN estiver habilitado, verifica apenas metadados de propriedade,
+modo e arquivo regular do perfil; não lê seu conteúdo. Redes ausentes são informadas como criação planejada. O comando geral
+`host-preflight.sh --check` também verifica rotas e continua inspecionando os containers declarados.
+Não contorne a verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
+operacional.
 
 ### O que o apply cria
 
@@ -375,6 +401,10 @@ verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
   `gateway.service` para iniciar no boot.
 - Inicia o container `gateway`, ligado somente às redes declaradas. A unidade publica
   SSH e Cockpit nos ports configurados e monta o socket rootful do Podman no container.
+- Com OpenVPN habilitado e perfil revisado, monta o perfil somente para leitura, adiciona apenas
+  `/dev/net/tun` e `NET_ADMIN`, instala forwarding restrito TUN-para-Podman e gerencia somente a
+  rota IPv4 do pool com protocolo reservado `186`. A configuração versionada não habilita esse
+  runtime.
 
 O script não cria as credenciais externas, containers de aplicação, volumes ou dados de aplicação.
 Também não usa `--privileged`, não expõe a API Podman por TCP e não altera SELinux. Se o apply falhar,

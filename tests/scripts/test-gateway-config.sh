@@ -64,6 +64,122 @@ expected_networks=(
     fail "Gateway Quadlet networks differ from top-level Podman declarations: ${rendered_networks[*]}"
 printf 'PASS: all declared Podman networks are rendered; HTTP proxy routes are not networks\n'
 
+jq '.gateway.remote_access.openvpn |= . + {
+        "enabled":true,
+        "profile_reviewed":true,
+        "endpoint":"203.0.113.17"
+    }' "$TMP_DIR/valid.json" > "$TMP_DIR/openvpn-enabled.json"
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-enabled.json" "$TMP_DIR/openvpn.container"
+grep -Fxq -- \
+    'Volume=/etc/gateway/openvpn/ERMXDF02.ovpn:/run/openvpn/client.ovpn:ro' \
+    "$TMP_DIR/openvpn.container" || fail 'OpenVPN profile was not mounted read-only'
+grep -Fxq 'AddDevice=/dev/net/tun' "$TMP_DIR/openvpn.container" || \
+    fail 'OpenVPN TUN device was not added'
+grep -Fxq 'AddCapability=NET_ADMIN' "$TMP_DIR/openvpn.container" || \
+    fail 'OpenVPN minimum network capability was not added'
+grep -Fxq \
+    'ExecStartPost=/usr/sbin/ip -4 route add 172.24.0.0/21 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/openvpn.container" || fail 'OpenVPN host return route was not rendered'
+grep -Fxq \
+    'ExecStopPost=-/usr/sbin/ip -4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/openvpn.container" || fail 'OpenVPN owned host route cleanup was not rendered'
+if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
+    [[ -x /usr/libexec/podman/quadlet ]]; then
+    bash -c 'source "$1"; validate_quadlet_candidate "$2"' \
+        _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn.container"
+    printf 'PASS: host Quadlet generator accepts opt-in OpenVPN unit without activation\n'
+fi
+printf 'PASS: OpenVPN Quadlet opt-in mounts the opaque profile read-only and owns only the tagged return route\n'
+
+jq '.gateway.remote_access.ssh_tun = {
+        "enabled":true,
+        "account":"gateway-tunnel",
+        "address_pool":"198.18.0.0/24",
+        "authorized_keys_path":"/etc/gateway/ssh_tun/authorized_keys",
+        "max_sessions":4
+    }' "$TMP_DIR/valid.json" > "$TMP_DIR/ssh-tun-enabled.json"
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/ssh-tun-enabled.json" "$TMP_DIR/ssh-tun.container"
+grep -Fxq \
+    'Volume=/etc/gateway/ssh_tun/authorized_keys:/run/gateway/ssh_tun/authorized_keys:ro' \
+    "$TMP_DIR/ssh-tun.container" || fail 'SSH TUN public keys were not mounted read-only'
+grep -Fxq 'AddDevice=/dev/net/tun' "$TMP_DIR/ssh-tun.container" || \
+    fail 'SSH TUN device was not added'
+grep -Fxq 'AddCapability=NET_ADMIN' "$TMP_DIR/ssh-tun.container" || \
+    fail 'SSH TUN minimum network capability was not added'
+grep -Fxq \
+    'ExecStartPost=/usr/sbin/ip -4 route add 198.18.0.0/24 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/ssh-tun.container" || fail 'SSH TUN host return route was not rendered'
+grep -Fxq \
+    'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.0.0/24 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/ssh-tun.container" || fail 'SSH TUN owned host route cleanup was not rendered'
+printf 'PASS: SSH TUN opt-in renders read-only keys, minimum capability, and one deterministic host route\n'
+jq '.gateway.remote_access.openvpn |= . + {
+        "enabled":true,
+        "profile_reviewed":true,
+        "endpoint":"203.0.113.17"
+    }' "$TMP_DIR/ssh-tun-enabled.json" > "$TMP_DIR/shared-remote-access.json"
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/shared-remote-access.json" "$TMP_DIR/shared.container"
+[[ "$(grep -c '^AddDevice=/dev/net/tun$' "$TMP_DIR/shared.container")" == 1 ]] || \
+    fail 'Shared OpenVPN and SSH TUN runtime duplicated TUN device grants'
+[[ "$(grep -c '^AddCapability=NET_ADMIN$' "$TMP_DIR/shared.container")" == 1 ]] || \
+    fail 'Shared OpenVPN and SSH TUN runtime duplicated NET_ADMIN grants'
+printf 'PASS: concurrent OpenVPN and SSH TUN use one shared device grant and capability\n'
+
+mkdir -p "$TMP_DIR/route-bin"
+cat > "$TMP_DIR/route-bin/ip" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+case "$*" in
+    '-j -4 route show table all 172.24.0.0/21')
+        printf '%s\n' "$OPENVPN_ROUTE_STATE"
+        ;;
+        '-j -4 route show table all 198.18.0.0/24')
+            printf '%s\n' "$SSH_TUN_ROUTE_STATE"
+        ;;
+    '-4 route del 172.24.0.0/21 via 10.89.1.2 proto 186')
+        printf '%s\n' "$*" >> "$ROUTE_MUTATION_LOG"
+        ;;
+    '-4 route del 198.18.0.0/24 via 10.89.1.2 proto 186')
+        printf '%s\n' "$*" >> "$ROUTE_MUTATION_LOG"
+        ;;
+    *) exit 97 ;;
+esac
+SH
+chmod 0755 "$TMP_DIR/route-bin/ip"
+PATH="$TMP_DIR/route-bin:$PATH" \
+    OPENVPN_ROUTE_STATE='[{"dst":"172.24.0.0/21","gateway":"10.89.1.2","protocol":"186","table":"main"}]' \
+    ROUTE_MUTATION_LOG="$TMP_DIR/route-mutations.log" \
+    bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json"
+grep -Fxq -- \
+    '-4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/route-mutations.log" || fail 'Owned OpenVPN return route was not cleaned'
+PATH="$TMP_DIR/route-bin:$PATH" \
+    OPENVPN_ROUTE_STATE='[{"dst":"172.24.0.0/21","gateway":"10.89.1.2","protocol":"static","table":"main"}]' \
+    ROUTE_MUTATION_LOG="$TMP_DIR/foreign-route-mutations.log" \
+    bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json"
+[[ ! -e "$TMP_DIR/foreign-route-mutations.log" ]] || \
+    fail 'Unowned OpenVPN-pool route was removed'
+printf 'PASS: host cleanup removes only the exact protocol-186 return route\n'
+jq '.gateway.remote_access.ssh_tun = {
+        "enabled":false,
+        "address_pool":"198.18.0.0/24"
+    }' "$TMP_DIR/valid.json" > "$TMP_DIR/ssh-tun-disabled-route.json"
+PATH="$TMP_DIR/route-bin:$PATH" \
+    OPENVPN_ROUTE_STATE='[]' \
+    SSH_TUN_ROUTE_STATE='[{"dst":"198.18.0.0/24","gateway":"10.89.1.2","protocol":"186","table":"main"}]' \
+    ROUTE_MUTATION_LOG="$TMP_DIR/ssh-route-mutations.log" \
+    bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/ssh-tun-disabled-route.json"
+grep -Fxq -- \
+    '-4 route del 198.18.0.0/24 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/ssh-route-mutations.log" || fail 'Owned SSH TUN return route was not cleaned'
+printf 'PASS: host cleanup removes only disabled SSH TUN pool routes\n'
+
 mkdir -p "$TMP_DIR/network-bin"
 cat > "$TMP_DIR/network-bin/podman" <<'SH'
 #!/usr/bin/env bash
@@ -127,11 +243,24 @@ case "${1:-}" in
 esac
 SH
 chmod 0755 "$TMP_DIR/generic-bin/podman"
+cat > "$TMP_DIR/generic-bin/ip" <<'SH'
+#!/usr/bin/env bash
+printf '[]\n'
+SH
+chmod 0755 "$TMP_DIR/generic-bin/ip"
 PATH="$TMP_DIR/generic-bin:$PATH" "$PREFLIGHT_SCRIPT" --check "$TMP_DIR/generic-host.json" >/dev/null
 printf 'PASS: generic host preflight checks containers without gateway requirements\n'
 
 jq '.schema_version = 2' "$TMP_DIR/valid.json" > "$TMP_DIR/unsupported-version.json"
 expect_invalid 'unsupported schema version' "$TMP_DIR/unsupported-version.json"
+
+jq '.gateway.remote_access.openvpn.routes = ["192.168.9.0/24"]' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/unapproved-openvpn-routes.json"
+expect_invalid 'unapproved OpenVPN route metadata' "$TMP_DIR/unapproved-openvpn-routes.json"
+
+jq '.gateway.remote_access.ssh_tun.enabled = true' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/incomplete-ssh-tun.json"
+expect_invalid 'SSH TUN without explicit account and pool' "$TMP_DIR/incomplete-ssh-tun.json"
 
 jq '.gateway.networks = ["project-a-net"]' "$TMP_DIR/valid.json" > "$TMP_DIR/legacy-gateway-networks.json"
 expect_invalid 'gateway.networks field' "$TMP_DIR/legacy-gateway-networks.json"

@@ -1,4 +1,4 @@
-"""Validate IP address and subnet declarations in host configuration.
+"""Validate host address, subnet, and optional remote-access declarations.
 
 The public function reads no host state and changes no files. The module CLI
 accepts one JSON configuration path and reports validation failures to stderr.
@@ -17,10 +17,11 @@ from scripts.gateway.host_config_validation import (
     load_host_config,
     validate_host_config,
 )
+from scripts.gateway.remote_access import validate_remote_access_config
 
 
 def validate_address_declarations(config: dict[str, Any]) -> None:
-    """Validate Gateway bind addresses, optional interface IPs, and subnets.
+    """Validate Gateway binds, optional interface IPs, subnets, and remote access.
 
     Args:
         config: Parsed host configuration. The ``gateway`` section is optional.
@@ -33,6 +34,7 @@ def validate_address_declarations(config: dict[str, Any]) -> None:
     """
     validate_host_config(config)
     validate_host_config(config)
+    validate_remote_access_config(config)
     if "gateway" in config:
         for field in (
             "bind_address",
@@ -130,7 +132,7 @@ def validate_http_proxy_networks(config: dict[str, Any]) -> None:
 
 
 def validate_config_file(config_path: str | Path) -> None:
-    """Read JSON configuration and validate its IP address declarations.
+    """Read JSON configuration and validate address and remote-access declarations.
 
     Args:
         config_path: Path to an already structurally validated JSON file.

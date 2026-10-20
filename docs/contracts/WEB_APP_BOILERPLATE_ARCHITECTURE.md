@@ -154,7 +154,16 @@ Responsabilidades:
 - Cockpit;
 - cockpit-podman.
 
-O acesso remoto de desenvolvedores preserva o IP de origem e não usa NAT. O egress iniciado por containers usa a saída normal do Podman rootful no host e pode usar masquerading.
+O acesso remoto de desenvolvedores preserva o IP IPv4 de origem e não usa NAT. O contrato de túneis,
+destinos roteados, pools, pares de endereços ponto a ponto, rotas de retorno e DNS do Gateway é
+IPv4-only; DNS publica registros A, não AAAA. Isso não desativa IPv6 no host, Gateway, VM ou cliente.
+O runtime não força IPv4 na conexão SSH externa; clientes que precisam dessa família usam `ssh -4`.
+O egress iniciado por containers usa a saída normal do Podman rootful no host e pode usar masquerading.
+
+OpenVPN e SSH TUN são opt-in e permanecem desativados na configuração versionada. O runtime SSH TUN
+está implementado, mas ativação real e aceitação em host-alvo permanecem pendentes. O perfil OpenVPN
+externo exige revisão humana e o gate `profile_reviewed: true`; diretivas IPv6 locais não são
+suportadas pelo runtime.
 
 O Gateway é uma **unidade administrativa única**.
 

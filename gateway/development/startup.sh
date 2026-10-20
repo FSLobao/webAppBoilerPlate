@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 readonly CONFIG=/etc/gateway/generated/config.json
 readonly AUTHORIZED_KEYS=/run/gateway/authorized_keys
+readonly SSH_TUN_AUTHORIZED_KEYS=/run/gateway/ssh_tun/authorized_keys
 readonly COCKPIT_PASSWORD=/run/secrets/cockpit-password
 readonly HOST_KEY=/run/ssh-host-keys/ssh_host_ed25519_key
 readonly HOST_PUBLIC_KEY=/run/ssh-host-keys/ssh_host_ed25519_key.pub
@@ -73,8 +74,25 @@ jq -e '
     (.gateway.ssh_port | type == "number") and
     (.gateway.cockpit_port | type == "number") and
     (.networks | type == "array") and
+    ((.gateway.remote_access.openvpn.enabled // false) | type == "boolean") and
+    ((.gateway.remote_access.ssh_tun.enabled // false) | type == "boolean") and
     (.dns_records | type == "array")
 ' "$CONFIG" >/dev/null 2>&1 || fail "Invalid gateway configuration: $CONFIG"
+openvpn_enabled=$(jq -r '.gateway.remote_access.openvpn.enabled // false' "$CONFIG")
+ssh_tun_enabled=$(jq -r '.gateway.remote_access.ssh_tun.enabled // false' "$CONFIG")
+use_pam=no
+allow_users=developer
+if [[ "$ssh_tun_enabled" == true ]]; then
+    require_file "$SSH_TUN_AUTHORIZED_KEYS"
+    require_root_owned "$SSH_TUN_AUTHORIZED_KEYS"
+    mode=$(stat -c %a "$SSH_TUN_AUTHORIZED_KEYS")
+    (( (8#$mode & 0022) == 0 )) || fail 'SSH TUN public keys must not be group/world writable.'
+    require_read_only_mount "$SSH_TUN_AUTHORIZED_KEYS"
+    python3 /usr/local/lib/gateway/ssh_tun_runtime.py check || \
+        fail 'SSH TUN configuration or root-managed public keys are invalid.'
+    use_pam=yes
+    allow_users='developer gateway-tunnel'
+fi
 
 [[ -n "$(ssh-keygen -lf "$AUTHORIZED_KEYS" 2>/dev/null)" ]] || fail 'No valid gateway public keys are mounted.'
 ssh-keygen -lf "$HOST_KEY" >/dev/null 2>&1 || fail 'Persistent SSH host private key is invalid.'
@@ -101,14 +119,13 @@ cat >> /run/gateway/sshd_config <<EOF
 Port 22
 HostKey $HOST_KEY
 PidFile /run/sshd.pid
-UsePAM no
+UsePAM $use_pam
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
 PubkeyAuthentication yes
 AuthorizedKeysFile $AUTHORIZED_KEYS
-AllowUsers developer
 AllowTcpForwarding local
 AllowAgentForwarding no
 AllowStreamLocalForwarding no
@@ -116,7 +133,27 @@ GatewayPorts no
 PermitTunnel no
 X11Forwarding no
 StrictModes yes
+AllowUsers $allow_users
 EOF
+if [[ "$ssh_tun_enabled" == true ]]; then
+    cat >> /run/gateway/sshd_config <<'EOF'
+AuthorizedKeysCommand /usr/local/lib/gateway/ssh_tun_runtime.py authkeys %u %t %k %C
+AuthorizedKeysCommandUser root
+Match User gateway-tunnel
+    AuthorizedKeysFile none
+    AuthenticationMethods publickey
+    ForceCommand /usr/local/lib/gateway/ssh_tun_runtime.py session
+    PermitTunnel point-to-point
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    AllowStreamLocalForwarding no
+    X11Forwarding no
+    PermitTTY no
+    PermitUserRC no
+    ClientAliveInterval 15
+    ClientAliveCountMax 3
+EOF
+fi
 
 mkdir -p /run/sshd
 chmod 0755 /run/sshd
@@ -148,6 +185,10 @@ dnsmasq --no-daemon --keep-in-foreground --no-resolv --no-hosts \
 children+=("$!")
 /usr/lib/cockpit/cockpit-ws --port 9090 --address 0.0.0.0 &
 children+=("$!")
+if [[ "$openvpn_enabled" == true ]]; then
+    python3 /usr/local/lib/gateway/openvpn_runtime.py run "$CONFIG" &
+    children+=("$!")
+fi
 
 if wait -n "${children[@]}"; then
     status=0

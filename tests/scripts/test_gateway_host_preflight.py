@@ -20,6 +20,293 @@ from scripts.gateway.host_preflight import (
     validate_podman_state,
 )
 
+IP_ROUTE_COMMAND = ["ip", "-j", "-4", "route", "show", "table", "all"]
+
+
+def _fake_ip_routes(
+    command: list[str], routes: list[dict[str, Any]] | None = None
+) -> subprocess.CompletedProcess[str] | None:
+    """Return a deterministic response for the read-only ip route command."""
+    if command != IP_ROUTE_COMMAND:
+        return None
+    return subprocess.CompletedProcess(command, 0, json.dumps(routes or []), "")
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        {"dst": "10.89.1.0/24", "dev": "eth0", "table": "main"},
+        {"dst": "10.89.0.0/16", "dev": "eth0", "table": "100"},
+        {"type": "local", "dst": "10.89.1.25", "dev": "lo", "table": "local"},
+    ],
+)
+def test_gateway_preflight_rejects_overlapping_host_routes(
+    route: dict[str, Any],
+) -> None:
+    """Reject host subnet, supernet, and local-address route conflicts."""
+    calls = []
+
+    def run_command(*args, **kwargs):
+        command = list(args[0])
+        calls.append(command)
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        route_result = _fake_ip_routes(command, [route])
+        if route_result is not None:
+            return route_result
+        raise AssertionError(f"unexpected command: {command}")
+
+    with pytest.raises(ValueError, match="overlaps host IPv4 route"):
+        validate_gateway_networks(
+            {"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]},
+            run_command=run_command,
+            announce=lambda message: None,
+        )
+
+    assert calls == [
+        ["podman", "network", "ls", "--format", "{{.Name}}"],
+        IP_ROUTE_COMMAND,
+    ]
+
+
+def test_gateway_preflight_ignores_default_route() -> None:
+    """Ignore IPv4 default routes when checking declared network overlaps."""
+
+    def run_command(*args, **kwargs):
+        command = list(args[0])
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        route_result = _fake_ip_routes(
+            command,
+            [
+                {"dst": "default", "gateway": "192.0.2.1", "dev": "eth0"},
+                {"dst": "0.0.0.0/0", "gateway": "192.0.2.1", "dev": "eth0"},
+            ],
+        )
+        if route_result is not None:
+            return route_result
+        raise AssertionError(f"unexpected command: {command}")
+
+    validate_gateway_networks(
+        {"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]},
+        run_command=run_command,
+        announce=lambda message: None,
+    )
+
+
+def test_gateway_preflight_allows_exact_managed_podman_routes() -> None:
+    """Allow only exact bridge and bridge-local routes from Podman inspection."""
+
+    def run_command(*args, **kwargs):
+        command = list(args[0])
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "project-a\n", "")
+        if command == ["podman", "network", "inspect", "project-a"]:
+            details = [
+                {
+                    "network_interface": "podman42",
+                    "subnets": [{"subnet": "10.89.1.0/24", "gateway": "10.89.1.1"}],
+                }
+            ]
+            return subprocess.CompletedProcess(command, 0, json.dumps(details), "")
+        route_result = _fake_ip_routes(
+            command,
+            [
+                {
+                    "dst": "10.89.1.0/24",
+                    "dev": "podman42",
+                    "protocol": "kernel",
+                    "scope": "link",
+                    "table": "main",
+                },
+                {
+                    "type": "local",
+                    "dst": "10.89.1.1",
+                    "dev": "podman42",
+                    "protocol": "kernel",
+                    "scope": "host",
+                    "table": "local",
+                },
+            ],
+        )
+        if route_result is not None:
+            return route_result
+        raise AssertionError(f"unexpected command: {command}")
+
+    validate_gateway_networks(
+        {"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]},
+        run_command=run_command,
+        announce=lambda message: None,
+    )
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        {
+            "dst": "10.89.1.0/24",
+            "dev": "podman99",
+            "protocol": "kernel",
+            "scope": "link",
+            "table": "main",
+        },
+        {
+            "dst": "10.89.1.0/24",
+            "dev": "podman42",
+            "protocol": "dhcp",
+            "scope": "link",
+            "table": "main",
+        },
+        {
+            "dst": "10.89.1.0/24",
+            "dev": "podman42",
+            "protocol": "kernel",
+            "scope": "link",
+            "table": "100",
+        },
+    ],
+)
+def test_gateway_preflight_rejects_spoofed_or_ambiguous_podman_routes(
+    route: dict[str, Any],
+) -> None:
+    """Reject routes that only resemble a declared Podman connected route."""
+
+    def run_command(*args, **kwargs):
+        command = list(args[0])
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "project-a\n", "")
+        if command == ["podman", "network", "inspect", "project-a"]:
+            details = [
+                {
+                    "network_interface": "podman42",
+                    "subnets": [{"subnet": "10.89.1.0/24", "gateway": "10.89.1.1"}],
+                }
+            ]
+            return subprocess.CompletedProcess(command, 0, json.dumps(details), "")
+        route_result = _fake_ip_routes(command, [route])
+        if route_result is not None:
+            return route_result
+        raise AssertionError(f"unexpected command: {command}")
+
+    with pytest.raises(ValueError, match="overlaps host IPv4 route"):
+        validate_gateway_networks(
+            {"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]},
+            run_command=run_command,
+            announce=lambda message: None,
+        )
+
+
+def test_generic_preflight_rejects_host_route_before_container_inspection() -> None:
+    """Apply host-route checks to generic configs before inspecting containers."""
+    calls = []
+
+    def run_command(*args, **kwargs):
+        command = list(args[0])
+        calls.append(command)
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "database\n", "")
+        if command == ["podman", "network", "inspect", "database"]:
+            details = [
+                {
+                    "network_interface": "podman8",
+                    "subnets": [{"subnet": "10.90.0.0/24", "gateway": "10.90.0.1"}],
+                }
+            ]
+            return subprocess.CompletedProcess(command, 0, json.dumps(details), "")
+        route_result = _fake_ip_routes(
+            command,
+            [{"dst": "10.90.0.0/16", "dev": "eth0", "table": "main"}],
+        )
+        if route_result is not None:
+            return route_result
+        raise AssertionError(f"unexpected command: {command}")
+
+    with pytest.raises(ValueError, match="overlaps host IPv4 route"):
+        validate_podman_state(
+            {
+                "networks": [{"name": "database", "subnet": "10.90.0.0/24"}],
+                "containers": [{"name": "postgres", "networks": ["database"]}],
+            },
+            run_command=run_command,
+        )
+
+    assert all(command[:2] != ["podman", "container"] for command in calls)
+    assert all(command[:2] != ["podman", "inspect"] for command in calls)
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "stderr", "message"),
+    [
+        (2, "", "permission denied", "permission denied"),
+        (0, "{broken", "", "Expecting property name"),
+        (0, "{}", "", "JSON array"),
+    ],
+)
+def test_gateway_preflight_fails_on_route_command_or_json_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    returncode: int,
+    stdout: str,
+    stderr: str,
+    message: str,
+) -> None:
+    """Report route command and malformed route JSON errors as preflight failures."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]}),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+    monkeypatch.setattr(host_preflight.subprocess, "run", run_command)
+
+    assert main(["gateway-networks", str(config_path)]) == 1
+    assert message in capsys.readouterr().err
+    assert calls == [
+        ["podman", "network", "ls", "--format", "{{.Name}}"],
+        IP_ROUTE_COMMAND,
+    ]
+
+
+def test_gateway_preflight_reports_missing_ip_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Fail clearly when the route-inspection command cannot launch."""
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}]}),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise FileNotFoundError("ip executable missing")
+
+    monkeypatch.setattr(host_preflight.subprocess, "run", run_command)
+
+    assert main(["gateway-networks", str(config_path)]) == 1
+    assert "ip executable missing" in capsys.readouterr().err
+    assert calls == [
+        ["podman", "network", "ls", "--format", "{{.Name}}"],
+        IP_ROUTE_COMMAND,
+    ]
+
 
 @pytest.mark.parametrize(
     ("os_id", "os_version", "matches"),
@@ -112,6 +399,9 @@ def test_validate_podman_state_accepts_valid_running_target() -> None:
             else list(args)
         )
         calls.append(command)
+        route_result = _fake_ip_routes(command)
+        if route_result is not None:
+            return route_result
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "bridge\nproject-a\n", "")
         if command == ["podman", "network", "inspect", "bridge"]:
@@ -141,29 +431,40 @@ def test_validate_podman_state_accepts_valid_running_target() -> None:
         {
             "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
             "dns_records": [
-                {"name": "api.project-a.dev.internal", "container": "api", "network": "project-a"}
+                {
+                    "name": "api.project-a.dev.internal",
+                    "container": "api",
+                    "network": "project-a",
+                }
             ],
         },
         run_command=run_command,
         announce=lambda message: None,
     )
 
-    assert len(calls) == 5
+    assert len(calls) == 6
 
 
 def test_validate_podman_state_rejects_overlapping_existing_network() -> None:
     """Reject a declared subnet that overlaps an existing Podman network."""
+
     def run_command(*args, **kwargs):
         command = (
             list(args[0])
             if len(args) == 1 and isinstance(args[0], (list, tuple))
             else list(args)
         )
+        route_result = _fake_ip_routes(command)
+        if route_result is not None:
+            return route_result
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "other\n", "")
         if command == ["podman", "network", "inspect", "other"]:
             return subprocess.CompletedProcess(
-                command, 0, json.dumps([{"subnets": [{"subnet": "10.89.1.128/25"}]}]), ""
+                command,
+                0,
+                json.dumps([{"subnets": [{"subnet": "10.89.1.128/25"}]}]),
+                "",
             )
         raise AssertionError(f"unexpected command: {command}")
 
@@ -179,12 +480,16 @@ def test_validate_podman_state_rejects_overlapping_existing_network() -> None:
 
 def test_validate_podman_state_reports_stopped_target_as_pending() -> None:
     """Report stopped DNS targets without mutation or failure."""
+
     def run_command(*args, **kwargs):
         command = (
             list(args[0])
             if len(args) == 1 and isinstance(args[0], (list, tuple))
             else list(args)
         )
+        route_result = _fake_ip_routes(command)
+        if route_result is not None:
+            return route_result
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "project-a\n", "")
         if command == ["podman", "network", "inspect", "project-a"]:
@@ -207,7 +512,11 @@ def test_validate_podman_state_reports_stopped_target_as_pending() -> None:
         {
             "networks": [{"name": "project-a", "subnet": "10.89.1.0/24"}],
             "dns_records": [
-                {"name": "api.project-a.dev.internal", "container": "api", "network": "project-a"}
+                {
+                    "name": "api.project-a.dev.internal",
+                    "container": "api",
+                    "network": "project-a",
+                }
             ],
         },
         run_command=run_command,
@@ -230,6 +539,9 @@ def test_validate_podman_state_checks_generic_container_networks() -> None:
             else list(args)
         )
         calls.append(command)
+        route_result = _fake_ip_routes(command)
+        if route_result is not None:
+            return route_result
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "database\n", "")
         if command == ["podman", "network", "inspect", "database"]:
@@ -256,17 +568,21 @@ def test_validate_podman_state_checks_generic_container_networks() -> None:
         run_command=run_command,
     )
 
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 def test_validate_podman_state_rejects_missing_generic_network() -> None:
     """Require declared networks to exist during generic host checks."""
+
     def run_command(*args, **kwargs):
         command = (
             list(args[0])
             if len(args) == 1 and isinstance(args[0], (list, tuple))
             else list(args)
         )
+        route_result = _fake_ip_routes(command)
+        if route_result is not None:
+            return route_result
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(f"unexpected command: {command}")
@@ -289,6 +605,9 @@ def test_validate_podman_state_checks_every_declared_podman_network() -> None:
 
     def run_command(*args, **kwargs):
         command = list(args[0]) if len(args) == 1 else list(args)
+        route_result = _fake_ip_routes(command)
+        if route_result is not None:
+            return route_result
         if command == ["podman", "network", "ls", "--format", "{{.Name}}"]:
             names = "\n".join(entry["name"] for entry in declarations)
             return subprocess.CompletedProcess(command, 0, names, "")
@@ -405,6 +724,9 @@ def test_gateway_preflight_is_read_only_without_application_targets(
     ) -> subprocess.CompletedProcess[str]:
         normalized = list(command)
         calls.append(normalized)
+        route_result = _fake_ip_routes(normalized)
+        if route_result is not None:
+            return route_result
         assert normalized == [
             "podman",
             "network",
@@ -427,7 +749,10 @@ def test_gateway_preflight_is_read_only_without_application_targets(
         "[host-preflight] PENDING DNS target: api.project-a.dev.internal "
         "(api readiness/unverified)"
     ) in captured.out
-    assert calls == [["podman", "network", "ls", "--format", "{{.Name}}"]]
+    assert calls == [
+        ["podman", "network", "ls", "--format", "{{.Name}}"],
+        IP_ROUTE_COMMAND,
+    ]
     assert captured.err == ""
 
 

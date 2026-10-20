@@ -104,7 +104,12 @@ generate_input_metadata() {
 render_quadlet_candidate() {
     local config_path=$1 output_path=$2
     local authorized_keys_path ssh_bind_address cockpit_bind_address ssh_port cockpit_port
-    local network_lines published_lines template
+    local network_lines published_lines openvpn_volume='' openvpn_runtime=''
+    local ssh_tun_volume='' ssh_tun_runtime=''
+    local openvpn_host_route='' ssh_tun_host_route=''
+    local openvpn_enabled ssh_tun_enabled profile_path client_pool route_gateway
+    local ssh_tun_pool ssh_tun_keys_path
+    local template
 
     authorized_keys_path=$(jq -r '.gateway.authorized_keys_path' "$config_path")
     ssh_bind_address=$(jq -r '.gateway.ssh_bind_address // .gateway.bind_address' "$config_path")
@@ -118,9 +123,49 @@ render_quadlet_candidate() {
     ' "$config_path")
     published_lines=$(printf 'PublishPort=%s:%s:22\nPublishPort=%s:%s:9090' \
         "$ssh_bind_address" "$ssh_port" "$cockpit_bind_address" "$cockpit_port")
+    openvpn_enabled=$(jq -r '.gateway.remote_access.openvpn.enabled // false' "$config_path")
+    ssh_tun_enabled=$(jq -r '.gateway.remote_access.ssh_tun.enabled // false' "$config_path")
+    if [[ "$openvpn_enabled" == true || "$ssh_tun_enabled" == true ]]; then
+        route_gateway=$(jq -r '
+            [.networks[] | select(has("gateway_address"))] |
+            sort_by([
+                (.subnet | split("/")[0] | split(".") | map(tonumber)),
+                (.subnet | split("/")[1] | tonumber),
+                .name
+            ]) | .[0].gateway_address // empty
+        ' "$config_path")
+        [[ -n "$route_gateway" ]] || fail 'Remote access requires a deterministic host return-route next hop.'
+    fi
+    if [[ "$openvpn_enabled" == true ]]; then
+        profile_path=$(jq -r '.gateway.remote_access.openvpn.profile_path' "$config_path")
+        client_pool=$(jq -r '.gateway.remote_access.openvpn.client_pool' "$config_path")
+        openvpn_volume="Volume=${profile_path}:/run/openvpn/client.ovpn:ro"
+        openvpn_runtime=$'AddDevice=/dev/net/tun\nAddCapability=NET_ADMIN'
+        openvpn_host_route=$(printf \
+            'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
+            "$client_pool" "$route_gateway" "$client_pool" "$route_gateway")
+    fi
+    if [[ "$ssh_tun_enabled" == true ]]; then
+        ssh_tun_pool=$(jq -r '.gateway.remote_access.ssh_tun.address_pool' "$config_path")
+        ssh_tun_keys_path=$(jq -r '.gateway.remote_access.ssh_tun.authorized_keys_path' "$config_path")
+        ssh_tun_volume="Volume=${ssh_tun_keys_path}:/run/gateway/ssh_tun/authorized_keys:ro"
+        ssh_tun_runtime=$'AddDevice=/dev/net/tun\nAddCapability=NET_ADMIN'
+        if [[ "$openvpn_enabled" == true ]]; then
+            ssh_tun_runtime=''
+        fi
+        ssh_tun_host_route=$(printf \
+            'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
+            "$ssh_tun_pool" "$route_gateway" "$ssh_tun_pool" "$route_gateway")
+    fi
     template=$(<"$UNIT_TEMPLATE")
     template=${template//@@CONFIG_FILE@@/$GENERATED_CONFIG}
     template=${template//@@AUTHORIZED_KEYS@@/$authorized_keys_path}
+    template=${template//@@OPENVPN_VOLUME@@/$openvpn_volume}
+    template=${template//@@OPENVPN_RUNTIME@@/$openvpn_runtime}
+    template=${template//@@OPENVPN_HOST_ROUTE@@/$openvpn_host_route}
+    template=${template//@@SSH_TUN_VOLUME@@/$ssh_tun_volume}
+    template=${template//@@SSH_TUN_RUNTIME@@/$ssh_tun_runtime}
+    template=${template//@@SSH_TUN_HOST_ROUTE@@/$ssh_tun_host_route}
     template=${template//@@NETWORKS@@/$network_lines}
     template=${template//@@PUBLISHED_PORTS@@/$published_lines}
     [[ "$template" != *@@* ]] || fail 'Quadlet template contains an unexpanded placeholder.'
@@ -347,11 +392,59 @@ cleanup_after_apply() {
 }
 # ---------------------------------- #
 
+# Remove only inactive remote-access routes with the exact managed tag and next hop.
+# Arguments: validated host configuration path. Reads host routes; mutates only matching routes.
+# Output: none. Reports inspection or deletion failures to stderr and exits nonzero.
+remove_managed_remote_access_return_routes() {
+    local config_path=$1 transport enabled pool observed_routes
+    local route_gateway
+
+    route_gateway=$(jq -r '
+        [.networks[] | select(has("gateway_address"))] |
+        sort_by([
+            (.subnet | split("/")[0] | split(".") | map(tonumber)),
+            (.subnet | split("/")[1] | tonumber),
+            .name
+        ]) | .[0].gateway_address // empty
+    ' "$config_path")
+    [[ -n "$route_gateway" ]] || return 0
+
+    for transport in openvpn ssh_tun; do
+        if [[ "$transport" == openvpn ]]; then
+            enabled=$(jq -r '.gateway.remote_access.openvpn.enabled // false' "$config_path")
+            pool=$(jq -r '.gateway.remote_access.openvpn.client_pool // empty' "$config_path")
+        else
+            enabled=$(jq -r '.gateway.remote_access.ssh_tun.enabled // false' "$config_path")
+            pool=$(jq -r '.gateway.remote_access.ssh_tun.address_pool // empty' "$config_path")
+        fi
+        [[ "$enabled" == false && -n "$pool" ]] || continue
+        observed_routes=$(ip -j -4 route show table all "$pool") || \
+            fail "Could not inspect the $transport host return route."
+        if jq -e \
+            --arg destination "$pool" \
+            --arg gateway "$route_gateway" \
+            'any(.[]; .dst == $destination and .gateway == $gateway and
+                ((.protocol | tostring) == "186") and
+                (.table == null or .table == "main" or .table == 254) and
+                (.type == null or .type == "unicast") and
+                (.multipath == null or .multipath == false) and
+                ((.nexthops // []) | length == 0))' \
+            <<< "$observed_routes" >/dev/null; then
+            ip -4 route del "$pool" via "$route_gateway" proto 186 || \
+                fail "Could not remove the owned $transport host return route."
+        fi
+    done
+}
+# ---------------------------------- #
+
 apply_deployment() {
     local config_path=$1 previous_container_image='' previous_tagged_image=''
     local current_image_id='' desired_image_id='' unit_changed=0 config_changed=0 inputs_changed=0 dns_changed=0
-    local restart_needed=0 network
+    local restart_needed=0 network lock_fd
 
+    command -v flock >/dev/null 2>&1 || fail 'flock is required to serialize Gateway configuration changes.'
+    exec {lock_fd}>"$GATEWAY_CONFIG_LOCK" || fail 'Could not open the Gateway configuration lock.'
+    flock -x "$lock_fd" || fail 'Could not lock Gateway configuration for apply.'
     "$PREFLIGHT_SCRIPT" --check-gateway "$config_path"
     APPLY_MUTATING=1
     trap cleanup_after_apply EXIT
@@ -410,6 +503,7 @@ apply_deployment() {
         ACTIVATION_ATTEMPTED=1
         systemctl enable "$UNIT_NAME" || fail "Could not enable $UNIT_NAME for reboot recovery."
     fi
+    remove_managed_remote_access_return_routes "$config_path"
     if (( dns_changed == 1 && restart_needed == 0 )); then
         ACTIVATION_ATTEMPTED=1
         podman exec "$CONTAINER_NAME" pkill -HUP dnsmasq || fail 'Could not reload DNSMasq after DNS records changed.'

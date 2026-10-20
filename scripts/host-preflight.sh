@@ -17,6 +17,7 @@ readonly COCKPIT_PASSWORD_FILE=/etc/gateway/cockpit-password
 readonly COCKPIT_CERT_FILE=/etc/gateway/tls/gateway.cert
 readonly COCKPIT_KEY_FILE=/etc/gateway/tls/gateway.key
 readonly STATE_DIR=/var/lib/gateway
+readonly GATEWAY_CONFIG_LOCK=/run/lock/gateway-config.lock
 readonly GENERATED_CONFIG="$STATE_DIR/generated/config.json"
 readonly GENERATED_INPUTS="$STATE_DIR/generated/inputs.json"
 readonly DNS_HOSTS_FILE="$STATE_DIR/dns/hosts"
@@ -159,7 +160,7 @@ validate_config() {
                 ($config.gateway |
                     object_with_allowed_keys(
                         ["name", "bind_address", "ssh_port", "cockpit_port", "authorized_keys_path"];
-                        ["ssh_bind_address", "cockpit_bind_address"]
+                        ["ssh_bind_address", "cockpit_bind_address", "remote_access"]
                     ) and
                     (.name | podman_name) and .name == "gateway" and
                     (.bind_address | type == "string" and length > 0) and
@@ -375,6 +376,7 @@ check_host_preflight() {
 
     validate_config "$config_path"
     command -v podman >/dev/null 2>&1 || fail 'podman is required for host preflight.'
+    command -v ip >/dev/null 2>&1 || fail 'ip is required to check host IPv4 routes.'
     podman version --format '{{.Client.Version}}' >/dev/null || fail 'Cannot query Podman client version.'
     run_python_module scripts.gateway.host_preflight podman-state "$config_path"
 }
