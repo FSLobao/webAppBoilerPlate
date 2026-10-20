@@ -683,8 +683,13 @@ WireGuard, OpenVPN e SSH TUN usam IPv4 para este contrato; isso não desativa IP
 clientes. Não haverá NAT, DNAT/SNAT ou forwarding entre redes de aplicações. Peers podem alcançar
 qualquer serviço nos CIDRs configurados; cada serviço mantém sua autenticação. SSH TUN mantém seus
 próprios usuários, pool, sessões e lifecycle. O servidor OpenVPN externo continua gerenciado
-externamente e aloca endereços ao cliente OpenVPN do Gateway. `push_domains: ["anatel.gov.br"]`
-permanece configuração separada do OpenVPN; não será reaproveitada como domínio WireGuard.
+externamente e aloca endereços ao cliente OpenVPN do Gateway. Opções de domínio pertencem ao
+servidor/perfil OpenVPN externo e não serão reaproveitadas como domínio WireGuard. Protocolo, porta
+e topologia também pertencem ao servidor/perfil; `client_to_client` é configuração do servidor. O
+JSON do Gateway mantém somente controles próprios do cliente, endpoint, caminho opaco do perfil,
+estado de revisão e `client_pool`. O schema permanece na versão 1 e rejeita campos legados
+removidos; configurações existentes devem removê-los. Os parâmetros fixos de segurança do cliente
+continuam definidos no runtime.
 
 Pools, endpoints, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede corporativa
 não podem se sobrepor. Prefixo de cliente ambíguo entre transportes falha fechado; não selecionar
@@ -1209,7 +1214,7 @@ As seguintes decisões são consideradas parte do contrato:
 | SSH shared keys | Não |
 | SSH Certificate Authority | Fora do boilerplate inicial |
 | WireGuard | Servidor IPv4-only aditivo no Gateway; peers aprovados alcançam todos CIDRs Podman; `dev.anatel` interno-only; chaves de peer geradas no Gateway e entregues uma vez por canal autenticado ainda a desenhar |
-| OpenVPN | Servidor externo existente aloca endereços ao cliente OpenVPN do Gateway; `push_domains: ["anatel.gov.br"]` permanece separado; não será substituído por WireGuard |
+| OpenVPN | Servidor externo existente aloca endereços ao cliente OpenVPN do Gateway; protocolo, porta, topologia e opções de domínio pertencem ao servidor/perfil; `client_to_client` é configuração do servidor; o cliente e WireGuard permanecem separados |
 | SSH TUN | Múltiplas sessões simultâneas usam pool próprio; runtime OpenSSH TUN é mantido |
 | Firewall de usuários | Fora do gateway |
 | Podman API | Preferencialmente Unix socket |

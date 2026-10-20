@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
 import os
+import pty
+import select
+import signal
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -28,15 +33,7 @@ def _config() -> dict[str, Any]:
                 "openvpn": {
                     "enabled": False,
                     "profile_path": "/etc/gateway/openvpn/client.ovpn",
-                    "protocol": "udp",
-                    "port": 1194,
-                    "device": "tun",
-                    "topology": "subnet",
-                    "client_to_client": True,
-                    "auth": "SHA256",
-                    "cipher": "AES-256-CBC",
                     "client_pool": "172.24.0.0/21",
-                    "push_domains": ["anatel.gov.br"],
                 },
                 "ssh_tun": {"enabled": False},
                 "wireguard": {
@@ -175,6 +172,260 @@ def test_direct_terminal_guard_fails_closed_for_piped_output(
 
     with pytest.raises(wireguard.WireGuardError, match="direct terminal"):
         wireguard._direct_tty()
+
+
+def test_direct_terminal_guard_fails_closed_when_tiocgdev_is_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject terminal verification when TIOCGDEV returns an unsupported-ioctl error."""
+    master, slave = pty.openpty()
+    stdin = os.fdopen(os.dup(slave), "r", encoding="ascii")
+    stdout = os.fdopen(os.dup(slave), "w", encoding="ascii")
+    monkeypatch.setattr(wireguard.sys, "stdin", stdin)
+    monkeypatch.setattr(wireguard.sys, "stdout", stdout)
+
+    def unsupported_ioctl(*args: Any, **kwargs: Any) -> None:
+        raise OSError(errno.ENOTTY, "unsupported ioctl")
+
+    monkeypatch.setattr(wireguard.fcntl, "ioctl", unsupported_ioctl)
+    try:
+        with pytest.raises(wireguard.WireGuardError, match="Could not verify a direct"):
+            wireguard._direct_tty()
+    finally:
+        stdin.close()
+        stdout.close()
+        os.close(master)
+        os.close(slave)
+
+
+def test_peer_generate_cli_delivers_profile_to_controlling_pty(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Accept a real controlling PTY and keep generated private material transient."""
+    _state_paths(monkeypatch, tmp_path)
+    server_key = tmp_path / "server.key"
+    server_key.write_text("server-private-test-data", encoding="ascii")
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", server_key)
+    monkeypatch.setattr(wireguard, "load_host_config", lambda _: _config())
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    private_key = bytearray(PRIVATE_KEY.encode("ascii"))
+
+    def run(arguments: list[str], *, input_text: str | None = None) -> str:
+        if arguments == ["ip", "link", "show", "dev", wireguard.INTERFACE]:
+            return ""
+        if arguments == ["wg", "genkey"]:
+            return private_key.decode("ascii")
+        if arguments == ["wg", "pubkey"]:
+            return (
+                SERVER_PUBLIC_KEY
+                if input_text == "server-private-test-data"
+                else PEER_PUBLIC_KEY
+            )
+        raise AssertionError("unexpected WireGuard command")
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    child, terminal = pty.fork()
+    if child == 0:
+        wireguard.sys.stdin = os.fdopen(0, "r", encoding="ascii", closefd=False)
+        wireguard.sys.stdout = os.fdopen(1, "w", encoding="ascii", closefd=False)
+        wireguard.sys.stderr = os.fdopen(2, "w", encoding="ascii", closefd=False)
+        exit_code = wireguard.main(
+            [
+                "peer",
+                "generate",
+                "--id",
+                "peer-pty",
+                "--owner",
+                "person@example.test",
+                "--purpose",
+                "PTY regression",
+            ]
+        )
+        private_key.clear()
+        wireguard.sys.stderr.flush()
+        os._exit(exit_code)
+
+    output = bytearray()
+    child_reaped = False
+    try:
+        read_deadline = time.monotonic() + 10
+        while True:
+            remaining = read_deadline - time.monotonic()
+            if remaining <= 0:
+                pytest.fail("peer generation did not finish reading the PTY profile.")
+            readable, _, _ = select.select([terminal], [], [], remaining)
+            if not readable:
+                pytest.fail("peer generation did not finish reading the PTY profile.")
+            try:
+                chunk = os.read(terminal, 4096)
+            except OSError as error:
+                if error.errno == errno.EIO:
+                    break
+                if error.errno == errno.EINTR:
+                    continue
+                raise
+            if not chunk:
+                break
+            output.extend(chunk)
+
+        wait_deadline = time.monotonic() + 5
+        while True:
+            finished, status = os.waitpid(child, os.WNOHANG)
+            if finished == child:
+                child_reaped = True
+                break
+            remaining = wait_deadline - time.monotonic()
+            if remaining <= 0:
+                pytest.fail(
+                    "peer generation did not exit after writing the PTY profile."
+                )
+            time.sleep(min(0.01, remaining))
+
+        expected_profile = (
+            b"[Interface]",
+            b"PrivateKey = ",
+            b"Address = 198.18.0.1/32",
+            b"[Peer]",
+            b"PublicKey = " + SERVER_PUBLIC_KEY.encode("ascii"),
+            b"Endpoint = vpn.example.test:54000",
+            b"AllowedIPs = 192.168.9.0/24, 192.168.8.0/29",
+        )
+        if (
+            os.waitstatus_to_exitcode(status) != 0
+            or any(fragment not in output for fragment in expected_profile)
+            or private_key not in output
+        ):
+            pytest.fail("peer generation did not deliver the expected PTY profile.")
+
+        state = json.loads(wireguard.PEERS_PATH.read_bytes())
+        peer = state["peers"][0]
+        if (
+            private_key in wireguard.PEERS_PATH.read_bytes()
+            or "private_key" in peer
+            or peer["public_key"] != PEER_PUBLIC_KEY
+        ):
+            pytest.fail("persistent peer state contains unexpected key material.")
+    finally:
+        try:
+            if not child_reaped:
+                try:
+                    os.kill(child, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
+                reap_deadline = time.monotonic() + 1
+                while time.monotonic() < reap_deadline:
+                    try:
+                        finished, _ = os.waitpid(child, os.WNOHANG)
+                    except ChildProcessError:
+                        child_reaped = True
+                        break
+                    if finished == child:
+                        child_reaped = True
+                        break
+                    time.sleep(0.01)
+
+                if not child_reaped:
+                    try:
+                        os.kill(child, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        os.waitpid(child, 0)
+                    except ChildProcessError:
+                        pass
+        finally:
+            try:
+                os.close(terminal)
+            finally:
+                output.clear()
+                private_key.clear()
+                server_key.unlink(missing_ok=True)
+
+
+def test_peer_generate_cli_rejects_redirected_pipes_before_keygen(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reject redirected input and output pipes before generating peer keys."""
+    _state_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(wireguard, "load_host_config", lambda _: _config())
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    stdin_read, stdin_write = os.pipe()
+    stdout_read, stdout_write = os.pipe()
+    stderr_read, stderr_write = os.pipe()
+    commands_read, commands_write = os.pipe()
+
+    def run(arguments: list[str], *, input_text: str | None = None) -> str:
+        if arguments == ["wg", "genkey"]:
+            os.write(commands_write, b"G")
+            return PRIVATE_KEY
+        if arguments == ["ip", "link", "show", "dev", wireguard.INTERFACE]:
+            os.write(commands_write, b"I")
+            return ""
+        raise AssertionError("unexpected WireGuard command")
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    child = os.fork()
+    if child == 0:
+        os.close(stdin_write)
+        os.close(stdout_read)
+        os.close(stderr_read)
+        os.close(commands_read)
+        os.dup2(stdin_read, 0)
+        os.close(stdin_read)
+        os.dup2(stdout_write, 1)
+        os.close(stdout_write)
+        os.dup2(stderr_write, 2)
+        os.close(stderr_write)
+        wireguard.sys.stdin = os.fdopen(0, "r", encoding="ascii", closefd=False)
+        wireguard.sys.stdout = os.fdopen(1, "w", encoding="ascii", closefd=False)
+        wireguard.sys.stderr = os.fdopen(2, "w", encoding="ascii", closefd=False)
+        exit_code = wireguard.main(
+            [
+                "peer",
+                "generate",
+                "--id",
+                "peer-pipe",
+                "--owner",
+                "person@example.test",
+                "--purpose",
+                "pipe regression",
+            ]
+        )
+        wireguard.sys.stderr.flush()
+        os._exit(exit_code)
+
+    os.close(stdin_read)
+    os.close(stdin_write)
+    os.close(stdout_write)
+    os.close(stderr_write)
+    os.close(commands_write)
+    output = bytearray()
+    diagnostics = bytearray()
+    observed_commands = bytearray()
+    try:
+        while chunk := os.read(stdout_read, 4096):
+            output.extend(chunk)
+        while chunk := os.read(stderr_read, 4096):
+            diagnostics.extend(chunk)
+        while chunk := os.read(commands_read, 4096):
+            observed_commands.extend(chunk)
+        _, status = os.waitpid(child, 0)
+        if (
+            os.waitstatus_to_exitcode(status) != 1
+            or output
+            or b"direct terminal" not in diagnostics
+            or observed_commands != b"I"
+            or wireguard.PEERS_PATH.exists()
+        ):
+            pytest.fail("pipe rejection did not precede key generation and output.")
+    finally:
+        os.close(stdout_read)
+        os.close(stderr_read)
+        os.close(commands_read)
+        output.clear()
+        diagnostics.clear()
+        observed_commands.clear()
 
 
 def test_approval_and_revocation_change_only_the_selected_public_peer(
@@ -741,6 +992,329 @@ def test_fail_stop_marker_creation_failure_reports_critical(
 
     with pytest.raises(wireguard.WireGuardError, match="CRITICAL: could not create"):
         wireguard._create_fail_stop_marker()
+
+
+def test_server_brings_interface_up_before_adding_approved_peer_route(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Install the forwarding policy and raise wg0 before adding peer routes."""
+    _state_paths(monkeypatch, tmp_path)
+    server_key = tmp_path / "server.key"
+    server_key.write_text("test-only-server-key", encoding="ascii")
+    server_key.chmod(0o600)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", server_key)
+    original_is_dir = Path.is_dir
+
+    def is_dir(path: Path) -> bool:
+        if path in {
+            Path("/sys/module/wireguard"),
+            Path("/var/lib/gateway/wireguard"),
+        }:
+            return True
+        return original_is_dir(path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    config = _config()
+    wireguard._write_peers(
+        {
+            "schema_version": 1,
+            "peers": [
+                {
+                    "id": "peer-001",
+                    "owner": "test",
+                    "purpose": "test",
+                    "address": "198.18.0.1",
+                    "public_key": PEER_PUBLIC_KEY,
+                    "status": "approved",
+                    "expires_at": "2099-01-01T00:00:00Z",
+                }
+            ],
+            "audit": [],
+        }
+    )
+    events: list[str] = []
+    interface_up = False
+
+    def run(arguments: list[str], **kwargs: Any) -> str:
+        nonlocal interface_up
+        if arguments == ["ip", "-j", "-4", "address", "show"]:
+            return json.dumps(
+                [
+                    {
+                        "ifname": "eth0",
+                        "addr_info": [{"family": "inet", "local": "192.168.9.2"}],
+                    },
+                    {
+                        "ifname": "eth1",
+                        "addr_info": [{"family": "inet", "local": "192.168.8.2"}],
+                    },
+                ]
+            )
+        if arguments == ["ip", "link", "add", "dev", "wg0", "type", "wireguard"]:
+            events.append("create-interface")
+            return ""
+        if arguments[:2] == ["wg", "set"]:
+            if arguments[2:4] == ["wg0", "peer"]:
+                assert interface_up
+                events.append("add-peer")
+            return ""
+        if arguments[:4] == ["ip", "-4", "address", "add"]:
+            events.append("add-server-address")
+            return ""
+        if arguments == ["ip", "link", "set", "dev", "wg0", "up"]:
+            assert events[-1] == "acquire-forwarding"
+            interface_up = True
+            events.append("raise-interface")
+            return ""
+        if arguments[:4] == ["ip", "-4", "route", "add"]:
+            assert interface_up
+            events.append("add-peer-route")
+            return ""
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    def acquire(owner_id: str, interfaces: tuple[str, ...]) -> str:
+        assert interfaces == ("eth0", "eth1")
+        events.append("acquire-forwarding")
+        return "0"
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    monkeypatch.setattr(wireguard, "acquire_forwarding", acquire)
+
+    previous_forwarding = wireguard._configure_server(
+        config, wireguard._enabled(config)
+    )
+
+    assert previous_forwarding == "0"
+    assert events.index("acquire-forwarding") < events.index("raise-interface")
+    assert events.index("raise-interface") < events.index("add-peer")
+    assert events.index("add-peer") < events.index("add-peer-route")
+
+
+def test_server_removes_interface_when_forwarding_acquire_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Remove the new wg0 without releasing a lease that was never acquired."""
+    _state_paths(monkeypatch, tmp_path)
+    server_key = tmp_path / "server.key"
+    server_key.write_text("test-only-server-key", encoding="ascii")
+    server_key.chmod(0o600)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", server_key)
+    original_is_dir = Path.is_dir
+
+    def is_dir(path: Path) -> bool:
+        if path in {
+            Path("/sys/module/wireguard"),
+            Path("/var/lib/gateway/wireguard"),
+        }:
+            return True
+        return original_is_dir(path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    config = _config()
+    wireguard._write_peers({"schema_version": 1, "peers": [], "audit": []})
+    inventory = wireguard.PEERS_PATH.read_bytes()
+    calls: list[list[str]] = []
+    acquisitions: list[tuple[str, tuple[str, ...]]] = []
+    releases: list[tuple[str, str]] = []
+
+    def run(arguments: list[str], **kwargs: Any) -> str:
+        calls.append(arguments)
+        if arguments == ["ip", "-j", "-4", "address", "show"]:
+            return json.dumps(
+                [
+                    {
+                        "ifname": "eth0",
+                        "addr_info": [{"family": "inet", "local": "192.168.9.2"}],
+                    },
+                    {
+                        "ifname": "eth1",
+                        "addr_info": [{"family": "inet", "local": "192.168.8.2"}],
+                    },
+                ]
+            )
+        if arguments == ["ip", "link", "add", "dev", "wg0", "type", "wireguard"]:
+            return ""
+        if arguments[:2] == ["wg", "set"]:
+            return ""
+        if arguments[:4] == ["ip", "-4", "address", "add"]:
+            return ""
+        if arguments == ["ip", "link", "del", "dev", "wg0"]:
+            return ""
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    def acquire(owner_id: str, interfaces: tuple[str, ...]) -> str:
+        acquisitions.append((owner_id, interfaces))
+        raise wireguard.ForwardingError("test-only forwarding failure")
+
+    def release(owner_id: str, previous_forwarding: str) -> None:
+        releases.append((owner_id, previous_forwarding))
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    monkeypatch.setattr(wireguard, "acquire_forwarding", acquire)
+    monkeypatch.setattr(wireguard, "release_forwarding", release)
+
+    with pytest.raises(
+        wireguard.WireGuardError, match="Could not safely activate the WireGuard server"
+    ):
+        wireguard._configure_server(config, wireguard._enabled(config))
+
+    assert calls[-1] == ["ip", "link", "del", "dev", "wg0"]
+    assert calls.count(["ip", "link", "del", "dev", "wg0"]) == 1
+    assert acquisitions == [(wireguard.OWNER_ID, ("eth0", "eth1"))]
+    assert releases == []
+    assert wireguard.PEERS_PATH.read_bytes() == inventory
+
+
+def test_server_fail_stops_when_shared_forwarding_rollback_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Persist WireGuard fail-stop and drop traffic after shared rollback failure."""
+    _state_paths(monkeypatch, tmp_path)
+    server_key = tmp_path / "server.key"
+    server_key.write_text("test-only-server-key", encoding="ascii")
+    server_key.chmod(0o600)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", server_key)
+    original_is_dir = Path.is_dir
+
+    def is_dir(path: Path) -> bool:
+        if path in {
+            Path("/sys/module/wireguard"),
+            Path("/var/lib/gateway/wireguard"),
+        }:
+            return True
+        return original_is_dir(path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    config = _config()
+    wireguard._write_peers({"schema_version": 1, "peers": [], "audit": []})
+    events: list[str] = []
+    releases: list[tuple[str, str]] = []
+
+    def run(arguments: list[str], **kwargs: Any) -> str:
+        if arguments == ["ip", "-j", "-4", "address", "show"]:
+            return json.dumps(
+                [
+                    {
+                        "ifname": "eth0",
+                        "addr_info": [{"family": "inet", "local": "192.168.9.2"}],
+                    },
+                    {
+                        "ifname": "eth1",
+                        "addr_info": [{"family": "inet", "local": "192.168.8.2"}],
+                    },
+                ]
+            )
+        if arguments == ["ip", "link", "add", "dev", "wg0", "type", "wireguard"]:
+            events.append("create")
+            return ""
+        if arguments[:2] == ["wg", "set"]:
+            return ""
+        if arguments[:4] == ["ip", "-4", "address", "add"]:
+            return ""
+        if arguments == ["ip", "link", "del", "dev", "wg0"]:
+            events.append("delete")
+            return ""
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    def acquire(owner_id: str, interfaces: tuple[str, ...]) -> str:
+        assert interfaces == ("eth0", "eth1")
+        raise wireguard.ForwardingRollbackError(owner_id, ("table",))
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    monkeypatch.setattr(wireguard, "acquire_forwarding", acquire)
+    monkeypatch.setattr(
+        wireguard, "_create_fail_stop_marker", lambda: events.append("marker")
+    )
+    monkeypatch.setattr(
+        wireguard,
+        "_install_fail_stop_drop",
+        lambda metadata: events.append(f"drop:{metadata['listen_port']}"),
+    )
+    monkeypatch.setattr(
+        wireguard,
+        "release_forwarding",
+        lambda owner_id, previous: releases.append((owner_id, previous)),
+    )
+
+    with pytest.raises(wireguard.WireGuardError, match="fail-stop drops are installed"):
+        wireguard._configure_server(config, wireguard._enabled(config))
+
+    assert events == ["create", "marker", "drop:54000", "delete"]
+    assert releases == []
+
+
+def test_server_cleanup_failure_reports_critical_without_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Report failed wg0 removal without claiming cleanup or releasing forwarding."""
+    _state_paths(monkeypatch, tmp_path)
+    server_key = tmp_path / "server.key"
+    server_key.write_text("test-only-server-key", encoding="ascii")
+    server_key.chmod(0o600)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", server_key)
+    original_is_dir = Path.is_dir
+
+    def is_dir(path: Path) -> bool:
+        if path in {
+            Path("/sys/module/wireguard"),
+            Path("/var/lib/gateway/wireguard"),
+        }:
+            return True
+        return original_is_dir(path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    config = _config()
+    wireguard._write_peers({"schema_version": 1, "peers": [], "audit": []})
+    inventory = wireguard.PEERS_PATH.read_bytes()
+    calls: list[list[str]] = []
+    acquisitions: list[tuple[str, tuple[str, ...]]] = []
+    releases: list[tuple[str, str]] = []
+
+    def run(arguments: list[str], **kwargs: Any) -> str:
+        calls.append(arguments)
+        if arguments == ["ip", "-j", "-4", "address", "show"]:
+            return json.dumps(
+                [
+                    {
+                        "ifname": "eth0",
+                        "addr_info": [{"family": "inet", "local": "192.168.9.2"}],
+                    },
+                    {
+                        "ifname": "eth1",
+                        "addr_info": [{"family": "inet", "local": "192.168.8.2"}],
+                    },
+                ]
+            )
+        if arguments == ["ip", "link", "add", "dev", "wg0", "type", "wireguard"]:
+            return ""
+        if arguments[:2] == ["wg", "set"]:
+            return ""
+        if arguments[:4] == ["ip", "-4", "address", "add"]:
+            return ""
+        if arguments == ["ip", "link", "del", "dev", "wg0"]:
+            raise wireguard.WireGuardError("test-only deletion failure")
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    def acquire(owner_id: str, interfaces: tuple[str, ...]) -> str:
+        acquisitions.append((owner_id, interfaces))
+        raise wireguard.ForwardingError("test-only forwarding failure")
+
+    def release(owner_id: str, previous_forwarding: str) -> None:
+        releases.append((owner_id, previous_forwarding))
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    monkeypatch.setattr(wireguard, "acquire_forwarding", acquire)
+    monkeypatch.setattr(wireguard, "release_forwarding", release)
+
+    with pytest.raises(
+        wireguard.WireGuardError, match="CRITICAL: could not remove wg0"
+    ):
+        wireguard._configure_server(config, wireguard._enabled(config))
+
+    assert calls[-1] == ["ip", "link", "del", "dev", "wg0"]
+    assert acquisitions == [(wireguard.OWNER_ID, ("eth0", "eth1"))]
+    assert releases == []
+    assert wireguard.PEERS_PATH.read_bytes() == inventory
 
 
 @pytest.mark.parametrize(

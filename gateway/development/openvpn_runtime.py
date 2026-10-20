@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import logging
 import os
 import re
 import secrets
@@ -82,22 +83,33 @@ def _openvpn_config(config: Mapping[str, Any]) -> dict[str, Any]:
         raise RuntimeErrorSafe(
             "OpenVPN activation requires an operator-reviewed profile."
         )
-    expected = {
-        "protocol": "udp",
-        "port": 1194,
-        "device": "tun",
-        "topology": "subnet",
-        "client_to_client": True,
-        "auth": "SHA256",
-        "cipher": "AES-256-CBC",
+    retired_fields = {
+        "protocol",
+        "port",
+        "device",
+        "topology",
+        "client_to_client",
+        "auth",
+        "cipher",
+        "push_domains",
     }
-    if any(
-        openvpn.get(key) != value
-        or isinstance(value, bool)
-        and not isinstance(openvpn.get(key), bool)
-        for key, value in expected.items()
-    ):
-        raise RuntimeErrorSafe("OpenVPN metadata does not match the approved runtime.")
+    allowed_fields = {
+        "enabled",
+        "profile_path",
+        "client_pool",
+        "endpoint",
+        "profile_reviewed",
+    }
+    unsupported_fields = set(openvpn) - allowed_fields - retired_fields
+    if unsupported_fields:
+        raise RuntimeErrorSafe("OpenVPN configuration contains unsupported fields.")
+    legacy_fields = sorted(set(openvpn) & retired_fields)
+    if legacy_fields:
+        logging.getLogger(__name__).warning(
+            "Legacy OpenVPN fields are ignored: %s; remove them from the "
+            "schema-version-1 configuration.",
+            ", ".join(legacy_fields),
+        )
     if not isinstance(openvpn.get("endpoint"), str) or not openvpn["endpoint"]:
         raise RuntimeErrorSafe("OpenVPN endpoint metadata is missing.")
     try:
@@ -880,9 +892,7 @@ def run_openvpn(
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> int:
     """Validate and supervise OpenVPN; hooks activate scoped forwarding safely."""
-    openvpn = _openvpn_config(config)
-    if str(openvpn.get("device")) != "tun":
-        raise RuntimeErrorSafe("OpenVPN must use a TUN device.")
+    _openvpn_config(config)
     if shutil.which(executable) is None:
         raise RuntimeErrorSafe("The OpenVPN executable is unavailable.")
     _profile_is_safe(profile_path, runner=runner)

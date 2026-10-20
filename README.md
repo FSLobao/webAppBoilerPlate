@@ -117,8 +117,11 @@ substituída. Consulte o [plano
 do Gateway](docs/plans/gateway-plan.md), o [status de implementação](docs/plans/gateway-implementation.md)
 e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
 
-O cliente OpenVPN permanece separado: `push_domains: ["anatel.gov.br"]` não será reutilizado como
-domínio WireGuard.
+O cliente OpenVPN permanece separado. Protocolo, porta, topologia e opções de domínio recebidas do
+servidor pertencem ao servidor/perfil externo; `client_to_client` também é configuração do servidor.
+Esses valores não pertencem mais ao JSON do Gateway. O schema permanece na versão 1, mas rejeita
+esses campos antigos; remova-os ao atualizar uma configuração existente. Os demais controles fixos
+do cliente OpenVPN permanecem no runtime.
 
 Receitas de onboarding e split DNS por sistema operacional: [Windows 11](docs/recipes/wireguard-windows-11.md),
 [Linux](docs/recipes/wireguard-linux.md) e [macOS](docs/recipes/wireguard-macos.md). O fluxo usa CLI

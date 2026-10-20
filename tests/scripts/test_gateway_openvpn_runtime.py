@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from gateway.development import openvpn_runtime
 from gateway.development.openvpn_runtime import (
     RuntimeErrorSafe,
     _cleanup_runtime_attempt,
@@ -23,6 +24,7 @@ from gateway.development.openvpn_runtime import (
     restore_forwarding,
     run_openvpn,
 )
+from gateway.development.remote_forwarding import ForwardingRollbackError
 from gateway.development.remote_forwarding import _rules as shared_forwarding_rules
 
 
@@ -34,13 +36,6 @@ def _config(*, enabled: bool = True, profile_reviewed: bool = True) -> dict:
                 "openvpn": {
                     "enabled": enabled,
                     "profile_reviewed": profile_reviewed,
-                    "protocol": "udp",
-                    "port": 1194,
-                    "device": "tun",
-                    "topology": "subnet",
-                    "client_to_client": True,
-                    "auth": "SHA256",
-                    "cipher": "AES-256-CBC",
                     "client_pool": "172.24.0.0/21",
                     "endpoint": "vpn.example.test",
                 }
@@ -60,6 +55,49 @@ def test_openvpn_runtime_requires_operator_profile_review() -> None:
     """Reject activation until an operator reviews the opaque profile."""
     with pytest.raises(RuntimeErrorSafe, match="operator-reviewed"):
         _openvpn_config(_config(profile_reviewed=False))
+
+
+def test_openvpn_runtime_ignores_legacy_fields_and_keeps_fixed_cli_options(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ignore legacy settings without changing fixed runtime options."""
+    config = _config()
+    config["gateway"]["remote_access"]["openvpn"].update(
+        {
+            "protocol": "tcp",
+            "port": 1,
+            "device": "tap",
+            "topology": "net30",
+            "client_to_client": False,
+            "auth": "none",
+            "cipher": "legacy-cipher",
+            "push_domains": ["legacy.example.test"],
+        }
+    )
+
+    with caplog.at_level("WARNING"):
+        openvpn = _openvpn_config(config)
+
+    command = build_openvpn_command()
+    assert openvpn["client_pool"] == "172.24.0.0/21"
+    assert command[command.index("--dev") + 1] == "tun0"
+    assert command[command.index("--topology") + 1] == "subnet"
+    assert command[command.index("--auth") + 1] == "SHA256"
+    assert command[command.index("--cipher") + 1] == "AES-256-CBC"
+    assert command[command.index("--data-ciphers") + 1] == "AES-256-CBC"
+    assert "--port" not in command
+    assert "--proto" not in command
+    assert "ignored" in caplog.text
+    assert "remove them" in caplog.text
+
+
+def test_openvpn_runtime_rejects_unrelated_fields() -> None:
+    """Reject unknown fields when runtime bypasses deployment preflight."""
+    config = _config()
+    config["gateway"]["remote_access"]["openvpn"]["unrelated"] = "value"
+
+    with pytest.raises(RuntimeErrorSafe, match="unsupported fields"):
+        _openvpn_config(config)
 
 
 def test_disabled_openvpn_cannot_start_runtime() -> None:
@@ -456,6 +494,26 @@ def test_forwarding_rules_preserve_sources_and_deny_application_forwarding() -> 
     assert "snat" not in rules.lower()
     assert "masquerade" not in rules.lower()
     assert "0.0.0.0/0" not in rules
+
+
+def test_openvpn_surfaces_critical_forwarding_rollback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Preserve critical forwarding failure status at the OpenVPN boundary."""
+    owner = "d" * 64
+
+    def fail_acquire(*args: object, **kwargs: object) -> str:
+        raise ForwardingRollbackError(owner, ("table",))
+
+    monkeypatch.setattr(openvpn_runtime, "acquire_forwarding", fail_acquire)
+    with pytest.raises(
+        RuntimeErrorSafe, match="CRITICAL: forwarding activation rollback"
+    ):
+        configure_forwarding(
+            ("eth0",),
+            runtime_id=owner,
+            forwarding_path=tmp_path / "ip_forward",
+        )
 
 
 def test_forwarding_mutation_is_scoped_and_restores_prior_namespace_state(

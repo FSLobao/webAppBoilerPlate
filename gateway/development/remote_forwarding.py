@@ -21,10 +21,46 @@ from typing import Any
 NFT_TABLE = "gateway_remote_access"
 FORWARDING_PATH = Path("/proc/sys/net/ipv4/ip_forward")
 STATE_DIRECTORY = Path("/run/gateway/remote_access")
+ROLLBACK_FAILURE_STEPS = frozenset(
+    {"critical_state_persistence", "forwarding", "table"}
+)
 
 
 class ForwardingError(RuntimeError):
     """Report a safe shared-forwarding failure."""
+
+
+class ForwardingRollbackError(ForwardingError):
+    """Report a critical rollback or release failure that requires recovery."""
+
+    def __init__(
+        self,
+        owner_id: str,
+        failed_steps: Sequence[str],
+        *,
+        operation: str = "acquire_rollback",
+    ) -> None:
+        """Store sanitized ownership, operation, and failed-step metadata."""
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", owner_id)
+            or not failed_steps
+            or any(step not in ROLLBACK_FAILURE_STEPS for step in failed_steps)
+            or operation not in {"acquire_rollback", "release"}
+        ):
+            raise ValueError("Forwarding rollback metadata is invalid.")
+        self.owner_id = owner_id
+        self.critical = True
+        self.operation = operation
+        self.failed_steps = tuple(failed_steps)
+        action = (
+            "forwarding activation rollback"
+            if operation == "acquire_rollback"
+            else "forwarding release"
+        )
+        super().__init__(
+            f"CRITICAL: {action} failed; "
+            "shared forwarding state requires operator recovery."
+        )
 
 
 def _run(
@@ -88,10 +124,12 @@ def _ensure_directory(directory: Path) -> None:
 
 
 @contextmanager
-def _locked(directory: Path):
+def _locked(directory: Path, *, critical_operation: str = "acquire_rollback"):
     """Lock the private state file and yield its mutable state."""
     _ensure_directory(directory)
     lock_path = directory / "state.lock"
+    descriptor: int | None = None
+    state: dict[str, Any] | None = None
     try:
         descriptor = os.open(
             lock_path,
@@ -115,6 +153,8 @@ def _locked(directory: Path):
                 "owners": [],
                 "table_tag": None,
                 "previous_forwarding": None,
+                "critical_owner": None,
+                "critical_failed_steps": [],
             }
         else:
             if (
@@ -138,6 +178,27 @@ def _locked(directory: Path):
                 )
                 or len(set(state["owners"])) != len(state["owners"])
                 or (
+                    state.get("critical_owner") is not None
+                    and (
+                        not isinstance(state.get("critical_owner"), str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", state["critical_owner"])
+                        or state["owners"] != [state["critical_owner"]]
+                    )
+                )
+                or not isinstance(state.get("critical_failed_steps", []), list)
+                or any(
+                    not isinstance(step, str) or step not in ROLLBACK_FAILURE_STEPS
+                    for step in state.get("critical_failed_steps", [])
+                )
+                or (
+                    state.get("critical_owner") is None
+                    and state.get("critical_failed_steps", [])
+                )
+                or (
+                    state.get("critical_owner") is not None
+                    and not state.get("critical_failed_steps")
+                )
+                or (
                     state["owners"]
                     and (
                         not isinstance(state.get("table_tag"), str)
@@ -149,10 +210,12 @@ def _locked(directory: Path):
                 )
             ):
                 raise ForwardingError("Gateway forwarding state is invalid.")
+            state.setdefault("critical_owner", None)
+            state.setdefault("critical_failed_steps", [])
         try:
             yield state
         finally:
-            if state["owners"]:
+            if state["owners"] or state["critical_owner"] is not None:
                 temporary = directory / f"state.{secrets.token_hex(16)}.tmp"
                 flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
                 flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -169,9 +232,61 @@ def _locked(directory: Path):
                     os.close(directory_fd)
             else:
                 state_path.unlink(missing_ok=True)
-        os.close(descriptor)
     except OSError as error:
+        if (
+            descriptor is not None
+            and state is not None
+            and state.get("critical_owner") is not None
+        ):
+            raise ForwardingRollbackError(
+                state["critical_owner"],
+                ("critical_state_persistence",),
+                operation=critical_operation,
+            ) from error
         raise ForwardingError("Could not update Gateway forwarding state.") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _rollback_acquisition(
+    owner_tag: str,
+    previous_forwarding: str,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+    forwarding_path: Path,
+) -> tuple[str, ...]:
+    """Restore forwarding before removing the owned restrictive policy.
+
+    Keep the table installed when forwarding cannot be verified or restored.
+    """
+    failed_steps: list[str] = []
+    if previous_forwarding == "0":
+        try:
+            current = forwarding_path.read_text(encoding="ascii").strip()
+            if current == "1":
+                forwarding_path.write_text("0", encoding="ascii")
+                if forwarding_path.read_text(encoding="ascii").strip() != "0":
+                    failed_steps.append("forwarding")
+            elif current != "0":
+                failed_steps.append("forwarding")
+        except OSError, UnicodeError:
+            failed_steps.append("forwarding")
+        if failed_steps:
+            return tuple(failed_steps)
+
+    try:
+        handle = _table_handle(owner_tag, runner=runner)
+        if handle is not None:
+            deleted = _run(
+                ["nft", "delete", "table", "inet", "handle", str(handle)],
+                runner=runner,
+            )
+            if deleted.returncode != 0:
+                failed_steps.append("table")
+    except OSError, ForwardingError:
+        failed_steps.append("table")
+    return tuple(failed_steps)
 
 
 def _table_handle(
@@ -248,6 +363,10 @@ def acquire_forwarding(
     installed_previous: str | None = None
     try:
         with _locked(state_directory) as state:
+            if state.get("critical_owner") is not None:
+                raise ForwardingError(
+                    "CRITICAL: shared forwarding state requires operator recovery."
+                )
             if owner_id in state["owners"]:
                 if _table_handle(state["table_tag"], runner=runner) is None:
                     raise ForwardingError("Gateway forwarding table is missing.")
@@ -296,40 +415,69 @@ def acquire_forwarding(
                 raise ForwardingError("Could not install Gateway forwarding rules.")
             installed_tag = owner_tag
             installed_previous = previous
-            if previous == "0":
-                forwarding_path.write_text("1", encoding="ascii")
-            state.update(
-                owners=[owner_id],
-                table_tag=owner_tag,
-                previous_forwarding=previous,
-            )
-            return previous
-    except Exception as error:
-        if installed_tag is not None:
             try:
-                handle = _table_handle(installed_tag, runner=runner)
-                if handle is not None:
-                    deleted = _run(
-                        ["nft", "delete", "table", "inet", "handle", str(handle)],
-                        runner=runner,
+                if previous == "0":
+                    forwarding_path.write_text("1", encoding="ascii")
+                state.update(
+                    owners=[owner_id],
+                    table_tag=owner_tag,
+                    previous_forwarding=previous,
+                )
+            except OSError as error:
+                failed_steps = _rollback_acquisition(
+                    owner_tag,
+                    previous,
+                    runner=runner,
+                    forwarding_path=forwarding_path,
+                )
+                if failed_steps:
+                    state.update(
+                        owners=[owner_id],
+                        table_tag=owner_tag,
+                        previous_forwarding=previous,
+                        critical_owner=owner_id,
+                        critical_failed_steps=list(failed_steps),
                     )
-                    if deleted.returncode != 0:
-                        raise ForwardingError(
-                            "Could not roll back Gateway forwarding rules."
-                        )
-                if installed_previous == "0":
-                    current = forwarding_path.read_text(encoding="ascii").strip()
-                    if current == "1":
-                        forwarding_path.write_text("0", encoding="ascii")
-            # Keep tuple parentheses for the Gateway's Python 3.13 runtime.
-            except (OSError, ForwardingError) as error:  # fmt: skip
+                    raise ForwardingRollbackError(owner_id, failed_steps) from error
                 raise ForwardingError(
-                    "Gateway forwarding activation failed and owned-state rollback failed."
+                    "Could not activate Gateway forwarding."
                 ) from error
-        if isinstance(error, ForwardingError):
-            raise
-        if isinstance(error, OSError):
-            raise ForwardingError("Could not activate Gateway forwarding.") from error
+            return previous
+    except ForwardingRollbackError:
+        raise
+    except OSError as error:
+        if installed_tag is not None and installed_previous is not None:
+            failed_steps = _rollback_acquisition(
+                installed_tag,
+                installed_previous,
+                runner=runner,
+                forwarding_path=forwarding_path,
+            )
+            if failed_steps:
+                try:
+                    with _locked(state_directory) as state:
+                        if state["owners"] and (
+                            state["owners"] != [owner_id]
+                            or state["table_tag"] != installed_tag
+                            or state["previous_forwarding"] != installed_previous
+                        ):
+                            raise ForwardingError(
+                                "CRITICAL: forwarding ownership changed during rollback."
+                            )
+                        state.update(
+                            owners=[owner_id],
+                            table_tag=installed_tag,
+                            previous_forwarding=installed_previous,
+                            critical_owner=owner_id,
+                            critical_failed_steps=list(failed_steps),
+                        )
+                except ForwardingError:
+                    raise ForwardingRollbackError(
+                        owner_id, (*failed_steps, "critical_state_persistence")
+                    ) from error
+                raise ForwardingRollbackError(owner_id, failed_steps) from error
+        raise ForwardingError("Could not activate Gateway forwarding.") from error
+    except ForwardingError:
         raise
 
 
@@ -347,7 +495,11 @@ def release_forwarding(
         "1",
     }:
         raise ForwardingError("Gateway forwarding ownership metadata is invalid.")
-    with _locked(state_directory) as state:
+    with _locked(state_directory, critical_operation="release") as state:
+        if state.get("critical_owner") is not None:
+            raise ForwardingError(
+                "CRITICAL: shared forwarding state requires operator recovery."
+            )
         if owner_id not in state["owners"]:
             return
         if state["previous_forwarding"] != previous_forwarding:
@@ -357,6 +509,27 @@ def release_forwarding(
             return
         owner_tag = state["table_tag"]
         handle = _table_handle(owner_tag, runner=runner)
+        failed_steps: list[str] = []
+        if previous_forwarding == "0":
+            try:
+                current = forwarding_path.read_text(encoding="ascii").strip()
+                if current == "1":
+                    forwarding_path.write_text("0", encoding="ascii")
+                    current = forwarding_path.read_text(encoding="ascii").strip()
+                if current != "0":
+                    failed_steps.append("forwarding")
+            except OSError, UnicodeError:
+                failed_steps.append("forwarding")
+        if failed_steps:
+            state.update(
+                critical_owner=owner_id,
+                critical_failed_steps=failed_steps,
+            )
+            raise ForwardingRollbackError(
+                owner_id,
+                failed_steps,
+                operation="release",
+            ) from None
         if handle is not None:
             deleted = _run(
                 ["nft", "delete", "table", "inet", "handle", str(handle)],
@@ -364,17 +537,6 @@ def release_forwarding(
             )
             if deleted.returncode != 0:
                 raise ForwardingError("Could not remove Gateway forwarding rules.")
-        if previous_forwarding == "0":
-            try:
-                current = forwarding_path.read_text(encoding="ascii").strip()
-                if current == "1":
-                    forwarding_path.write_text("0", encoding="ascii")
-                elif current != "0":
-                    raise ForwardingError("Gateway IPv4 forwarding state is invalid.")
-            except OSError as error:
-                raise ForwardingError(
-                    "Could not restore Gateway IPv4 forwarding state."
-                ) from error
         state["owners"].clear()
         state["table_tag"] = None
         state["previous_forwarding"] = None

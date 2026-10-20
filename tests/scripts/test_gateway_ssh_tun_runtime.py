@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from gateway.development import ssh_tun_runtime as runtime
+from gateway.development.remote_forwarding import ForwardingRollbackError
 
 
 def _config(*, max_sessions: int = 2) -> dict[str, Any]:
@@ -469,3 +470,40 @@ def test_route_conflict_fails_before_interface_or_forwarding_mutation(
 
     assert network.mutations == []
     assert leases == []
+
+
+def test_critical_forwarding_rollback_aborts_ssh_tun_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Surface critical lease failure and remove the uncommitted SSH TUN."""
+    config = _config()
+    paths = _paths(tmp_path)
+    _reserve(config, paths, 41000)
+    network = FakeNetwork()
+
+    def fail_acquire(
+        owner_id: str, interfaces: tuple[str, ...], **kwargs: object
+    ) -> str:
+        raise ForwardingRollbackError(owner_id, ("table",))
+
+    monkeypatch.setattr(runtime, "acquire_forwarding", fail_acquire)
+
+    with pytest.raises(ForwardingRollbackError) as error:
+        runtime.pam_lifecycle(
+            config,
+            {
+                "PAM_USER": "gateway-tunnel",
+                "PAM_TYPE": "open_session",
+                "SSH_CONNECTION": "192.0.2.20 41000 203.0.113.10 22",
+            },
+            paths=paths,
+            runner=network.run,
+            now=102.0,
+        )
+
+    assert error.value.critical is True
+    assert error.value.owner_id
+    assert network.devices == {}
+    reservation = _read_reservations(paths)
+    assert len(reservation) == 1
+    assert reservation[0]["status"] == "pending"

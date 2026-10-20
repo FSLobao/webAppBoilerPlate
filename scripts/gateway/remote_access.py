@@ -8,6 +8,7 @@ launches host commands.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -195,15 +196,21 @@ def _configured_networks(config: Mapping[str, object]) -> list[GatewayNetwork]:
     return parsed
 
 
-def validate_remote_access_config(config: Mapping[str, object]) -> None:
+def validate_remote_access_config(
+    config: Mapping[str, object],
+    *,
+    announce: Callable[[str], None] | None = None,
+) -> None:
     """Validate the optional, strict ``gateway.remote_access`` configuration.
 
-    Unknown keys are rejected. Disabled sections remain inert; enabling
-    OpenVPN requires an endpoint, while enabling SSH TUN requires an explicit
-    account and a separately chosen address pool.
+    Unknown keys are rejected. Retired OpenVPN fields from earlier schema-v1
+    configs are warned about and ignored. Disabled sections remain inert;
+    enabling OpenVPN requires an endpoint, while enabling SSH TUN requires
+    an explicit account and a separately chosen address pool.
 
     Args:
         config: Parsed schema-version-1 host configuration.
+        announce: Optional recipient for compatibility warnings.
 
     Raises:
         TypeError: A remote-access field has an unsupported type.
@@ -226,6 +233,10 @@ def validate_remote_access_config(config: Mapping[str, object]) -> None:
     openvpn_keys = {
         "enabled",
         "profile_path",
+        "client_pool",
+    }
+    optional_openvpn_keys = {"endpoint", "profile_reviewed"}
+    retired_openvpn_keys = {
         "protocol",
         "port",
         "device",
@@ -233,18 +244,27 @@ def validate_remote_access_config(config: Mapping[str, object]) -> None:
         "client_to_client",
         "auth",
         "cipher",
-        "client_pool",
         "push_domains",
     }
-    optional_openvpn_keys = {"endpoint", "profile_reviewed"}
     if (
         not isinstance(openvpn, dict)
-        or set(openvpn) - openvpn_keys - optional_openvpn_keys
+        or set(openvpn) - openvpn_keys - optional_openvpn_keys - retired_openvpn_keys
         or openvpn_keys - set(openvpn)
     ):
         raise ValueError(
             "gateway.remote_access.openvpn has missing or unsupported fields"
         )
+    retired_fields = sorted(set(openvpn) & retired_openvpn_keys)
+    if retired_fields:
+        warning = (
+            "Legacy OpenVPN fields are ignored: "
+            f"{', '.join(retired_fields)}; remove them from the "
+            "schema-version-1 configuration."
+        )
+        if announce is None:
+            logging.getLogger(__name__).warning("%s", warning)
+        else:
+            announce(warning)
     if not isinstance(openvpn["enabled"], bool):
         raise TypeError("gateway.remote_access.openvpn.enabled must be boolean")
     if "profile_reviewed" in openvpn and not isinstance(
@@ -257,48 +277,10 @@ def validate_remote_access_config(config: Mapping[str, object]) -> None:
         raise ValueError(
             "enabled OpenVPN requires operator-reviewed profile_reviewed: true"
         )
-    if not isinstance(openvpn["client_to_client"], bool):
-        raise TypeError(
-            "gateway.remote_access.openvpn.client_to_client must be boolean"
-        )
     _validate_profile_path(openvpn["profile_path"])
-    expected = {
-        "protocol": "udp",
-        "port": 1194,
-        "device": "tun",
-        "topology": "subnet",
-        "client_to_client": True,
-        "auth": "SHA256",
-        "cipher": "AES-256-CBC",
-    }
-    for key, value in expected.items():
-        if openvpn[key] != value or (
-            isinstance(openvpn[key], bool) and not isinstance(value, bool)
-        ):
-            raise ValueError(f"gateway.remote_access.openvpn.{key} must be {value!r}")
-    if not isinstance(openvpn["port"], int):
-        raise TypeError("gateway.remote_access.openvpn.port must be an integer")
-
     openvpn_pool = _ipv4_network(
         openvpn["client_pool"], "gateway.remote_access.openvpn.client_pool"
     )
-    domains = openvpn["push_domains"]
-    if not isinstance(domains, list) or not domains:
-        raise ValueError(
-            "gateway.remote_access.openvpn.push_domains must be a non-empty array"
-        )
-    for domain in domains:
-        if (
-            not isinstance(domain, str)
-            or len(domain) > 253
-            or any(
-                not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", part)
-                for part in domain.split(".")
-            )
-        ):
-            raise ValueError(
-                "gateway.remote_access.openvpn.push_domains contains an invalid domain"
-            )
 
     endpoint = None
     if "endpoint" in openvpn:

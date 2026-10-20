@@ -1,6 +1,6 @@
 # Gateway Bootstrap Plan
 
-**Status:** Base Gateway bootstrap, readiness-scoped DNS handoff, opt-in OpenVPN client, SSH TUN, and additive IPv4-only WireGuard server/peer CLI are implemented. All remote-access services remain disabled in checked-in config. WireGuard deployment values remain unset. The current RHEL 9.8 host has no WireGuard kernel module or `wg` tool, so kernel tunnel and packet-forwarding acceptance remain blocked. OS-specific split-DNS recipes exist but require validation on each client OS. No application lifecycle caller is included. Real-profile activation, target-host routed packet acceptance, and RHEL 9.8 / Podman 5.8.2 qualification remain pending. The approved deployment order is Gateway first, then application services and NGINX.
+**Status:** Base Gateway bootstrap, readiness-scoped DNS handoff, opt-in OpenVPN client, SSH TUN, and additive IPv4-only WireGuard server/peer CLI are implemented. All remote-access services remain disabled in checked-in config. Isolated WireGuard container-only packet tests passed on 2026-10-20; kernel support does not block starting or rerunning isolated functional tests. Production/deployed remote-client acceptance remains blocked on explicit transport configuration, external routes and return paths, and human/client prerequisites. OS-specific split-DNS recipes exist but require validation on each client OS. No application lifecycle caller is included. RHEL 9.8 / Podman 5.8.2 qualification and target-host acceptance remain pending. The approved deployment order is Gateway first, then application services and NGINX.
 **Scope:** Shared Gateway bootstrap on RHEL 9.8 with rootful Podman 5.8.2
 **Acceptance target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux disabled. Disabling SELinux removes mandatory access controls; preflight must verify the requested state and must not change host security settings.
 **Deployment target:** Isolated test host only during implementation; no live-host deployment is authorized by this plan.
@@ -65,7 +65,7 @@ Implementation must preserve these invariants:
 - Host publishes the WireGuard UDP container port through Quadlet. The UDP port and endpoint are not approved. `51820/UDP` is only a suggested default, not a decision. No external firewall or perimeter change is a plan requirement.
 - Gateway-container administrators can perform all peer operations and can reach every configured service, including PostgreSQL. Treat these administrators as trusted network administrators; service credentials remain separately required.
 - Server private key is root-owned, external to Git, and available only to the WireGuard consumer. Peer private keys are generated inside Gateway, delivered once to verified foreground `/dev/tty`, and never persisted or logged. Plaintext exists transiently in memory. TTY checks cannot detect external recording; operators must use a trusted non-recording terminal.
-- Keep OpenVPN `push_domains: ["anatel.gov.br"]` separate; do not repurpose it for WireGuard.
+- Keep pushed-domain options with the external OpenVPN server/profile; do not repurpose them for WireGuard. Protocol, port, and topology also belong to the external server/profile, while `client_to_client` is server-side. Do not duplicate these settings in Gateway JSON.
 - Full-network SSH access uses OpenSSH TUN (`ssh -w`), not local, remote, or dynamic port forwarding. Port-forwarding modes do not satisfy unrestricted protocol access.
 - Developer-to-container access preserves client source addresses and uses no DNAT or SNAT. Ordinary container egress may use Podman's host masquerading; external services see the host's egress address.
 - SSH forwarding does not replace destination authentication. Developers authenticate to the target container with their individual keys. Access to the gateway itself has separate authentication.
@@ -91,7 +91,7 @@ Route direction and ownership are explicit:
 - OpenVPN client addresses are allocated by the external server from its dedicated remote-client pool. The external owner provisions and maintains the server-side route to each Podman CIDR via the Gateway VPN client.
 - On the Gateway, each configured Podman CIDR is reached over its already-connected Podman interface. Do **not** route an application CIDR back through either developer tunnel. For each remote client prefix, install/retain a route through the tunnel that owns that prefix/session.
 - Containers reply through their normal Podman path to the host. The host return route for each remote client prefix uses one deterministic Gateway next hop/interface, not conflicting copies of that same prefix via every Podman network. If target-host tests prove policy routing is necessary, use explicit, separately owned policy tables/rules with deterministic selection; do not silently install competing routes.
-- Each active tunnel forwards IPv4 only between its own peer/client interface and configured Podman interfaces, with stateful replies. No transport forwards between application interfaces or adds NAT. Ordinary container-initiated egress continues through normal rootful Podman host egress/masquerading, not through a developer tunnel. OpenVPN, SSH TUN, and WireGuard runtimes remain opt-in; kernel and target acceptance are pending.
+- Each active tunnel forwards IPv4 only between its own peer/client interface and configured Podman interfaces, with stateful replies. No transport forwards between application interfaces or adds NAT. Ordinary container-initiated egress continues through normal rootful Podman host egress/masquerading, not through a developer tunnel. All runtimes remain opt-in; isolated WireGuard packet testing passed; formal target-host acceptance and OpenVPN/SSH TUN functional acceptance remain pending.
 
 The Gateway preserves client IPv4 source addresses and uses no DNAT or SNAT for developer access. Split routes are limited to explicitly configured Podman IPv4 destinations; they do not replace or hijack the developer's default route. Static configured routes and connected Podman routes are allowed when they are the intended managed routes. Reject address/prefix overlap between OpenVPN and SSH pools/endpoints, Podman ranges, and relevant host, developer-LAN, or corporate routes. Do not blanket-reject default routes or necessary connected tunnel ranges. Validate active route/address data before mutation; if the information needed for a symmetric return path is unavailable or ambiguous, fail closed.
 
@@ -164,7 +164,7 @@ The host schema should contain:
 
 - `schema_version`, initially `1`.
 - A required top-level `networks` array containing every Podman network declared for applications and their services, with exact name, expected CIDR, and non-overlapping Gateway interface address. This is the global application-network inventory; the Development Gateway attaches to every listed network. Do not include unrelated host interfaces/attachments, external VPN routes, or tunnel address pools here.
-- Optional service-specific sections such as `gateway`, `http_proxy`, direct service-publication declarations, and per-application declarations. Feature sections are optional and backward-compatible under required `schema_version: 1`.
+- Optional service-specific sections such as `gateway`, `http_proxy`, direct service-publication declarations, and per-application declarations. Feature sections are optional and backward-compatible under required `schema_version: 1`. For compatibility, schema-v1 OpenVPN configs may still contain the retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, or `push_domains` fields; validators warn and ignore them. Remove these fields from canonical configs. Other unknown OpenVPN fields remain invalid.
 - An optional array of containers and their expected networks for generic host preflight checks.
 - An optional `gateway` section with identity and separate SSH/Cockpit bind addresses and ports. Keep `bind_address` as the backward-compatible fallback for both listeners; Gateway attachment is derived from the top-level `networks` inventory, not a Gateway-specific network list.
 - `gateway.remote_access.openvpn` settings reference the external, private client profile. The external OpenVPN server allocates remote client addresses; validate pushed routes and session addresses without adding external routes/pools to the Podman network inventory.
@@ -194,15 +194,7 @@ Representative shape; replace all deployment inputs and keep both existing runti
       "openvpn": {
         "enabled": false,
         "profile_path": "/etc/gateway/openvpn/ERMXDF02.ovpn",
-        "protocol": "udp",
-        "port": 1194,
-        "device": "tun",
-        "topology": "subnet",
-        "client_to_client": true,
-        "auth": "SHA256",
-        "cipher": "AES-256-CBC",
         "client_pool": "172.24.0.0/21",
-        "push_domains": ["anatel.gov.br"],
         "profile_reviewed": false
       },
       "ssh_tun": {
@@ -326,7 +318,7 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 ### Phase 1: Configuration and read-only preflight
 
 - Add the versioned JSON schema and representative non-secret configuration.
-- Host schema accepts only declared `dev.anatel` DNS names; `dns_records` remains empty. The separate OpenVPN `push_domains: ["anatel.gov.br"]` field is unchanged.
+- Host schema accepts only declared `dev.anatel` DNS names; `dns_records` remains empty. OpenVPN pushed-domain options belong to the external server/profile, not Gateway JSON. Schema version 1 accepts the retired OpenVPN JSON fields for compatibility, warns that they are ignored, and recommends removal; other unknown fields remain rejected.
 - When deployment inputs are supplied, validate WireGuard server address/pool, endpoint, UDP port, resolver reachability, every top-level Podman CIDR, and overlap against host, Podman, LAN, and corporate routes before mutation.
 - Implement strict schema/value validation and human-readable errors.
 - Add shared read-only checks for the RHEL 9.8 / Podman 5.8.2 baseline, Quadlet, `jq`, source tree, every declared network/CIDR, disabled SELinux state, tunnel profile/session candidates, discovered routes, TUN device, route ownership, Podman socket, and host-wide prerequisites. Do not make pending tunnel-runtime checks block base Gateway bootstrap before a tunnel is enabled for activation.
@@ -367,7 +359,7 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 - Require the external owner to route every application CIDR via the Gateway VPN client. Stop acceptance if those routes are absent.
 - Implemented: additive Gateway WireGuard server alongside OpenVPN client and SSH TUN. Configure all peers with `AllowedIPs` containing exactly every top-level Podman CIDR, including database networks. The resolver is a Gateway address within those routes. Never install a client default route.
 - Install and own only the Gateway-side IPv4 address, routes, and forwarding state required for approved WireGuard peers. Preserve source addresses; add no NAT, DNAT/SNAT, inter-application forwarding, or per-service allowlist. Every configured peer must reach all configured Podman networks, including PostgreSQL; service credentials remain required.
-- Peer inventory and lifecycle operations are implemented for peer public keys, explicit approval, active configuration, expiry, listing, and revocation. The CLI runs as container root. Every Gateway-container administrator is trusted for full network access. Kernel acceptance remains pending.
+- Peer inventory and lifecycle operations are implemented for peer public keys, explicit approval, active configuration, expiry, listing, and revocation. The CLI runs as container root. Every Gateway-container administrator is trusted for full network access. Isolated container WireGuard handshake and packet-forwarding test passed with kernel support; formal RHEL 9.8 / Podman 5.8.2 target-host acceptance remains pending.
 - Keep the server private key root-owned, outside Git, persistent across restart, and mounted read-only only to the WireGuard consumer. Never log private material. Generate each peer private key inside Gateway and deliver it once to a verified direct foreground terminal. If delivery fails, revoke the pending peer and generate a replacement; never recover a stored copy.
 - Do not expose a public admin HTTP/API. The admin CLI, approval reference, expiry, audit metadata, and one-time delivery behavior are implemented. TTY checks cannot prove that external terminal recording is absent; operators must use a trusted non-recording terminal.
 - Permit new container-initiated egress to externally routable destinations through the normal Podman host route and masquerading. Verify external targets see the host egress address; do not route ordinary egress through the Development Gateway VPN.
@@ -405,7 +397,7 @@ For each path, document owner, mode, mount mode, and backup/restore responsibili
 - Implemented: conditional UDP host publication through Quadlet. External firewall/perimeter changes remain out of scope; publication does not prove reachability.
 - Implemented: profiles include every declared Podman IPv4 CIDR, no default route, and a resolver comment for split DNS. WireGuard itself does not push DNS; OS configuration remains separate.
 - Implemented: Windows 11 NRPT, Linux systemd-resolved routing-only `~dev.anatel`, and macOS `/etc/resolver/dev.anatel` recipes. Recipes preserve global DNS and default routes. Validate them on their respective operating systems.
-- Pending acceptance: kernel tunnel and packet forwarding, concurrent transport tests, host return-routing behavior, reboot/revocation recovery, DNS resolution, and per-OS profile operation on the supported target. The current host lacks the WireGuard kernel module and `wg` tool.
+- Pending acceptance: formal target-host acceptance for kernel tunnel and packet forwarding; concurrent transport tests, host return-routing behavior, reboot/revocation recovery, DNS resolution, and per-OS profile operation on the supported target. Isolated packet tests passed with the host WireGuard kernel module loaded; formal acceptance on the RHEL 9.8 / Podman target remains pending. Host `wg` binary absence is not a blocker; the image includes WireGuard tools.
 
 #### Pending operator-design inputs
 
@@ -477,7 +469,7 @@ For the capability test, treat `CAP_NET_ADMIN` and `/dev/net/tun` access as cand
 
 Implementation decisions and locally validated behavior are recorded in [gateway-implementation.md](gateway-implementation.md). The following questions remain open; answer them with evidence from a disposable RHEL 9.8 host using rootful Podman 5.8.2 before claiming acceptance:
 
-1. Does the RHEL 9.8 / Podman 5.8.2 target pass vendor/package support and lifecycle tests? Record the exact kernel, Quadlet generator, package source, and SELinux state. The current host lacks the WireGuard kernel module and `wg` tool.
+1. Does the RHEL 9.8 / Podman 5.8.2 target pass vendor/package support and lifecycle tests? Record the exact kernel, Quadlet generator, package source, and SELinux state. The current host has the WireGuard kernel module available and loaded, and isolated container packet testing passed; RHEL 9.8 / Podman 5.8.2 target-host acceptance remains pending.
 2. Can Cockpit access the approved rootful Podman socket on the target with SELinux disabled?
 3. Can the Gateway run as an OpenVPN client while multiple SSH TUN developer sessions operate concurrently, with the minimum required device access/capabilities?
 4. Do active tunnel sessions expose enough addresses/routes for conflict checks, unique SSH allocations, deterministic host return routing, and cleanup?
@@ -517,4 +509,15 @@ The bootstrap is ready for review when:
 
 ## 13. Current Status
 
-WireGuard configuration, runtime, peer CLI, and OS split-DNS recipes are implemented but not enabled in checked-in config. Required deployment values remain unresolved. The current RHEL 9.8 / rootful Podman 5.8.2 host reports SELinux `Disabled` but has no WireGuard kernel module or `wg` tool; no kernel tunnel or packet-forwarding acceptance is claimed. OpenVPN and SSH TUN remain disabled, with external OpenVPN routes still a prerequisite. Target acceptance for capabilities, host return routing, egress, DNS, reboot recovery, and concurrent transports remains pending. The isolated two-session source-preservation test passed on the local Debian image; it does not establish target-host acceptance. Use [gateway-implementation.md](gateway-implementation.md) for current implementation details. Do not deploy to a live host.
+All remote-access transports remain disabled in checked-in config. The current host probe reports kernel `5.14.0-687.56.1.el9_8.x86_64`, Podman `5.8.2`, Python `3.14.8`, `/sys/module/wireguard` present, an installed WireGuard module found by `modinfo`, and `/dev/net/tun` present. The host `wg` binary is unavailable, but is not required: the Gateway image includes `wireguard-tools`. Kernel support is no longer a blocker for container-only tests.
+
+The isolated WireGuard container-only packet test on 2026-10-20 passed a real handshake, HTTP 200 responses from two test apps, DNS, client-source preservation, and inter-network blocking. It published no host UDP port and used no host return route or production inputs. This permits starting or rerunning isolated functional tests; it does not establish deployed remote-client or target-host acceptance.
+
+### Pending blockers for production/deployed remote-client acceptance
+
+- **OpenVPN:** Checked-in config has `enabled: false`, a profile path, and `client_pool`; endpoint is not configured, and `profile_reviewed: true` requires explicit configuration after human review. External route and return-path evidence is also required. No profile was opened or inspected.
+- **SSH TUN:** Checked-in config has `enabled: false` and lacks required `account`, `address_pool`, `authorized_keys_path`, and `max_sessions`. Live peer authentication and client input are required.
+- **WireGuard:** Checked-in config has `enabled: false` and lacks required `host_bind_address`, `listen_port`, `endpoint`, `address_pool`, `server_address`, `dns_server`, and `server_private_key_path`. These are required for deployed endpoint/client functional acceptance; isolated tests used test-only settings.
+- **Routing and client acceptance:** Provide external route and return-path evidence, then validate remote-client routing, DNS, concurrent transports, and relevant client prerequisites. External firewall changes are not required by the approved plan.
+
+Keep approved `192.168.9.0/24`; host network overlap is not an implementation blocker. Run read-only conflict preflight before any real apply. No profile access, deployment, or host mutation occurred. Use [gateway-implementation.md](gateway-implementation.md) for current implementation details.

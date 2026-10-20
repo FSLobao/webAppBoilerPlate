@@ -27,10 +27,20 @@ from typing import Any
 
 if __package__:
     from .host_config_validation import load_host_config
-    from .remote_forwarding import acquire_forwarding, release_forwarding
+    from .remote_forwarding import (
+        ForwardingError,
+        ForwardingRollbackError,
+        acquire_forwarding,
+        release_forwarding,
+    )
 else:
     from host_config_validation import load_host_config
-    from remote_forwarding import acquire_forwarding, release_forwarding
+    from remote_forwarding import (
+        ForwardingError,
+        ForwardingRollbackError,
+        acquire_forwarding,
+        release_forwarding,
+    )
 
 CONFIG_PATH = Path("/etc/gateway/generated/config.json")
 SERVER_KEY_PATH = Path("/run/gateway/wireguard/server.key")
@@ -40,6 +50,8 @@ INTERFACE = "wg0"
 OWNER_ID = hashlib.sha256(b"gateway-wireguard").hexdigest()
 PEER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 KEY_PATTERN = re.compile(r"[A-Za-z0-9+/]{43}=")
+# Linux asm-generic/ioctls.h defines TIOCGDEV as _IOR('T', 0x32, unsigned int).
+LINUX_TIOCGDEV = 0x80045432
 FAIL_STOP_TABLE = "gateway_wireguard_fail_stop"
 FAIL_STOP_OWNERSHIP_PREFIX = "gateway-wireguard-fail-stop-v1:"
 
@@ -404,6 +416,32 @@ def _install_fail_stop_drop(wireguard: dict[str, Any]) -> None:
         if f"table inet {FAIL_STOP_TABLE}" not in tables.splitlines():
             raise
         _verify_fail_stop_table(port, token)
+
+
+def _fail_stop_forwarding_rollback(wireguard: dict[str, Any]) -> str:
+    """Persist WireGuard fail-stop state and attempt every local shutdown step."""
+    failures: list[str] = []
+    try:
+        _create_fail_stop_marker()
+    except WireGuardError:
+        failures.append("marker")
+    try:
+        _install_fail_stop_drop(wireguard)
+    except WireGuardError:
+        failures.append("drop_policy")
+    try:
+        _run(["ip", "link", "del", "dev", INTERFACE])
+    except WireGuardError:
+        failures.append("interface")
+    if failures:
+        return (
+            "CRITICAL: shared forwarding rollback failed; "
+            "WireGuard fail-stop is incomplete; operator recovery is required."
+        )
+    return (
+        "CRITICAL: shared forwarding rollback failed; WireGuard fail-stop drops "
+        "are installed and wg0 was removed."
+    )
 
 
 def _create_fail_stop_marker() -> None:
@@ -808,18 +846,25 @@ def _assert_interface_up() -> None:
 
 
 def _direct_tty() -> int:
-    """Open a direct terminal matching both process input and output devices."""
+    """Open a controlling terminal matching process input and output devices."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise WireGuardError("One-time profile delivery requires a direct terminal.")
+    descriptor = -1
     try:
-        input_device = os.stat(os.ttyname(sys.stdin.fileno()))
-        output_device = os.stat(os.ttyname(sys.stdout.fileno()))
+        input_device = bytearray(4)
+        output_device = bytearray(4)
+        fcntl.ioctl(sys.stdin.fileno(), LINUX_TIOCGDEV, input_device, True)
+        fcntl.ioctl(sys.stdout.fileno(), LINUX_TIOCGDEV, output_device, True)
         descriptor = os.open(
             "/dev/tty",
             os.O_WRONLY | os.O_NOCTTY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
         )
         terminal = os.fstat(descriptor)
+        terminal_device = bytearray(4)
+        fcntl.ioctl(descriptor, LINUX_TIOCGDEV, terminal_device, True)
     except OSError as error:
+        if descriptor >= 0:
+            os.close(descriptor)
         raise WireGuardError(
             "Could not verify a direct one-time delivery terminal."
         ) from error
@@ -834,8 +879,8 @@ def _direct_tty() -> int:
         not stat.S_ISCHR(terminal.st_mode)
         or not os.isatty(descriptor)
         or not foreground
-        or input_device.st_rdev != terminal.st_rdev
-        or output_device.st_rdev != terminal.st_rdev
+        or input_device != terminal_device
+        or output_device != terminal_device
     ):
         os.close(descriptor)
         raise WireGuardError("One-time profile delivery requires the direct terminal.")
@@ -1144,16 +1189,21 @@ def _configure_server(config: dict[str, Any], wireguard: dict[str, Any]) -> str:
                 INTERFACE,
             ]
         )
-        for peer in _valid_approved_peers(state, wireguard):
-            _activate_peer(peer)
         previous_forwarding = acquire_forwarding(OWNER_ID, podman_interfaces)
         _run(["ip", "link", "set", "dev", INTERFACE, "up"])
+        for peer in _valid_approved_peers(state, wireguard):
+            _activate_peer(peer)
         return previous_forwarding
-    except (OSError, WireGuardError) as error:
+    except ForwardingRollbackError as error:
+        message = _fail_stop_forwarding_rollback(wireguard)
+        raise WireGuardError(message) from error
+    except (OSError, WireGuardError, ForwardingError) as error:
         try:
             _run(["ip", "link", "del", "dev", INTERFACE])
-        except WireGuardError:
-            pass
+        except WireGuardError as cleanup_error:
+            raise WireGuardError(
+                "CRITICAL: could not remove wg0 after WireGuard server activation failed."
+            ) from cleanup_error
         if previous_forwarding is not None:
             release_forwarding(OWNER_ID, previous_forwarding)
         raise WireGuardError(

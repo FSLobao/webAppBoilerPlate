@@ -1,6 +1,6 @@
 # Gateway Bootstrap
 
-**Status:** Base Gateway bootstrap, readiness-scoped DNS handoff, and opt-in OpenVPN, SSH TUN, and additive IPv4 WireGuard runtimes are implemented. All remote-access services remain disabled in checked-in config. WireGuard schema, Quadlet UDP publication, public peer inventory, root-only generate/approve/revoke CLI, `/dev/tty` one-time profile output, and split-DNS recipes are implemented. Deployment inputs remain unset. The current host has no loaded WireGuard kernel module, so no kernel tunnel or packet-forwarding acceptance is claimed. `dns_records` remains empty and no application lifecycle caller is included. No production key, endpoint, pool, or profile was used.
+**Status:** Base Gateway bootstrap, readiness-scoped DNS handoff, and opt-in OpenVPN, SSH TUN, and additive IPv4 WireGuard runtimes are implemented. All remote-access services remain disabled in checked-in config. WireGuard schema, Quadlet UDP publication, public peer inventory, root-only generate/approve/revoke CLI, `/dev/tty` one-time profile output, and split-DNS recipes are implemented. Deployment inputs remain unset. On 2026-10-20, isolated container-only WireGuard packet acceptance passed on the disposable host after the kernel module autoloaded from a `--network none --cap-add NET_ADMIN` container. The test exposed and fixed server interface activation ordering. This does not claim deployed-host acceptance. `dns_records` remains empty and no application lifecycle caller is included. No production key, endpoint, pool, or profile was used.
 **Deployment authorization:** Disposable test host only. The attached VS Code environment is authorized for Podman tests; do not deploy to a live host.
 **Qualification target:** RHEL 9.8, rootful Podman 5.8.2, Quadlet, and SELinux disabled. No target acceptance is claimed yet.
 
@@ -17,11 +17,13 @@
 - **WireGuard trust boundary:** any user with administrative privileges to the Gateway container can manage peers and can reach all configured Podman networks. Such administrators receive broad network access; service credentials remain separately required. The implemented interface is a root-only CLI through container exec; no public admin HTTP/API exists.
 - **WireGuard key lifecycle:** the root-only `gateway-wireguard peer` CLI generates keys inside Gateway. Pending peers are inactive. A separate explicit approval activates one peer and requires an approval reference and UTC expiry. Profiles print once only to matching foreground stdin/stdout `/dev/tty`; pipes fail closed. Private keys are never persisted, logged, placed in arguments, or placed in environment. If output fails, identify and revoke the pending peer; never retry or recover its key. Persistent audit stores container UID, peer ID, public fingerprint, operation, and public metadata. Host auditing must identify the human invoking `podman exec`. No public admin HTTP/API exists.
 - **WireGuard host publication:** enabled Quadlet publishes only the explicit configured UDP bind and port. Endpoint and port remain unresolved; no default is chosen. The requester declined an external firewall/perimeter requirement; host publication does not assert endpoint reachability. Do not add an external firewall prerequisite.
-- **DNS split and migration:** internal suffix is exactly `dev.anatel`, internal-only and non-public. DNS emits A records, never AAAA. `dns_records` is currently empty. Host schema now accepts exact `.dev.anatel` names; older documentation examples were migrated. WireGuard does not push routes or DNS; its profile carries only split routes and a resolver comment, not a global DNS directive. OpenVPN `push_domains: ["anatel.gov.br"]` remains separate.
+- **DNS split and migration:** internal suffix is exactly `dev.anatel`, internal-only and non-public. DNS emits A records, never AAAA. `dns_records` is currently empty. Host schema now accepts exact `.dev.anatel` names; older documentation examples were migrated. WireGuard does not push routes or DNS; its profile carries only split routes and a resolver comment, not a global DNS directive. OpenVPN pushed-domain options belong to its external server/profile and are not Gateway JSON configuration.
 - **Per-OS DNS:** Windows 11 uses NRPT for `dev.anatel`; Linux uses systemd-resolved routing-only `~dev.anatel` and a per-link resolver; macOS uses `/etc/resolver/dev.anatel`. Recipes now use the implemented peer CLI. Client OS behavior still needs validation on Windows 11, Linux, and macOS systems.
 - **SSH TUN key configuration:** enabling `gateway.remote_access.ssh_tun` requires `enabled`, `account`, `address_pool`, `authorized_keys_path`, and `max_sessions`. The fixed account is `gateway-tunnel`; its root-managed public-key file is mounted read-only at `/run/gateway/ssh_tun/authorized_keys`. Keep this allow-list separate from `/etc/gateway/authorized_keys` for Gateway login and from each destination container's keys. Checked-in config remains disabled and contains no production key or pool.
 - **Route contract; target acceptance pending:** Gateway reaches each Podman CIDR through its connected Podman interface. Quadlet owns one host route per enabled OpenVPN, SSH, or WireGuard pool through the deterministic lowest-sorted configured Gateway address, tagged `proto 186`; service hooks add and remove each exact route. WireGuard also owns exact per-peer `/32` routes inside the Gateway namespace. Host preflight recognizes only exact tagged pool routes. The host Podman masquerade path still needs isolated target validation. Developer default routes and ordinary egress are not replaced; the Gateway adds no SNAT/DNAT or app-to-app forwarding rules.
 - **OpenVPN runtime:** an operator must set `profile_reviewed: true`; host preflight checks profile path, regular-file type, root ownership, and private mode without reading contents. Quadlet mounts the profile read-only and grants only `/dev/net/tun` plus `NET_ADMIN` when enabled. OpenVPN runs under a supervisor with `--ifconfig-noexec` and `--route-noexec`; the up hook validates the assigned pool address before configuring `tun0`, and the route-up hook rejects every pushed/profile route. `nftables` limits namespace forwarding to TUN-to-Podman and stateful replies, rejects inter-network forwarding, and restores only the forwarding value changed by the runtime. Cleanup verifies the ownership comment and deletes the exact inspected kernel table handle; a same-name replacement is preserved. Logs are reduced to fixed sanitized diagnostics.
+- **OpenVPN configuration ownership:** protocol, port, topology, and pushed-domain options come from the external server/profile; `client_to_client` is server-side. Gateway JSON keeps client-owned inputs, including endpoint, opaque profile path, review gate, and `client_pool`. Fixed tunnel safeguards remain in the runtime. Schema version stays 1; legacy configs may retain retired JSON fields, which validation warns about and ignores. Remove them from canonical configs. The profile remains opaque and is not inspected by this project.
+- **Shared-forwarding rollback failure:** when runtime state remains writable, an acquisition rollback that cannot remove its exact nftables table or restore the original IPv4 forwarding value persists the owner, table tag, original value, and failed rollback steps in root-owned runtime state. New acquisition and release calls then fail closed until operator recovery. If state persistence also fails, callers still receive a typed critical exception, but no shared-state recovery record is guaranteed. The state does not claim that forwarding is fully rolled back; inspect recorded ownership against live nftables and sysctl state before removing only resources that still match. WireGuard also records its persistent critical marker, attempts UDP/interface drop rules, and attempts to remove `wg0`; OpenVPN and SSH report the critical acquisition failure and do not mark the lease successful. No automatic recovery command exists.
 - Runtime acceptance remains pending. The checked-in OpenVPN runtime and SSH TUN runtime are disabled. The opaque production profile was not read or tested, and its external file references, plugins, scripts, endpoint behavior, and authentication requirements remain human-review inputs. SSH `-N` suppresses the forced session; use a session request with the fixed forced command. `AuthorizedKeysCommand` runs a root-owned, fixed Python helper as root because the isolated OpenSSH 10.0p2 image accepts the setting; the helper validates the exact dedicated account, Ed25519 key allow-list, and normalized connection endpoints before creating a bounded reservation. It accepts no client command or executable input and does not allocate interfaces before PAM authentication. The required PAM hook provisions only the allocated user-owned TUN and IPv4 point-to-point pair; a failed hook aborts before OpenSSH handles the TUN request. The real two-session integration test exercises successful open/close, source preservation, and independent teardown. Pending unauthenticated slots expire after 60 seconds on allocator/lifecycle events; no watcher or process-table scan runs. Tunnel-only `ClientAliveInterval 15` / `ClientAliveCountMax 3` bounds lost TCP cleanup. Shared nftables leases allow `tun*` to configured Podman interfaces and established replies, drop Podman-to-Podman forwarding, and add no NAT. The fixed command rejects non-empty `SSH_ORIGINAL_COMMAND`, reports its assigned client-side address pair, and holds the session until disconnect. The OpenSSH 10.0p2 probe found reversed `%C` endpoint order versus PAM `SSH_CONNECTION`; the integration ran against the same upstream version. Both values are normalized as unordered endpoint pairs. Production values remain absent. Actual target host routes, DNS forwarding, abrupt-loss timing, reconnect races, real OpenVPN coexistence, and operator network review remain outstanding. See [the permission probe](../evidence/ssh-tun-permission-probe-2026-10-19.md) and [runtime test record](../evidence/ssh-tun-runtime-implementation-2026-10-19.md).
 - **Remaining WireGuard deployment inputs:** no public endpoint, UDP host bind/port, peer pool, server address, DNS resolver, or root-owned server-key path is configured. Supply each as an explicit configuration input before enabling the runtime. The interface name is fixed as `wg0`; peer addresses are allocated from the configured pool. No production values are approved. The root-only CLI, peer approval reference, expiry, audit metadata, and direct-TTY one-time output are implemented. See [Gateway plan, Phase 7](gateway-plan.md#phase-7-wireguard-peer-onboarding-and-split-dns).
 - The current [startup.sh](../../gateway/development/startup.sh) keeps `PermitTunnel no` by default. When explicitly enabled, it limits point-to-point TUN access to the dedicated account, root-managed key command, fixed forced session command, and required PAM lifecycle hook.
@@ -402,8 +404,76 @@ WireGuard configuration remains disabled and contains no deployment values.
   network, temporary credentials, and temporary files were cleaned by their
   scoped test cleanup.
 
-Actual WireGuard kernel/tunnel/peer integration was not possible on this host.
-It lacks both loaded kernel support and the host `wg` utility. No external
-endpoint, UDP port, peer pool, server address, resolver, server-key path, or
-peer was configured or used. A real tunnel, peer connectivity, and target-host
-firewall/route acceptance remain deployment gates.
+At that preflight point, the host had no loaded WireGuard kernel support and
+the host had no `wg` utility. The follow-up container-only interface probe
+autoloaded the existing kernel module without host package installation or
+`modprobe`; the host `wg` utility was not needed because the image contains
+`wireguard-tools`. The isolated packet test below used only temporary test
+configuration and generated test keys. It did not use an external endpoint,
+production UDP port, production peer pool, production server address,
+production resolver, production key path, or production peer.
+
+### Isolated WireGuard packet test (2026-10-20)
+
+The test ran against the current worktree based on revision
+`15526f66870a7edf3cccea969da98a5cdfe954ce`, on Linux
+`5.14.0-687.56.1.el9_8.x86_64` with rootful Podman `5.8.2`.
+
+- Build command: `podman build --file gateway/development/Containerfile --tag localhost/gateway:wg-packet-fixed-20261020130059-54779 gateway/development`
+- Image ID: `a78c2a8da03894295fc563a5ce4434994d3f4a0d622e064febdd8fe3f0586fde`.
+
+- Container-only interface probe passed:
+  ```sh
+  podman run --rm --network none --cap-add=NET_ADMIN --cap-drop=NET_RAW \
+    --entrypoint /bin/sh localhost/gateway:wg-packet-20261020125010-47241 \
+    -c 'ip link add dev wg-probe type wireguard &&
+    ip -brief link show dev wg-probe && ip link del dev wg-probe'
+  ```
+  WireGuard interface creation worked without a host WireGuard utility or host
+  package change.
+- The packet test used internal-only Podman networks `10.250.110.0/24`,
+  `10.250.120.0/24`, and `10.250.130.0/24`. Temporary config used UDP port
+  `51820`, loopback host bind `127.0.0.1`, private underlay endpoint
+  `10.250.130.2`, peer pool `198.18.240.0/28`, server tunnel address
+  `10.254.0.1`, and DNS server `10.250.110.2`. No host port was published.
+- Generated test-only server/client keys and pre-approved public peer metadata
+  established a real handshake. Both app containers returned HTTP 200 through
+  the tunnel. Each app observed client source `198.18.240.1`; no SNAT occurred.
+  DNSMasq resolved `echo.app.dev.anatel` to the test app. A routed app-A to
+  app-B probe was dropped by Gateway forwarding policy.
+- App return routes existed only inside the disposable app containers. No host
+  return route was added. Host IPv4 routes and rules matched their exact
+  pre-test snapshots after cleanup; host `net.ipv4.ip_forward` remained `1`.
+  Test containers, networks, temporary credentials, and this task's image tags
+  were removed. Pre-existing image tags were preserved.
+- The test exposed a runtime defect: Linux rejected the approved peer route
+  while `wg0` was down (`Device for nexthop is not up.`). Server activation now
+  acquires the Gateway forwarding policy, raises `wg0`, then adds approved
+  peers and their routes. The focused regression test checks this ordering.
+- The passing packet test used pre-approved test-only public metadata. The
+  PTY-based one-time profile CLI was not part of that run; a PTY harness
+  attempt returned nonzero. CLI secret handling and peer lifecycle remain
+  covered by unit tests.
+
+Full-suite command:
+
+```sh
+UV_PYTHON=python3.14 UV_PYTHON_DOWNLOADS=never uv run --locked python -m pytest -q
+```
+
+It passed: 219 tests, 1 skipped. Target acceptance remains pending for Quadlet
+service activation, host return routes, external endpoint reachability,
+deployed firewall behavior, and real client OS behavior. This isolated packet
+test does not establish production or full target-host acceptance.
+
+### Follow-up WireGuard startup rollback regression (2026-10-20)
+
+Review found that a forwarding-acquisition `ForwardingError` can occur after
+`wg0` creation but before an ownership token returns. `_configure_server` now
+deletes only that startup attempt's `wg0` and does not release an unacquired
+forwarding lease. Unit tests verify unchanged peer inventory and report failed
+interface deletion as critical without claiming cleanup.
+
+The current worktree full-suite run passed: 221 tests, 1 skipped. Scoped Ruff
+lint and format checks passed. No host runtime or integration test was run for
+this follow-up; the packet acceptance evidence above remains unchanged.

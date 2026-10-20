@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ipaddress
 import subprocess
+from pathlib import Path
 
 import pytest
 
+from gateway.development.host_config_validation import load_host_config
 from scripts.gateway.host_preflight import (
     _validate_remote_access_routes,
     validate_gateway_networks,
@@ -32,15 +34,7 @@ PODMAN_NETWORKS = [
 OPENVPN_CONFIG = {
     "enabled": False,
     "profile_path": "/etc/gateway/openvpn/ERMXDF02.ovpn",
-    "protocol": "udp",
-    "port": 1194,
-    "device": "tun",
-    "topology": "subnet",
-    "client_to_client": True,
-    "auth": "SHA256",
-    "cipher": "AES-256-CBC",
     "client_pool": "172.24.0.0/21",
-    "push_domains": ["anatel.gov.br"],
 }
 
 
@@ -100,6 +94,26 @@ def test_accepts_optional_remote_access_metadata_without_reading_profile() -> No
     validate_remote_access_config(config)
 
 
+def test_checked_in_config_omits_retired_openvpn_fields() -> None:
+    """Validate canonical OpenVPN config without duplicated server settings."""
+    config_path = Path(__file__).resolve().parents[2] / "config/host_config.json"
+    config = load_host_config(config_path)
+    validate_remote_access_config(config)
+
+    assert config["schema_version"] == 1
+    openvpn = config["gateway"]["remote_access"]["openvpn"]
+    assert {
+        "protocol",
+        "port",
+        "device",
+        "topology",
+        "client_to_client",
+        "auth",
+        "cipher",
+        "push_domains",
+    }.isdisjoint(openvpn)
+
+
 def test_accepts_fully_configured_wireguard_only_when_explicitly_enabled() -> None:
     """Validate IPv4-only WireGuard values without reading the server key."""
     validate_remote_access_config(
@@ -148,26 +162,75 @@ def test_enabled_openvpn_requires_operator_review_of_opaque_profile() -> None:
 
 
 @pytest.mark.parametrize(
-    ("value", "error"),
+    "legacy_field",
     [
-        (True, None),
-        (False, ValueError),
-        (1, TypeError),
-        (0, TypeError),
+        "protocol",
+        "port",
+        "device",
+        "topology",
+        "client_to_client",
+        "auth",
+        "cipher",
+        "push_domains",
     ],
 )
-def test_requires_boolean_true_for_openvpn_client_to_client(
-    value: object, error: type[Exception] | None
+def test_accepts_and_warns_about_retired_openvpn_fields(
+    legacy_field: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Require an actual boolean true for OpenVPN client-to-client."""
+    """Accept legacy schema-v1 data while warning that the field has no effect."""
     openvpn = OPENVPN_CONFIG.copy()
-    openvpn["client_to_client"] = value
+    openvpn[legacy_field] = "legacy"
 
-    if error is None:
+    with caplog.at_level("WARNING"):
         validate_remote_access_config(_config(openvpn=openvpn))
-    else:
-        with pytest.raises(error, match="client_to_client"):
-            validate_remote_access_config(_config(openvpn=openvpn))
+
+    assert legacy_field in caplog.text
+    assert "ignored" in caplog.text
+    assert "remove them" in caplog.text
+
+
+def test_remote_access_warning_uses_preflight_reporter() -> None:
+    """Send compatibility warnings through the existing preflight reporter."""
+    openvpn = OPENVPN_CONFIG.copy() | {"protocol": "tcp"}
+    messages = []
+
+    validate_remote_access_config(_config(openvpn=openvpn), announce=messages.append)
+
+    assert messages == [
+        (
+            "Legacy OpenVPN fields are ignored: protocol; remove them from the "
+            "schema-version-1 configuration."
+        )
+    ]
+
+
+def test_host_preflight_reports_legacy_openvpn_warning() -> None:
+    """Report ignored schema-v1 fields through Gateway preflight output."""
+    config = _config(openvpn=OPENVPN_CONFIG.copy() | {"protocol": "tcp"})
+    messages = []
+
+    def run_command(
+        arguments: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess:
+        if arguments == ["podman", "network", "ls", "--format", "{{.Name}}"]:
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+        if arguments == ["ip", "-j", "-4", "route", "show", "table", "all"]:
+            return subprocess.CompletedProcess(arguments, 0, "[]", "")
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    validate_gateway_networks(
+        config,
+        run_command=run_command,
+        announce=messages.append,
+    )
+
+    assert any(
+        message.startswith("[host-preflight] WARNING: Legacy OpenVPN fields")
+        and "protocol" in message
+        and "ignored" in message
+        and "remove them" in message
+        for message in messages
+    )
 
 
 @pytest.mark.parametrize("unsupported", ["routes", "ccd", "route_pushes"])

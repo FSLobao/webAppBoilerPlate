@@ -497,7 +497,10 @@ def validate_gateway_networks(
     The function never inspects application containers or mutates host state.
     """
     validate_host_config(config)
-    validate_remote_access_config(config)
+    validate_remote_access_config(
+        config,
+        announce=lambda message: announce(f"[host-preflight] WARNING: {message}"),
+    )
     _validate_openvpn_profile_file(config)
     _validate_ssh_tun_keys_file(config)
     _validate_wireguard_inputs(config)
