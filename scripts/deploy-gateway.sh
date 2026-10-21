@@ -14,7 +14,6 @@ STAGED_DNS=''
 STAGED_QUADLET=''
 PREVIOUS_IMAGE_ID=''
 SERVICE_WAS_ACTIVE=0
-SERVICE_WAS_ENABLED=0
 SOCKET_WAS_ACTIVE=0
 ACTIVATION_ATTEMPTED=0
 NETWORKS_CREATED=()
@@ -374,6 +373,22 @@ restore_file() {
     fi
 }
 
+# Restore only the prior active state of the generated Quadlet service.
+# Arguments: none. Reads SERVICE_WAS_ACTIVE and ACTIVATION_ATTEMPTED.
+# Output: expected absent-unit stop errors are suppressed.
+# Return status: nonzero if a previously active service cannot start.
+restore_gateway_service_state() {
+    if [[ "$SERVICE_WAS_ACTIVE" == 1 ]]; then
+        systemctl start "$UNIT_NAME" >/dev/null 2>&1 || {
+            printf '[gateway] ERROR: previous gateway service did not recover.\n' >&2
+            return 1
+        }
+    elif [[ "$ACTIVATION_ATTEMPTED" == 1 ]]; then
+        systemctl stop "$UNIT_NAME" >/dev/null 2>&1 || true
+    fi
+}
+# ---------------------------------- #
+
 rollback_deployment() {
     local rollback_failed=0
 
@@ -398,19 +413,7 @@ rollback_deployment() {
         printf '[gateway] ERROR: systemd reload failed during rollback.\n' >&2
         rollback_failed=1
     }
-    if [[ "$SERVICE_WAS_ENABLED" == 1 ]]; then
-        systemctl enable "$UNIT_NAME" >/dev/null 2>&1 || rollback_failed=1
-    else
-        systemctl disable "$UNIT_NAME" >/dev/null 2>&1 || true
-    fi
-    if [[ "$SERVICE_WAS_ACTIVE" == 1 ]]; then
-        systemctl start "$UNIT_NAME" >/dev/null 2>&1 || {
-            printf '[gateway] ERROR: previous gateway service did not recover.\n' >&2
-            rollback_failed=1
-        }
-    elif [[ "$ACTIVATION_ATTEMPTED" == 1 ]]; then
-        systemctl stop "$UNIT_NAME" >/dev/null 2>&1 || true
-    fi
+    restore_gateway_service_state || rollback_failed=1
 
     if [[ "$SOCKET_WAS_ACTIVE" != 1 ]]; then
         systemctl stop podman.socket >/dev/null 2>&1 || true
@@ -521,6 +524,21 @@ cleanup_after_apply() {
 }
 # ---------------------------------- #
 
+# Start or restart a generated Quadlet unit without enabling the transient unit.
+# Arguments: 1 if the service was active before apply, otherwise 0.
+# Output: none. Activation failures are reported to stderr.
+activate_gateway_service() {
+    local service_was_active=$1
+
+    ACTIVATION_ATTEMPTED=1
+    if [[ "$service_was_active" == 1 ]]; then
+        systemctl restart "$UNIT_NAME" || fail "Could not restart $UNIT_NAME with the new configuration."
+    else
+        systemctl start "$UNIT_NAME" || fail "Could not start $UNIT_NAME."
+    fi
+}
+# ---------------------------------- #
+
 # Remove only inactive remote-access routes with the exact managed tag and next hop.
 # Arguments: validated host configuration path. Reads host routes; mutates only matching routes.
 # Output: none. Reports inspection or deletion failures to stderr and exits nonzero.
@@ -583,7 +601,6 @@ apply_deployment() {
     ensure_wireguard_kernel_module "$config_path"
 
     if systemctl is-active --quiet "$UNIT_NAME"; then SERVICE_WAS_ACTIVE=1; fi
-    if systemctl is-enabled --quiet "$UNIT_NAME"; then SERVICE_WAS_ENABLED=1; fi
     if systemctl is-active --quiet podman.socket; then SOCKET_WAS_ACTIVE=1; fi
     if podman container exists "$CONTAINER_NAME" >/dev/null 2>&1; then
         previous_container_image=$(podman inspect --format '{{.Image}}' "$CONTAINER_NAME")
@@ -626,16 +643,7 @@ apply_deployment() {
         systemctl daemon-reload || fail 'systemd failed to reload the generated Quadlet unit.'
     fi
     if (( restart_needed == 1 )); then
-        ACTIVATION_ATTEMPTED=1
-        if [[ "$SERVICE_WAS_ACTIVE" == 1 ]]; then
-            systemctl enable "$UNIT_NAME" >/dev/null || fail "Could not enable $UNIT_NAME for reboot recovery."
-            systemctl restart "$UNIT_NAME" || fail "Could not restart $UNIT_NAME with the new configuration."
-        else
-            systemctl enable --now "$UNIT_NAME" || fail "Could not enable and start $UNIT_NAME."
-        fi
-    elif (( SERVICE_WAS_ENABLED != 1 )); then
-        ACTIVATION_ATTEMPTED=1
-        systemctl enable "$UNIT_NAME" || fail "Could not enable $UNIT_NAME for reboot recovery."
+        activate_gateway_service "$SERVICE_WAS_ACTIVE"
     fi
     remove_managed_remote_access_return_routes "$config_path"
     if (( dns_changed == 1 && restart_needed == 0 )); then

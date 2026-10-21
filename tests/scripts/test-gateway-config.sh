@@ -196,6 +196,44 @@ MODULE_CALL_LOG="$TMP_DIR/wireguard-module-call.log" bash -c '
 [[ ! -s "$TMP_DIR/wireguard-module-call.log" ]] || \
     fail 'Disabled WireGuard requested kernel module loading during apply'
 printf 'PASS: apply requests host module loading only when WireGuard is enabled\n'
+mkdir -p "$TMP_DIR/system-bin"
+cat > "$TMP_DIR/system-bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s\n' "$*" >> "$SYSTEMCTL_CALL_LOG"
+SH
+chmod 0755 "$TMP_DIR/system-bin/systemctl"
+: > "$TMP_DIR/systemctl-call.log"
+SYSTEMCTL_CALL_LOG="$TMP_DIR/systemctl-call.log" \
+    PATH="$TMP_DIR/system-bin:$PATH" bash -c '
+        source "$1"
+        activate_gateway_service 0
+        [[ "$ACTIVATION_ATTEMPTED" == 1 ]]
+    ' _ "$DEPLOY_SCRIPT"
+grep -Fxq 'start gateway.service' "$TMP_DIR/systemctl-call.log" || \
+    fail 'First deployment did not start the generated Gateway unit directly'
+: > "$TMP_DIR/systemctl-call.log"
+SYSTEMCTL_CALL_LOG="$TMP_DIR/systemctl-call.log" \
+    PATH="$TMP_DIR/system-bin:$PATH" bash -c '
+        source "$1"
+        activate_gateway_service 1
+    ' _ "$DEPLOY_SCRIPT"
+grep -Fxq 'restart gateway.service' "$TMP_DIR/systemctl-call.log" || \
+    fail 'Existing active Gateway unit was not restarted directly'
+: > "$TMP_DIR/systemctl-call.log"
+SYSTEMCTL_CALL_LOG="$TMP_DIR/systemctl-call.log" \
+    PATH="$TMP_DIR/system-bin:$PATH" bash -c '
+        source "$1"
+        SERVICE_WAS_ACTIVE=0
+        ACTIVATION_ATTEMPTED=1
+        restore_gateway_service_state
+    ' _ "$DEPLOY_SCRIPT"
+grep -Fxq 'stop gateway.service' "$TMP_DIR/systemctl-call.log" || \
+    fail 'Rollback did not stop the first-deploy Gateway unit'
+if grep -Eq '^(enable|disable)( |$)' "$TMP_DIR/systemctl-call.log"; then
+    fail 'Quadlet rollback tried to enable or disable a generated unit'
+fi
+printf 'PASS: generated Quadlet units start, restart, and roll back without enable/disable calls\n'
 mkdir -m 0700 "$TMP_DIR/wireguard-key-directory" "$TMP_DIR/key-bin"
 jq --arg key_path "$TMP_DIR/wireguard-key-directory/server.key" \
     '.gateway.remote_access.wireguard.server_private_key_path = $key_path' \

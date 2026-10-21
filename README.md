@@ -448,8 +448,9 @@ operacional.
   ainda não existem. Uma chave incompleta ou alterada causa falha; não há rotação automática.
 - Cria somente redes Podman declaradas que ainda não existam. Redes existentes precisam ter o CIDR
   declarado; o script nunca as exclui.
-- Renderiza `/etc/containers/systemd/gateway.container`, recarrega systemd e habilita
-  `gateway.service` para iniciar no boot.
+- Renderiza `/etc/containers/systemd/gateway.container` e recarrega systemd. Quadlet aplica
+  `[Install] WantedBy=multi-user.target` para o boot; `--apply` inicia ou reinicia o unit gerado
+  sem `systemctl enable`.
 - Inicia o container `gateway`, ligado somente às redes declaradas. A unidade publica
   SSH e Cockpit nos ports configurados e monta o socket rootful do Podman no container.
 - Com OpenVPN habilitado e perfil revisado, monta o perfil somente para leitura, adiciona apenas

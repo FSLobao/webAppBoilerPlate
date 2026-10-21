@@ -455,8 +455,8 @@ def _validate_wireguard_server_key_path(
     except FileNotFoundError:
         _validate_wireguard_key_directory(key_path.parent)
         announce(
-            "[host-preflight] PENDING: WireGuard server key will be generated "
-            f"during --apply at {key_path}."
+            "[host-preflight] PENDING: WireGuard server key will be generated"
+            f" during --apply at {key_path}."
         )
         return
     except OSError as error:
