@@ -308,10 +308,10 @@ executável nem implante com base nesse desenho.
 
 ## Implantação e operação
 
-O script [`scripts/deploy-gateway.sh`](scripts/deploy-gateway.sh) valida a
-configuração, verifica pré-requisitos do host e, em `--apply`, constrói e instala o Development
-Gateway. Ele não instala pacotes no host, não provisiona aplicações ou volumes, e não remove redes
-Podman existentes. Consulte
+O script [`scripts/deploy-gateway.sh`](scripts/deploy-gateway.sh) separa validação, preflight e apply.
+O caminho da configuração como único argumento executa essas etapas sequencialmente. `--apply`
+isolado confia em um `--check` anterior. O script constrói e instala o Development Gateway; não
+instala pacotes no host, não provisiona aplicações ou volumes, e não remove redes Podman existentes. Consulte
 [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md)
 para o inventário detalhado de paths, decisões e limitações.
 
@@ -321,7 +321,8 @@ para o inventário detalhado de paths, decisões e limitações.
 |---|---|
 | `--validate-config` | Valida o JSON localmente. Não exige root e não altera o host. |
 | `--check` | Faz preflight somente leitura. Exige root e RHEL 9.8 com Podman 5.8.2; não constrói imagem nem inicia serviços. |
-| `--apply` | Repete o preflight e, se aprovado, constrói a imagem, instala os arquivos gerenciados e ativa o serviço. Use apenas em host de teste RHEL 9.8 / Podman 5.8.2 autorizado. |
+| `host_config.json` como único argumento | Executa `--validate-config`, `--check` e `--apply` nessa ordem; para no primeiro erro. |
+| `--apply` | Não repete preflight; exige `--check` bem-sucedido antes da chamada. Mantém validações dos arquivos gerados e health checks após ativação. Use apenas em host de teste RHEL 9.8 / Podman 5.8.2 autorizado. |
 
 Comece ajustando `config/host_config.json`. `networks` declara as redes Podman da aplicação, com
 nome e CIDR IPv4 esperado. O Gateway conecta-se automaticamente a todas as redes declaradas;
@@ -425,6 +426,16 @@ sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
+Para executar as três etapas em sequência, use somente o caminho da configuração:
+
+```bash
+sudo ./scripts/deploy-gateway.sh config/host_config.json
+```
+
+O modo sequencial valida a configuração, executa o preflight e só então aplica. O lock é mantido
+durante o preflight e o apply. Em chamadas separadas, `--apply` confia que `--check` já passou e não
+repete esses testes.
+
 `--check` exige RHEL 9.8, Podman rootful 5.8.2 e SELinux já desativado. Verifica credenciais,
 portas, redes, rotas IPv4 do host, socket rootful e ferramentas exigidas; não inspeciona containers
 de aplicação ou targets DNS. Se OpenVPN estiver habilitado, verifica apenas metadados de propriedade,
@@ -437,7 +448,13 @@ Após iniciar o unit, `--apply` repete os health checks durante `gateway.startup
 e aguarda `gateway.startup_readiness.interval_seconds` entre tentativas. Os valores devem estar entre
 1-300 e 1-10 segundos, respectivamente, e o intervalo não pode exceder o timeout. Sem esse objeto,
 os padrões são 60 segundos e 2 segundos. Falhas intermediárias ficam ocultas; ao esgotar o timeout,
-o comando relata a última falha.
+o comando relata a última falha. Se systemd marcar o unit como inativo ou falho, o script interrompe
+as tentativas e consulta Podman e o journal imediatamente.
+
+Em falha de ativação ou readiness, o script desativa reinícios automáticos, mantém o container e os
+arquivos Quadlet temporários de diagnóstico, e não executa rollback automático. Use `podman inspect`
+e `podman logs` para investigar. Uma nova execução pode reutilizar somente o override marcado pelo
+Gateway; uma implantação saudável restaura o Quadlet normal e remove o override.
 Redes ausentes são informadas como criação planejada. O comando geral
 `host-preflight.sh --check` também verifica rotas e continua inspecionando os containers declarados.
 Não contorne a verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
@@ -557,9 +574,15 @@ estão implementadas.
 ```bash
 sudo systemctl status gateway.service
 sudo journalctl -u gateway.service
-sudo podman ps --filter name=gateway
+sudo podman ps -a --filter name=gateway
+sudo podman inspect gateway
+sudo podman logs --tail 100 gateway
 sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 ```
+
+Se o container ainda estiver executando, abra um shell com
+`sudo podman exec -it gateway /bin/bash`. Se estiver parado, examine primeiro `podman inspect` e
+`podman logs`; o container permanece disponível para esses comandos.
 
 Os helpers Python ficam em `scripts/gateway/`; o README do pacote
 documenta interfaces, saída, erros e comandos externos. Para instalar e executar

@@ -27,11 +27,27 @@ readonly OWNER_MARKER="$STATE_DIR/.managed-by-gateway"
 readonly IMAGE=localhost/gateway:1
 readonly CONTAINER_NAME=gateway
 readonly UNIT_NAME=gateway.service
+readonly GATEWAY_DEBUG_DROPIN_DIR="/etc/systemd/system/${UNIT_NAME}.d"
+readonly GATEWAY_DEBUG_DROPIN="$GATEWAY_DEBUG_DROPIN_DIR/90-gateway-debug-preserve.conf"
+readonly GATEWAY_DEBUG_DROPIN_MARKER='# Managed by scripts/deploy-gateway.sh; debug-preserve v1'
 
 # Report an operator-facing failure and exit non-zero.
 fail() {
     printf '[host-preflight] ERROR: %s\n' "$*" >&2
     exit 1
+}
+# ---------------------------------- #
+
+# Check whether the fixed debug override belongs to Gateway deployment.
+# Arguments: none. Reads the known drop-in path and returns a status only.
+gateway_debug_dropin_is_managed() {
+    local path=${1:-$GATEWAY_DEBUG_DROPIN} mode
+
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    [[ "$(stat -c %u -- "$path")" == 0 ]] || return 1
+    mode=$(stat -c %a -- "$path") || return 1
+    (( (8#$mode & 0022) == 0 )) || return 1
+    grep -Fxq "$GATEWAY_DEBUG_DROPIN_MARKER" "$path"
 }
 # ---------------------------------- #
 
@@ -196,6 +212,7 @@ check_gateway_host_preflight() {
     local ssh_bind_address cockpit_bind_address wireguard_enabled wireguard_bind_address
     local wireguard_port
     local source_asset
+    local debug_dropin
     local gateway_managed=0 host_private_key="$HOST_KEYS_DIR/ssh_host_ed25519_key"
     local host_public_key="$HOST_KEYS_DIR/ssh_host_ed25519_key.pub" certificate_public_key private_public_key
     local host_key_fingerprint previous_host_key_fingerprint
@@ -207,6 +224,12 @@ check_gateway_host_preflight() {
             fail "Gateway deployment source asset is missing, unreadable, or unsafe: $source_asset"
     done
     [[ "$EUID" -eq 0 ]] || fail 'Run host preflight as root for rootful Podman checks.'
+    if [[ -e "$GATEWAY_DEBUG_DROPIN" || -L "$GATEWAY_DEBUG_DROPIN" ]]; then
+        gateway_debug_dropin_is_managed || \
+            fail "Gateway debug override is not owned safely by deployment: $GATEWAY_DEBUG_DROPIN"
+        printf '[host-preflight] WARNING: Retained Gateway debug state is at %s; inspect before retrying. A healthy retry removes it.\n' \
+            "$GATEWAY_DEBUG_DROPIN"
+    fi
     [[ -r /etc/os-release ]] || fail 'Cannot identify the host operating system.'
     source /etc/os-release
     os_id=${ID:-unknown}

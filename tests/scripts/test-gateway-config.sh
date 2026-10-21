@@ -67,6 +67,114 @@ expected_networks=(
 [[ "${rendered_networks[*]}" == "${expected_networks[*]}" ]] || \
     fail "Gateway Quadlet networks differ from top-level Podman declarations: ${rendered_networks[*]}"
 printf 'PASS: all declared Podman networks are rendered; HTTP proxy routes are not networks\n'
+if grep -Fxq 'PodmanArgs=--rm=false' "$TMP_DIR/rendered.container"; then
+    fail 'Normal Gateway Quadlet unexpectedly disables Podman container removal'
+fi
+bash -c '
+    source "$1"
+    render_quadlet_candidate "$2" "$3" true
+    render_gateway_debug_dropin "$3" "$4"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" "$TMP_DIR/debug.container" \
+    "$TMP_DIR/debug-preserve.conf"
+grep -Fxq 'PodmanArgs=--rm=false' "$TMP_DIR/debug.container" || \
+    fail 'Debug Quadlet did not retain the failed Podman container'
+grep -Fxq '# Managed by scripts/deploy-gateway.sh; debug-preserve v1' \
+    "$TMP_DIR/debug-preserve.conf" || fail 'Debug override lacks its ownership marker'
+grep -Fxq 'Restart=no' "$TMP_DIR/debug-preserve.conf" || \
+    fail 'Debug override did not disable automatic service restart'
+grep -Fxq 'ExecStop=' "$TMP_DIR/debug-preserve.conf" || \
+    fail 'Debug override did not clear generated container cleanup'
+grep -Fxq 'ExecStopPost=' "$TMP_DIR/debug-preserve.conf" || \
+    fail 'Debug override did not clear generated post-stop cleanup'
+grep -Fq 'ExecStopPost=-/usr/sbin/ip -4 route del ' "$TMP_DIR/debug-preserve.conf" || \
+    fail 'Debug override did not retain owned route cleanup hooks'
+if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
+    [[ -x /usr/libexec/podman/quadlet ]]; then
+    bash -c 'source "$1"; validate_quadlet_candidate "$2"' \
+        _ "$DEPLOY_SCRIPT" "$TMP_DIR/debug.container"
+    printf 'PASS: host Quadlet generator accepts the debug-preserve candidate\n'
+fi
+printf 'PASS: debug Quadlet retains failed containers and preserves owned route cleanup\n'
+printf 'managed debug state\n' > "$TMP_DIR/retained-debug-preserve.conf"
+RETAINED_DEBUG_PATH="$TMP_DIR/retained-debug-preserve.conf" \
+    bash -c '
+        source "$1"
+        gateway_debug_dropin_is_managed() { [[ -f "$1" ]]; }
+        ensure_no_stale_gateway_debug_state "$RETAINED_DEBUG_PATH"
+    ' _ "$DEPLOY_SCRIPT" > "$TMP_DIR/retained-debug-output.log"
+grep -Fq 'Reusing retained debug state' "$TMP_DIR/retained-debug-output.log" || \
+    fail 'Retry rejected an existing deployment-owned debug override'
+if bash -c '
+    source "$1"
+    gateway_debug_dropin_is_managed() { return 1; }
+    ensure_no_stale_gateway_debug_state "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/retained-debug-preserve.conf" \
+    > "$TMP_DIR/unowned-debug-output.log" 2>&1; then
+    fail 'Retry accepted an unowned debug override'
+fi
+grep -Fq 'is not owned by deployment' "$TMP_DIR/unowned-debug-output.log" || \
+    fail 'Retry did not explain why an unowned debug override was rejected'
+printf 'PASS: retries reuse only deployment-owned debug overrides\n'
+DEBUG_NORMALIZE_LOG="$TMP_DIR/debug-normalize.log" bash -c '
+    source "$1"
+    STAGED_QUADLET=normal-candidate
+    STAGED_DEBUG_QUADLET=debug-candidate
+    cmp() { printf "cmp %s\n" "$*" >> "$DEBUG_NORMALIZE_LOG"; return 1; }
+    install_atomic_if_changed() {
+        printf "install %s\n" "$*" >> "$DEBUG_NORMALIZE_LOG"
+    }
+    remove_gateway_debug_dropin() {
+        printf "remove override\n" >> "$DEBUG_NORMALIZE_LOG"
+        DEBUG_DROPIN_INSTALLED=0
+    }
+    systemctl() { printf "systemctl %s\n" "$*" >> "$DEBUG_NORMALIZE_LOG"; }
+    DEBUG_PRESERVE_ACTIVE=1
+    PRESERVE_FAILED_STATE=1
+    DEBUG_DROPIN_INSTALLED=1
+    normalize_gateway_debug_unit
+    [[ "$DEBUG_PRESERVE_ACTIVE" == 0 && "$PRESERVE_FAILED_STATE" == 0 ]]
+' _ "$DEPLOY_SCRIPT"
+grep -Fxq 'install normal-candidate /etc/containers/systemd/gateway.container 0644' \
+    "$TMP_DIR/debug-normalize.log" || \
+    fail 'Successful health checks did not restore the normal Quadlet'
+grep -Fxq 'remove override' "$TMP_DIR/debug-normalize.log" || \
+    fail 'Successful health checks did not remove the debug override'
+grep -Fxq 'systemctl daemon-reload' "$TMP_DIR/debug-normalize.log" || \
+    fail 'Successful health checks did not reload systemd after normalization'
+printf 'PASS: successful health checks restore the normal Quadlet and remove debug state\n'
+mkdir -p "$TMP_DIR/diagnostic-bin"
+cat > "$TMP_DIR/diagnostic-bin/podman" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'podman %s\n' "$*" >> "$PODMAN_DIAGNOSTIC_LOG"
+case "$*" in
+    *'{{.State.Running}} gateway') printf 'false\n' ;;
+    *'{{.State.Status}} exit_code='*) printf 'exited exit_code=1 error= image=test\n' ;;
+esac
+SH
+cat > "$TMP_DIR/diagnostic-bin/journalctl" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf 'journalctl %s\n' "$*" >> "$PODMAN_DIAGNOSTIC_LOG"
+SH
+chmod 0755 "$TMP_DIR/diagnostic-bin/podman" "$TMP_DIR/diagnostic-bin/journalctl"
+PODMAN_DIAGNOSTIC_LOG="$TMP_DIR/podman-diagnostic.log" \
+    PATH="$TMP_DIR/diagnostic-bin:$PATH" bash -c '
+        source "$1"
+        debug_gateway_failure
+    ' _ "$DEPLOY_SCRIPT" > "$TMP_DIR/podman-diagnostic-output.log" 2>&1
+grep -Fq 'podman ps -a --filter name=gateway' "$TMP_DIR/podman-diagnostic.log" || \
+    fail 'Startup diagnostics did not list retained Podman containers'
+grep -Fq 'podman inspect --format {{.State.Status}}' "$TMP_DIR/podman-diagnostic.log" || \
+    fail 'Startup diagnostics did not inspect container exit state'
+grep -Fxq 'podman logs --tail 100 gateway' "$TMP_DIR/podman-diagnostic.log" || \
+    fail 'Startup diagnostics did not collect container logs'
+grep -Fxq 'journalctl -u gateway.service -n 100 --no-pager' \
+    "$TMP_DIR/podman-diagnostic.log" || \
+    fail 'Startup diagnostics did not collect the systemd journal'
+grep -Fq 'podman start gateway' "$TMP_DIR/podman-diagnostic-output.log" || \
+    fail 'Startup diagnostics did not explain how to retry a stopped container'
+printf 'PASS: startup diagnostics collect Podman state, logs, and systemd journal\n'
 
 jq '.gateway.remote_access.openvpn |= . + {
         "enabled":true
@@ -224,6 +332,34 @@ SYSTEMCTL_CALL_LOG="$TMP_DIR/systemctl-call.log" \
     ' _ "$DEPLOY_SCRIPT"
 grep -Fxq 'restart gateway.service' "$TMP_DIR/systemctl-call.log" || \
     fail 'Existing active Gateway unit was not restarted directly'
+if bash -c '
+    source "$1"
+    systemctl() { return 1; }
+    debug_gateway_failure() { printf "activation diagnostics\n"; }
+    activate_gateway_service 0
+' _ "$DEPLOY_SCRIPT" > "$TMP_DIR/activation-failure-output.log" 2>&1; then
+    fail 'Gateway activation failure was accepted'
+fi
+grep -Fxq 'activation diagnostics' "$TMP_DIR/activation-failure-output.log" || \
+    fail 'Gateway activation failure did not trigger Podman diagnostics'
+grep -Fq 'Could not start gateway.service.' "$TMP_DIR/activation-failure-output.log" || \
+    fail 'Gateway activation failure did not report its systemd error'
+if bash -c '
+    source "$1"
+    rollback_deployment() { printf "rollback attempted\n"; }
+    APPLY_MUTATING=1
+    ROLLBACK_READY=1
+    PRESERVE_FAILED_STATE=1
+    trap cleanup_after_apply EXIT
+    exit 1
+' _ "$DEPLOY_SCRIPT" > "$TMP_DIR/preserved-cleanup-output.log" 2>&1; then
+    fail 'Preserved failed state returned success'
+fi
+grep -Fq 'automatic rollback was skipped' "$TMP_DIR/preserved-cleanup-output.log" || \
+    fail 'Failed startup did not preserve state for debugging'
+if grep -Fq 'rollback attempted' "$TMP_DIR/preserved-cleanup-output.log"; then
+    fail 'Failed startup unexpectedly invoked deployment rollback'
+fi
 : > "$TMP_DIR/systemctl-call.log"
 SYSTEMCTL_CALL_LOG="$TMP_DIR/systemctl-call.log" \
     PATH="$TMP_DIR/system-bin:$PATH" bash -c '
@@ -238,6 +374,77 @@ if grep -Eq '^(enable|disable)( |$)' "$TMP_DIR/systemctl-call.log"; then
     fail 'Quadlet rollback tried to enable or disable a generated unit'
 fi
 printf 'PASS: generated Quadlet units start, restart, and roll back without enable/disable calls\n'
+: > "$TMP_DIR/deploy-flow.log"
+DEPLOY_FLOW_LOG="$TMP_DIR/deploy-flow.log" bash -c '
+    source "$1"
+    run_preflight_command() {
+        printf "preflight %s\n" "$*" >> "$DEPLOY_FLOW_LOG"
+    }
+    acquire_gateway_config_lock() {
+        printf "lock\n" >> "$DEPLOY_FLOW_LOG"
+    }
+    apply_deployment_locked() {
+        printf "apply %s\n" "$1" >> "$DEPLOY_FLOW_LOG"
+    }
+    main "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json"
+grep -Fxq "preflight --validate-gateway-config $TMP_DIR/valid.json" "$TMP_DIR/deploy-flow.log" || \
+    fail 'Positional config did not validate first'
+grep -Fxq 'lock' "$TMP_DIR/deploy-flow.log" || \
+    fail 'Sequential deployment did not lock before host preflight'
+grep -Fxq "preflight --check-gateway $TMP_DIR/valid.json" "$TMP_DIR/deploy-flow.log" || \
+    fail 'Positional config did not run host preflight'
+grep -Fxq "apply $TMP_DIR/valid.json" "$TMP_DIR/deploy-flow.log" || \
+    fail 'Positional config did not apply after successful preflight'
+[[ "$(grep -c . "$TMP_DIR/deploy-flow.log")" == 4 ]] || \
+    fail 'Sequential deployment ran unexpected stages'
+printf 'PASS: config-only invocation runs validate, check, and apply in order\n'
+: > "$TMP_DIR/deploy-flow.log"
+if DEPLOY_FLOW_LOG="$TMP_DIR/deploy-flow.log" bash -c '
+    source "$1"
+    run_preflight_command() {
+        printf "preflight %s\n" "$*" >> "$DEPLOY_FLOW_LOG"
+        [[ "$1" != "--check-gateway" ]]
+    }
+    acquire_gateway_config_lock() {
+        printf "lock\n" >> "$DEPLOY_FLOW_LOG"
+    }
+    apply_deployment_locked() {
+        printf "apply %s\n" "$1" >> "$DEPLOY_FLOW_LOG"
+    }
+    main "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" >/dev/null 2>&1; then
+    fail 'Sequential deployment continued after a failed host check'
+fi
+[[ "$(grep -c . "$TMP_DIR/deploy-flow.log")" == 3 ]] || \
+    fail 'Failed host check did not stop before apply'
+if grep -q '^apply ' "$TMP_DIR/deploy-flow.log"; then
+    fail 'Failed host check reached the apply stage'
+fi
+printf 'PASS: sequential deployment stops immediately when a stage fails\n'
+: > "$TMP_DIR/deploy-flow.log"
+DEPLOY_FLOW_LOG="$TMP_DIR/deploy-flow.log" bash -c '
+    source "$1"
+    run_preflight_command() {
+        printf "preflight %s\n" "$*" >> "$DEPLOY_FLOW_LOG"
+    }
+    acquire_gateway_config_lock() {
+        printf "lock\n" >> "$DEPLOY_FLOW_LOG"
+    }
+    apply_deployment_locked() {
+        printf "apply %s\n" "$1" >> "$DEPLOY_FLOW_LOG"
+    }
+    main --apply "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" >/dev/null 2>&1
+grep -Fxq "apply $TMP_DIR/valid.json" "$TMP_DIR/deploy-flow.log" || \
+    fail 'Standalone apply did not invoke the apply stage'
+if grep -q '^preflight ' "$TMP_DIR/deploy-flow.log"; then
+    fail 'Standalone apply unexpectedly ran preflight'
+fi
+[[ "$(grep -c . "$TMP_DIR/deploy-flow.log")" == 2 ]] || \
+    fail 'Standalone apply ran unexpected stages'
+printf 'PASS: standalone apply skips preflight and assumes prior --check\n'
+: > "$TMP_DIR/deploy-flow.log"
 jq '.gateway.startup_readiness = {"timeout_seconds":3,"interval_seconds":1}' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/readiness-retry.json"
 : > "$TMP_DIR/readiness-retry.log"
@@ -270,6 +477,7 @@ jq '.gateway.startup_readiness = {"timeout_seconds":3,"interval_seconds":1}' \
 if READINESS_CHECK_LOG="$TMP_DIR/readiness-timeout.log" \
     bash -c '
         source "$1"
+        DEBUG_PRESERVE_ACTIVE=1
         check_gateway_health_once() {
             printf "attempt\n" >> "$READINESS_CHECK_LOG"
             printf "startup still pending\n" >&2
@@ -283,12 +491,70 @@ if READINESS_CHECK_LOG="$TMP_DIR/readiness-timeout.log" \
 fi
 [[ "$(grep -c '^attempt$' "$TMP_DIR/readiness-timeout.log")" == 3 ]] || \
     fail 'Readiness timeout did not stop after its configured time budget'
-grep -Fq 'Gateway did not become healthy within 3s after 3 attempts.' \
+grep -Fq 'Gateway did not become healthy within 3s after 3 attempts; state is preserved for debugging.' \
     "$TMP_DIR/readiness-timeout-output.log" || \
     fail 'Readiness timeout did not report its configured bound'
 [[ "$(grep -c '^startup still pending$' "$TMP_DIR/readiness-timeout-output.log")" == 1 ]] || \
     fail 'Readiness timeout did not report only the last transient failure'
 printf 'PASS: readiness retries stop at the configured timeout and report the last failure\n'
+if READINESS_CHECK_LOG="$TMP_DIR/readiness-fail-fast.log" \
+    bash -c '
+        source "$1"
+        DEBUG_PRESERVE_ACTIVE=1
+        systemctl() {
+            [[ "$*" == "show --property=ActiveState --value gateway.service" ]] || return 97
+            printf "inactive\n"
+        }
+        check_gateway_health_once() {
+            printf "attempt\n" >> "$READINESS_CHECK_LOG"
+            printf "Gateway unit is not active: gateway.service\n" >&2
+            return 1
+        }
+        debug_gateway_failure() { printf "diagnostics\n"; }
+        sleep() { printf "unexpected retry\n" >> "$READINESS_CHECK_LOG"; }
+        wait_for_gateway_health "$2" "$3"
+    ' _ "$DEPLOY_SCRIPT" "$TMP_DIR/readiness-timeout.json" "$TMP_DIR/dns-hosts" \
+    > "$TMP_DIR/readiness-fail-fast-output.log" 2>&1; then
+    fail 'Readiness continued after systemd reported a terminal inactive state'
+fi
+[[ "$(grep -c '^attempt$' "$TMP_DIR/readiness-fail-fast.log")" == 1 ]] || \
+    fail 'Terminal Gateway startup failure was checked more than once'
+if grep -Fq 'unexpected retry' "$TMP_DIR/readiness-fail-fast.log"; then
+    fail 'Terminal Gateway startup failure did not stop retries immediately'
+fi
+grep -Fq 'Gateway unit entered state inactive; stopping readiness retries.' \
+    "$TMP_DIR/readiness-fail-fast-output.log" || \
+    fail 'Terminal Gateway startup failure did not report the systemd state'
+grep -Fxq 'diagnostics' "$TMP_DIR/readiness-fail-fast-output.log" || \
+    fail 'Terminal Gateway startup failure did not run Podman diagnostics'
+printf 'PASS: terminal inactive state stops retries and runs failure diagnostics\n'
+if READINESS_CHECK_LOG="$TMP_DIR/readiness-rollback.log" \
+    bash -c '
+        source "$1"
+        check_gateway_health_once() {
+            printf "attempt\n" >> "$READINESS_CHECK_LOG"
+            printf "transient health failure\n" >&2
+            return 1
+        }
+        debug_gateway_failure() { :; }
+        fail() { printf "%s\n" "$*" >&2; return 1; }
+        sleep() { SECONDS=$((SECONDS + $1)); }
+        if wait_for_gateway_health "$2" "$3"; then
+            exit 98
+        fi
+        printf "preserve=%s\n" "$PRESERVE_FAILED_STATE"
+    ' _ "$DEPLOY_SCRIPT" "$TMP_DIR/readiness-timeout.json" "$TMP_DIR/dns-hosts" \
+    > "$TMP_DIR/readiness-rollback-output.log" 2>&1; then
+    :
+else
+    fail 'Readiness rollback-mode test exited unexpectedly'
+fi
+grep -Fxq 'preserve=0' "$TMP_DIR/readiness-rollback-output.log" || \
+    fail 'Health failure without debug mode incorrectly preserved deployment state'
+grep -Fq 'deployment rollback will restore prior state.' \
+    "$TMP_DIR/readiness-rollback-output.log" || \
+    fail 'Health failure without debug mode did not report rollback behavior'
+printf 'PASS: failures without debug mode retain normal rollback behavior\n'
 mkdir -m 0700 "$TMP_DIR/wireguard-key-directory" "$TMP_DIR/key-bin"
 jq --arg key_path "$TMP_DIR/wireguard-key-directory/server.key" \
     '.gateway.remote_access.wireguard.server_private_key_path = $key_path' \
@@ -625,19 +891,19 @@ SH
     chmod 0755 "$TMP_DIR/fake-bin/$command_name"
 done
 if PATH="$TMP_DIR/fake-bin:$PATH" HOST_COMMAND_LOG="$TMP_DIR/host-commands.log" \
-    "$DEPLOY_SCRIPT" --apply "$TMP_DIR/malformed.json" >/dev/null 2>&1; then
-    fail 'apply accepted malformed configuration'
+    "$DEPLOY_SCRIPT" "$TMP_DIR/malformed.json" >/dev/null 2>&1; then
+    fail 'sequential deployment accepted malformed configuration'
 fi
-[[ ! -s "$TMP_DIR/host-commands.log" ]] || fail 'apply ran host commands before rejecting malformed configuration'
-printf 'PASS: invalid apply stops before host commands\n'
+[[ ! -s "$TMP_DIR/host-commands.log" ]] || fail 'sequential deployment ran host commands before rejecting malformed configuration'
+printf 'PASS: invalid sequential deployment stops before host commands\n'
 for duplicate_config in "$TMP_DIR/duplicate-top-level.json" "$TMP_DIR/duplicate-nested.json"; do
     if PATH="$TMP_DIR/fake-bin:$PATH" HOST_COMMAND_LOG="$TMP_DIR/host-commands.log" \
-        "$DEPLOY_SCRIPT" --apply "$duplicate_config" >/dev/null 2>&1; then
-        fail 'apply accepted duplicate JSON keys'
+        "$DEPLOY_SCRIPT" "$duplicate_config" >/dev/null 2>&1; then
+        fail 'sequential deployment accepted duplicate JSON keys'
     fi
-    [[ ! -s "$TMP_DIR/host-commands.log" ]] || fail 'apply ran host commands before rejecting duplicate keys'
+    [[ ! -s "$TMP_DIR/host-commands.log" ]] || fail 'sequential deployment ran host commands before rejecting duplicate keys'
 done
-printf 'PASS: duplicate-key apply failures stop before host commands\n'
+printf 'PASS: duplicate-key sequential deployment failures stop before host commands\n'
 
 before=$(sha256sum "$SAMPLE_CONFIG")
 "$DEPLOY_SCRIPT" --validate-config "$SAMPLE_CONFIG" >/dev/null

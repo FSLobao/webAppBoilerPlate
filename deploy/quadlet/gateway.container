@@ -22,6 +22,7 @@ Volume=/var/lib/gateway/dns:/run/gateway/dns:ro
 Volume=/run/podman/podman.sock:/run/podman/podman.sock:ro
 @@OPENVPN_VOLUME@@
 Pull=never
+@@DEBUG_PODMAN_ARGS@@
 DropCapability=NET_RAW
 @@OPENVPN_RUNTIME@@
 @@SSH_TUN_RUNTIME@@

@@ -12,6 +12,8 @@ STAGED_CONFIG=''
 STAGED_INPUTS=''
 STAGED_DNS=''
 STAGED_QUADLET=''
+STAGED_DEBUG_QUADLET=''
+STAGED_DEBUG_DROPIN=''
 PREVIOUS_IMAGE_ID=''
 SERVICE_WAS_ACTIVE=0
 SOCKET_WAS_ACTIVE=0
@@ -20,9 +22,15 @@ NETWORKS_CREATED=()
 WIREGUARD_KEY_CREATED=0
 WIREGUARD_KEY_PATH=''
 WIREGUARD_KERNEL_LOAD_ATTEMPTED=0
+GATEWAY_CONFIG_LOCK_FD=''
+PRESERVE_FAILED_STATE=0
+DEBUG_PRESERVE_ACTIVE=0
+DEBUG_DROPIN_DIR_CREATED=0
+DEBUG_DROPIN_INSTALLED=0
 
 usage() {
-    printf 'Usage: %s --validate-config|--check|--apply [host_config.json]\n' "${0##*/}"
+    printf 'Usage: %s --validate-config|--check|--apply [host_config.json] | %s host_config.json\n' \
+        "${0##*/}" "${0##*/}"
 }
 prepare_state_directories() {
     install -d -o root -g root -m 0755 "$STATE_DIR" "$STATE_DIR/generated" "$STATE_DIR/dns"
@@ -190,7 +198,7 @@ generate_input_metadata() {
 }
 
 render_quadlet_candidate() {
-    local config_path=$1 output_path=$2
+    local config_path=$1 output_path=$2 preserve_failed_container=${3:-false}
     local authorized_keys_path ssh_bind_address cockpit_bind_address ssh_port cockpit_port
     local network_lines published_lines openvpn_volume='' openvpn_runtime=''
     local ssh_tun_volume='' ssh_tun_runtime=''
@@ -199,9 +207,12 @@ render_quadlet_candidate() {
     local wireguard_host_route='' wireguard_module_load='' wireguard_enabled wireguard_key_path
     local wireguard_bind_address wireguard_port wireguard_pool
     local openvpn_enabled ssh_tun_enabled profile_path client_pool route_gateway
-    local ssh_tun_pool ssh_tun_keys_path
+    local ssh_tun_pool ssh_tun_keys_path debug_podman_args=''
     local template
 
+    if [[ "$preserve_failed_container" == true ]]; then
+        debug_podman_args='PodmanArgs=--rm=false'
+    fi
     authorized_keys_path=$(jq -r '.gateway.authorized_keys_path' "$config_path")
     ssh_bind_address=$(jq -r '.gateway.ssh_bind_address // .gateway.bind_address' "$config_path")
     cockpit_bind_address=$(jq -r '.gateway.cockpit_bind_address // .gateway.bind_address' "$config_path")
@@ -281,6 +292,7 @@ render_quadlet_candidate() {
     template=${template//@@WIREGUARD_VOLUME@@/$wireguard_volume}
     template=${template//@@WIREGUARD_PEERS_VOLUME@@/$wireguard_peers_volume}
     template=${template//@@WIREGUARD_RUNTIME@@/$wireguard_runtime}
+    template=${template//@@DEBUG_PODMAN_ARGS@@/$debug_podman_args}
     template=${template//@@WIREGUARD_MODULE_LOAD@@/$wireguard_module_load}
     template=${template//@@WIREGUARD_HOST_ROUTE@@/$wireguard_host_route}
     template=${template//@@NETWORKS@@/$network_lines}
@@ -289,6 +301,100 @@ render_quadlet_candidate() {
     printf '%s\n' "$template" > "$output_path"
     chmod 0644 "$output_path"
 }
+
+# Render systemd overrides that retain the Podman container for failure debugging.
+# Arguments: rendered Quadlet candidate and output path. Recreates only owned route cleanup hooks.
+render_gateway_debug_dropin() {
+    local quadlet_candidate=$1 output_path=$2 line
+
+    {
+        printf '%s\n[Service]\nRestart=no\nExecStop=\nExecStopPost=\n' \
+            "$GATEWAY_DEBUG_DROPIN_MARKER"
+        while IFS= read -r line; do
+            case "$line" in
+                'ExecStopPost=-/usr/sbin/ip -4 route del '*)
+                    printf '%s\n' "$line"
+                    ;;
+                ExecStopPost=*)
+                    fail "Unexpected Gateway stop hook in debug candidate: $line"
+                    ;;
+            esac
+        done < "$quadlet_candidate"
+    } > "$output_path"
+    chmod 0644 "$output_path"
+}
+# ---------------------------------- #
+
+install_gateway_debug_dropin() {
+    local directory_mode
+
+    if [[ -e "$GATEWAY_DEBUG_DROPIN" || -L "$GATEWAY_DEBUG_DROPIN" ]]; then
+        gateway_debug_dropin_is_managed || \
+            fail "Gateway debug-preserve override is not owned by deployment: $GATEWAY_DEBUG_DROPIN"
+    elif [[ -L "$GATEWAY_DEBUG_DROPIN_DIR" ]]; then
+        fail "Gateway debug-preserve directory must not be a symlink: $GATEWAY_DEBUG_DROPIN_DIR"
+    elif [[ -e "$GATEWAY_DEBUG_DROPIN_DIR" ]]; then
+        [[ -d "$GATEWAY_DEBUG_DROPIN_DIR" ]] || \
+            fail "Gateway debug-preserve path is not a directory: $GATEWAY_DEBUG_DROPIN_DIR"
+        [[ "$(stat -c %u "$GATEWAY_DEBUG_DROPIN_DIR")" == 0 ]] || \
+            fail "Gateway debug-preserve directory must be root-owned: $GATEWAY_DEBUG_DROPIN_DIR"
+        directory_mode=$(stat -c %a "$GATEWAY_DEBUG_DROPIN_DIR") || \
+            fail "Cannot inspect Gateway debug-preserve directory: $GATEWAY_DEBUG_DROPIN_DIR"
+        (( (8#$directory_mode & 0022) == 0 )) || \
+            fail "Gateway debug-preserve directory must not be group/world writable: $GATEWAY_DEBUG_DROPIN_DIR"
+    else
+        install -d -o root -g root -m 0755 -- "$GATEWAY_DEBUG_DROPIN_DIR" || \
+            fail "Could not create Gateway debug-preserve directory: $GATEWAY_DEBUG_DROPIN_DIR"
+        DEBUG_DROPIN_DIR_CREATED=1
+    fi
+
+    if [[ ! -e "$GATEWAY_DEBUG_DROPIN" ]] || \
+        ! cmp -s -- "$STAGED_DEBUG_DROPIN" "$GATEWAY_DEBUG_DROPIN"; then
+        install_atomic_if_changed "$STAGED_DEBUG_DROPIN" "$GATEWAY_DEBUG_DROPIN" 0644 || \
+            fail "Could not install Gateway debug-preserve override: $GATEWAY_DEBUG_DROPIN"
+    fi
+    DEBUG_DROPIN_INSTALLED=1
+    DEBUG_PRESERVE_ACTIVE=1
+}
+# ---------------------------------- #
+
+remove_gateway_debug_dropin() {
+    if (( DEBUG_DROPIN_INSTALLED == 1 )); then
+        rm -- "$GATEWAY_DEBUG_DROPIN" || fail "Could not remove debug override $GATEWAY_DEBUG_DROPIN."
+        DEBUG_DROPIN_INSTALLED=0
+    fi
+    if (( DEBUG_DROPIN_DIR_CREATED == 1 )); then
+        if rmdir -- "$GATEWAY_DEBUG_DROPIN_DIR"; then
+            DEBUG_DROPIN_DIR_CREATED=0
+        else
+            printf '[gateway] Retaining non-empty debug override directory %s.\n' \
+                "$GATEWAY_DEBUG_DROPIN_DIR" >&2
+            DEBUG_DROPIN_DIR_CREATED=0
+        fi
+    fi
+}
+# ---------------------------------- #
+
+normalize_gateway_debug_unit() {
+    if ! cmp -s -- "$STAGED_QUADLET" "$QUADLET_FILE"; then
+        install_atomic_if_changed "$STAGED_QUADLET" "$QUADLET_FILE" 0644 || \
+            fail 'Could not restore the normal Gateway Quadlet after health checks passed.'
+    fi
+    remove_gateway_debug_dropin
+    if ! systemctl daemon-reload; then
+        if ! cmp -s -- "$STAGED_DEBUG_QUADLET" "$QUADLET_FILE"; then
+            install_atomic_if_changed "$STAGED_DEBUG_QUADLET" "$QUADLET_FILE" 0644 || \
+                printf '[gateway] ERROR: could not restore the debug Quadlet candidate.\n' >&2
+        fi
+        install_gateway_debug_dropin
+        systemctl daemon-reload || \
+            printf '[gateway] ERROR: systemd could not reload the retained debug override.\n' >&2
+        fail 'Systemd could not restore the normal Gateway unit; debug state is preserved.'
+    fi
+    DEBUG_PRESERVE_ACTIVE=0
+    PRESERVE_FAILED_STATE=0
+}
+# ---------------------------------- #
 
 validate_quadlet_candidate() {
     local candidate=$1 temporary_dir input_dir normal_dir early_dir late_dir generator status
@@ -335,6 +441,16 @@ stage_managed_files() {
     generate_input_metadata "$config_path" "$STAGED_INPUTS"
     generate_dns_candidate "$config_path" "$STAGED_DNS"
     render_quadlet_candidate "$config_path" "$STAGED_QUADLET"
+}
+
+stage_debug_gateway_files() {
+    local config_path=$1
+
+    STAGED_DEBUG_QUADLET=$(mktemp "$QUADLET_DIR/.gateway-debug.XXXXXX")
+    render_quadlet_candidate "$config_path" "$STAGED_DEBUG_QUADLET" true
+    validate_quadlet_candidate "$STAGED_DEBUG_QUADLET"
+    STAGED_DEBUG_DROPIN=$(mktemp /var/tmp/gateway-debug-preserve.XXXXXX)
+    render_gateway_debug_dropin "$STAGED_DEBUG_QUADLET" "$STAGED_DEBUG_DROPIN"
 }
 
 install_atomic_if_changed() {
@@ -487,9 +603,64 @@ check_gateway_health_once() {
     done < "$dns_file"
 }
 
+debug_gateway_failure() {
+    local container_status=0 container_running
+
+    printf '[gateway] Podman state for %s:\n' "$CONTAINER_NAME" >&2
+    if ! podman ps -a --filter "name=$CONTAINER_NAME" \
+        --format '{{.ID}} {{.Names}} {{.Status}} {{.Image}}' >&2; then
+        printf '[gateway] ERROR: Podman could not list containers during diagnostics.\n' >&2
+    fi
+    podman container exists "$CONTAINER_NAME" >/dev/null 2>&1 || container_status=$?
+    case "$container_status" in
+        0)
+            if ! podman inspect \
+                --format '{{.State.Status}} exit_code={{.State.ExitCode}} error={{.State.Error}} image={{.Image}}' \
+                "$CONTAINER_NAME" >&2; then
+                printf '[gateway] ERROR: Podman could not inspect %s.\n' "$CONTAINER_NAME" >&2
+            fi
+            if ! podman logs --tail 100 "$CONTAINER_NAME" >&2; then
+                printf '[gateway] ERROR: Podman could not read logs for %s.\n' "$CONTAINER_NAME" >&2
+            fi
+            container_running=$(podman inspect --format '{{.State.Running}}' "$CONTAINER_NAME") || \
+                container_running=false
+            if [[ "$container_running" == true ]]; then
+                if ! podman exec "$CONTAINER_NAME" ls -la /run/gateway >&2; then
+                    printf '[gateway] ERROR: Podman could not inspect /run/gateway.\n' >&2
+                fi
+                if ! podman exec "$CONTAINER_NAME" /usr/sbin/sshd -t \
+                    -f /run/gateway/sshd_config >&2; then
+                    printf '[gateway] ERROR: OpenSSH config is unavailable or invalid inside the container.\n' >&2
+                fi
+                printf '[gateway] Interactive access: podman exec -it %s /bin/bash\n' \
+                    "$CONTAINER_NAME" >&2
+            else
+                printf '[gateway] Container is stopped but retained; inspect with podman logs and podman inspect.\n' >&2
+                printf '[gateway] To retry startup manually: podman start %s\n' "$CONTAINER_NAME" >&2
+            fi
+            ;;
+        1)
+            printf '[gateway] Podman no longer has container %s; use the systemd journal for its last startup logs.\n' \
+                "$CONTAINER_NAME" >&2
+            ;;
+        *)
+            printf '[gateway] ERROR: Podman could not determine whether container %s exists (status %s).\n' \
+                "$CONTAINER_NAME" "$container_status" >&2
+            ;;
+    esac
+    if command -v journalctl >/dev/null 2>&1; then
+        if ! journalctl -u "$UNIT_NAME" -n 100 --no-pager >&2; then
+            printf '[gateway] ERROR: Could not read the %s journal.\n' "$UNIT_NAME" >&2
+        fi
+    else
+        printf '[gateway] ERROR: journalctl is unavailable; inspect systemd logs manually.\n' >&2
+    fi
+}
+# ---------------------------------- #
+
 wait_for_gateway_health() {
     local config_path=$1 dns_file=$2 timeout_seconds interval_seconds
-    local start_seconds=$SECONDS attempt_count=0 attempt_output last_output=''
+    local start_seconds=$SECONDS attempt_count=0 attempt_output last_output='' unit_state=''
 
     timeout_seconds=$(jq -r '.gateway.startup_readiness.timeout_seconds // 60' "$config_path")
     interval_seconds=$(jq -r '.gateway.startup_readiness.interval_seconds // 2' "$config_path")
@@ -507,6 +678,25 @@ wait_for_gateway_health() {
         fi
 
         last_output=$attempt_output
+        if [[ "$attempt_output" == *"Gateway unit is not active:"* ]]; then
+            unit_state=$(systemctl show --property=ActiveState --value "$UNIT_NAME" 2>/dev/null) || \
+                unit_state=unknown
+            case "$unit_state" in
+                activating|reloading) ;;
+                *)
+                printf '%s\n' "$attempt_output" >&2
+                printf '[gateway] Gateway unit entered state %s; stopping readiness retries.\n' \
+                    "$unit_state" >&2
+                debug_gateway_failure
+                if (( DEBUG_PRESERVE_ACTIVE == 1 )); then
+                    PRESERVE_FAILED_STATE=1
+                    fail 'Gateway failed during startup; deployment state is preserved for Podman debugging.'
+                fi
+                fail 'Gateway unit became inactive; deployment rollback will restore prior state.'
+                return 1
+                ;;
+            esac
+        fi
         if (( attempt_count == 1 )); then
             printf '[gateway] Waiting for readiness (timeout %ss, interval %ss).\n' \
                 "$timeout_seconds" "$interval_seconds"
@@ -516,7 +706,12 @@ wait_for_gateway_health() {
     done
 
     [[ -z "$last_output" ]] || printf '%s\n' "$last_output" >&2
-    fail "Gateway did not become healthy within ${timeout_seconds}s after ${attempt_count} attempts."
+    debug_gateway_failure
+    if (( DEBUG_PRESERVE_ACTIVE == 1 )); then
+        PRESERVE_FAILED_STATE=1
+        fail "Gateway did not become healthy within ${timeout_seconds}s after ${attempt_count} attempts; state is preserved for debugging."
+    fi
+    fail "Gateway did not become healthy within ${timeout_seconds}s after ${attempt_count} attempts; deployment rollback will restore prior state."
 }
 # ---------------------------------- #
 
@@ -526,26 +721,38 @@ cleanup_after_apply() {
 
     if (( status != 0 && APPLY_MUTATING == 1 )); then
         if (( WIREGUARD_KERNEL_LOAD_ATTEMPTED == 1 )); then
-            printf '[gateway] WireGuard kernel module is not unloaded during rollback; it may remain loaded for other host workloads.\n' >&2
+            printf '[gateway] WireGuard kernel module remains loaded; it may be shared by other host workloads.\n' >&2
         fi
         if (( WIREGUARD_KEY_CREATED == 1 )); then
             printf '[gateway] Retained the WireGuard server key at %s; reuse it on retry to preserve client profiles.\n' \
                 "$WIREGUARD_KEY_PATH" >&2
         fi
-        if (( ROLLBACK_READY == 1 )); then
+        if (( PRESERVE_FAILED_STATE == 1 )); then
+            printf '[gateway] Failed state is preserved for Podman debugging; automatic rollback was skipped.\n' >&2
+            if (( DEBUG_DROPIN_INSTALLED == 1 )); then
+                printf '[gateway] Debug Quadlet remains at %s; systemd override remains at %s.\n' \
+                    "$QUADLET_FILE" "$GATEWAY_DEBUG_DROPIN" >&2
+            fi
+            printf '[gateway] Inspect with: podman ps -a --filter name=%s; podman inspect %s; podman logs %s\n' \
+                "$CONTAINER_NAME" "$CONTAINER_NAME" "$CONTAINER_NAME" >&2
+            printf '[gateway] A retry reuses retained debug state and removes it after successful health checks.\n' >&2
+        elif (( ROLLBACK_READY == 1 )); then
             rollback_deployment
         else
             printf '[gateway] Apply stopped before activation; additive directories, host keys, networks, or image layers may remain. No data or secrets were removed.\n' >&2
-        fi
-        if (( WIREGUARD_KEY_CREATED == 1 )); then
-            printf '[gateway] Retained the WireGuard server key at %s; reuse it on retry to preserve client profiles.\n' \
-                "$WIREGUARD_KEY_PATH" >&2
         fi
     fi
     [[ -z "$STAGED_CONFIG" ]] || rm -f -- "$STAGED_CONFIG"
     [[ -z "$STAGED_INPUTS" ]] || rm -f -- "$STAGED_INPUTS"
     [[ -z "$STAGED_DNS" ]] || rm -f -- "$STAGED_DNS"
     [[ -z "$STAGED_QUADLET" ]] || rm -f -- "$STAGED_QUADLET"
+    [[ -z "$STAGED_DEBUG_QUADLET" ]] || rm -f -- "$STAGED_DEBUG_QUADLET"
+    [[ -z "$STAGED_DEBUG_DROPIN" ]] || rm -f -- "$STAGED_DEBUG_DROPIN"
+    if (( DEBUG_DROPIN_DIR_CREATED == 1 && DEBUG_DROPIN_INSTALLED == 0 )); then
+        rmdir -- "$GATEWAY_DEBUG_DROPIN_DIR" || \
+            printf '[gateway] ERROR: could not remove empty debug directory %s.\n' \
+                "$GATEWAY_DEBUG_DROPIN_DIR" >&2
+    fi
     if [[ -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]]; then
         rm -f -- "$BACKUP_DIR/quadlet" "$BACKUP_DIR/quadlet.absent" \
             "$BACKUP_DIR/config" "$BACKUP_DIR/config.absent" \
@@ -565,9 +772,15 @@ activate_gateway_service() {
 
     ACTIVATION_ATTEMPTED=1
     if [[ "$service_was_active" == 1 ]]; then
-        systemctl restart "$UNIT_NAME" || fail "Could not restart $UNIT_NAME with the new configuration."
+        if ! systemctl restart "$UNIT_NAME"; then
+            debug_gateway_failure
+            fail "Could not restart $UNIT_NAME with the new configuration."
+        fi
     else
-        systemctl start "$UNIT_NAME" || fail "Could not start $UNIT_NAME."
+        if ! systemctl start "$UNIT_NAME"; then
+            debug_gateway_failure
+            fail "Could not start $UNIT_NAME."
+        fi
     fi
 }
 # ---------------------------------- #
@@ -620,15 +833,45 @@ remove_managed_remote_access_return_routes() {
 }
 # ---------------------------------- #
 
-apply_deployment() {
+# Run one preflight CLI stage.
+# Arguments: host-preflight arguments. Returns the child process status.
+run_preflight_command() {
+    "$PREFLIGHT_SCRIPT" "$@"
+}
+# ---------------------------------- #
+
+# Serialize Gateway mutations and sequential preflight/deployment pipelines.
+# Arguments: none. Creates and holds GATEWAY_CONFIG_LOCK until process exit.
+acquire_gateway_config_lock() {
+    command -v flock >/dev/null 2>&1 || fail 'flock is required to serialize Gateway configuration changes.'
+    exec {GATEWAY_CONFIG_LOCK_FD}>"$GATEWAY_CONFIG_LOCK" || fail 'Could not open the Gateway configuration lock.'
+    flock -x "$GATEWAY_CONFIG_LOCK_FD" || fail 'Could not lock Gateway configuration for apply.'
+}
+# ---------------------------------- #
+
+# Reuse only a retained debug override owned by this deployment.
+# Arguments: optional debug override path. Reads that path and changes no files.
+ensure_no_stale_gateway_debug_state() {
+    local debug_dropin=${1:-$GATEWAY_DEBUG_DROPIN}
+
+    if [[ -e "$debug_dropin" || -L "$debug_dropin" ]]; then
+        if gateway_debug_dropin_is_managed "$debug_dropin"; then
+            printf '[gateway] Reusing retained debug state from %s.\n' "$debug_dropin"
+            return 0
+        fi
+        fail "Gateway debug-preserve path is not owned by deployment: $debug_dropin"
+    fi
+}
+# ---------------------------------- #
+
+# Apply a configuration after the caller acquires the deployment lock.
+# Arguments: host config path. This function does not run preflight checks.
+apply_deployment_locked() {
     local config_path=$1 previous_container_image='' previous_tagged_image=''
     local current_image_id='' desired_image_id='' unit_changed=0 config_changed=0 inputs_changed=0 dns_changed=0
-    local restart_needed=0 network lock_fd
+    local restart_needed=0 network
 
-    command -v flock >/dev/null 2>&1 || fail 'flock is required to serialize Gateway configuration changes.'
-    exec {lock_fd}>"$GATEWAY_CONFIG_LOCK" || fail 'Could not open the Gateway configuration lock.'
-    flock -x "$lock_fd" || fail 'Could not lock Gateway configuration for apply.'
-    "$PREFLIGHT_SCRIPT" --check-gateway "$config_path"
+    ensure_no_stale_gateway_debug_state
     APPLY_MUTATING=1
     trap cleanup_after_apply EXIT
     ensure_wireguard_kernel_module "$config_path"
@@ -652,6 +895,7 @@ apply_deployment() {
     stage_managed_files "$config_path"
     validate_quadlet_candidate "$STAGED_QUADLET"
     test_dns_candidate "$STAGED_DNS"
+    stage_debug_gateway_files "$config_path"
 
     BACKUP_DIR=$(mktemp -d /var/tmp/gateway-backup.XXXXXX)
     snapshot_file "$QUADLET_FILE" quadlet
@@ -672,11 +916,16 @@ apply_deployment() {
     if (( unit_changed == 1 || config_changed == 1 || inputs_changed == 1 )); then restart_needed=1; fi
     if [[ "$SERVICE_WAS_ACTIVE" != 1 ]]; then restart_needed=1; fi
 
-    if (( unit_changed == 1 )); then
-        systemctl daemon-reload || fail 'systemd failed to reload the generated Quadlet unit.'
-    fi
     if (( restart_needed == 1 )); then
+        if install_atomic_if_changed "$STAGED_DEBUG_QUADLET" "$QUADLET_FILE" 0644; then
+            unit_changed=1
+        fi
+        install_gateway_debug_dropin
+        PRESERVE_FAILED_STATE=1
+        systemctl daemon-reload || fail 'systemd failed to reload the Gateway debug-preserve unit.'
         activate_gateway_service "$SERVICE_WAS_ACTIVE"
+    elif (( unit_changed == 1 )); then
+        systemctl daemon-reload || fail 'systemd failed to reload the generated Quadlet unit.'
     fi
     remove_managed_remote_access_return_routes "$config_path"
     if (( dns_changed == 1 && restart_needed == 0 )); then
@@ -685,6 +934,9 @@ apply_deployment() {
     fi
 
     wait_for_gateway_health "$config_path" "$DNS_HOSTS_FILE"
+    if (( DEBUG_PRESERVE_ACTIVE == 1 )); then
+        normalize_gateway_debug_unit
+    fi
     APPLY_MUTATING=0
     ROLLBACK_READY=0
 
@@ -705,6 +957,29 @@ apply_deployment() {
     fi
     printf '[gateway] Service status: %s\n' "$(systemctl is-active "$UNIT_NAME")"
     printf '[gateway] Recovery: journalctl -u %s; rerun --check before another apply.\n' "$UNIT_NAME"
+}
+# ---------------------------------- #
+
+# Apply a config after the operator has run a successful --check.
+# Arguments: host config path. Acquires the deployment lock but runs no preflight.
+apply_deployment() {
+    local config_path=$1
+
+    acquire_gateway_config_lock
+    printf '[gateway] Assuming --check passed; standalone --apply skips preflight.\n'
+    apply_deployment_locked "$config_path"
+}
+# ---------------------------------- #
+
+# Validate, preflight, and apply one config while holding the deployment lock for check and apply.
+# Arguments: host config path. Stops at the first failed stage.
+deploy_sequentially() {
+    local config_path=$1
+
+    run_preflight_command --validate-gateway-config "$config_path" || return
+    acquire_gateway_config_lock
+    run_preflight_command --check-gateway "$config_path" || return
+    apply_deployment_locked "$config_path"
 }
 # ---------------------------------- #
 
@@ -731,8 +1006,15 @@ main() {
             usage
             ;;
         *)
-            usage >&2
-            fail "Unknown option: $1"
+            if [[ $# -eq 1 && "$1" != -* ]]; then
+                deploy_sequentially "$1"
+            else
+                usage >&2
+                if [[ "$1" == -* ]]; then
+                    fail "Unknown option: $1"
+                fi
+                fail 'Sequential deployment accepts exactly one config filename.'
+            fi
             ;;
     esac
 }

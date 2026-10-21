@@ -15,7 +15,7 @@
 - **Existing IPv4 Layer 3 paths:** the external OpenVPN server remains in place and allocates client addresses; the Gateway config enables its OpenVPN client. SSH TUN uses an explicitly configured non-overlapping pool and dedicated `gateway-tunnel` account, but remains disabled. These paths provide routed split-tunnel access to configured Podman IPv4 CIDRs, not per-service forwarding. This does not disable unrelated IPv6 on the host or client; the Gateway runtime does not force IPv4 for the outer SSH connection, so clients that need it must use `ssh -4`. The external OpenVPN server remains outside this project; no DHCP, TAP, or Ethernet bridging is planned.
 - **Additive WireGuard server:** the Gateway provides an IPv4-only WireGuard runtime alongside, not instead of, OpenVPN client and SSH TUN. Approved peers receive every top-level Podman CIDR, including `shared`, application, and PostgreSQL networks. The configured peer pool is `192.168.10.0/24`; server address `192.168.10.1` is reserved inside that pool and also serves split DNS. The host listener is `0.0.0.0:1194/UDP`. The reachable client endpoint is supplied per profile through `peer generate --endpoint`; it is not in host config or preflight. `--apply` creates `/etc/gateway/wireguard/server.key` only when absent; an existing key is reused and never replaced.
 - **WireGuard trust boundary:** any user with administrative privileges to the Gateway container can manage peers and can reach all configured Podman networks. Such administrators receive broad network access; service credentials remain separately required. The implemented interface is a root-only CLI through container exec; no public admin HTTP/API exists.
-- **WireGuard key lifecycle:** Read-only `--check` reports a missing server key as planned. `--apply` builds a short-lived isolated helper and creates the root-owned server key only when the configured path is absent. Existing keys are cryptographically validated and reused; they are never rotated automatically. Keep the configured key to preserve previously issued client profiles. If a later apply step fails, the generated key remains for retry. The root-only `gateway-wireguard peer` CLI generates client keys inside Gateway. Pending peers are inactive. A separate explicit approval activates one peer and requires an approval reference and UTC expiry. Profiles print once only to matching foreground stdin/stdout `/dev/tty`; pipes fail closed. Private keys are never persisted, logged, placed in arguments, or placed in environment. If output fails, identify and revoke the pending peer; never retry or recover its key. Persistent audit stores container UID, peer ID, public fingerprint, operation, and public metadata. Host auditing must identify the human invoking `podman exec`. No public admin HTTP/API exists.
+- **WireGuard key lifecycle:** Read-only `--check` reports a missing server key as planned. The positional deployment pipeline preflights before apply; standalone `--apply` assumes a successful prior `--check`. Apply builds a short-lived isolated helper and creates the root-owned server key only when the configured path is absent. Existing keys are cryptographically validated and reused; they are never rotated automatically. Keep the configured key to preserve previously issued client profiles. If a later apply step fails, the generated key remains for retry. The root-only `gateway-wireguard peer` CLI generates client keys inside Gateway. Pending peers are inactive. A separate explicit approval activates one peer and requires an approval reference and UTC expiry. Profiles print once only to matching foreground stdin/stdout `/dev/tty`; pipes fail closed. Private keys are never persisted, logged, placed in arguments, or placed in environment. If output fails, identify and revoke the pending peer; never retry or recover its key. Persistent audit stores container UID, peer ID, public fingerprint, operation, and public metadata. Host auditing must identify the human invoking `podman exec`. No public admin HTTP/API exists.
 - **WireGuard host publication:** enabled Quadlet publishes only the explicit configured UDP bind and port. Host preflight briefly binds the configured UDP socket to detect local conflicts; it does not reserve the port or prove external reachability. The endpoint is required only for client profile generation. The requester declined an external firewall/perimeter requirement; do not add an external firewall prerequisite.
 - **DNS split and migration:** internal suffix is exactly `dev.anatel`, internal-only and non-public. DNS emits A records, never AAAA. `dns_records` is currently empty. Host schema now accepts exact `.dev.anatel` names; older documentation examples were migrated. WireGuard does not push routes or DNS; its profile carries only split routes and a resolver comment, not a global DNS directive. OpenVPN pushed-domain options belong to its external server/profile and are not Gateway JSON configuration.
 - **Per-OS DNS:** Windows 11 uses NRPT for `dev.anatel`; Linux uses systemd-resolved routing-only `~dev.anatel` and a per-link resolver; macOS uses `/etc/resolver/dev.anatel`. Recipes now use the implemented peer CLI. Client OS behavior still needs validation on Windows 11, Linux, and macOS systems.
@@ -98,6 +98,21 @@ sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 ```
 
+The one-argument alternative runs validation, preflight, and apply in order:
+
+```bash
+sudo ./scripts/deploy-gateway.sh config/host_config.json
+```
+
+Standalone `--apply` assumes that `--check` passed and does not repeat preflight. Apply-stage
+Quadlet/DNS candidate validation and post-activation health checks remain enabled.
+Startup health retries use the configured timeout and interval. If the Gateway unit reaches a
+terminal inactive/failed state, apply stops retrying immediately. On activation or readiness failure,
+the script prints Podman and systemd diagnostics, stages a temporary Quadlet/drop-in with automatic
+restart and container removal disabled, and preserves the failed state instead of rolling it back.
+A later retry reuses only the ownership-marked override; successful health checks restore the normal
+Quadlet and remove that override.
+
 `--apply` creates missing declared networks and installs config-only pending DNS comments; it does not inspect, create, start, stop, or otherwise operate application/DNS-target containers. The readiness-scoped DNS refresh handoff remains unimplemented, so pending names do not resolve until that handoff exists. For explicitly enabled remote-access config, Quadlet owns only the configured host pool routes; per-session Gateway interfaces and forwarding are created by authenticated tunnel runtimes. Do not claim remote Layer 3 access from config validation alone. Base Gateway validation/bootstrap remains container-independent and offline; the supplied OpenVPN profile and live SSH TUN session are not needed for base bootstrap. Production activation still requires operator inputs and runtime acceptance.
 
 The approved future handoff is revision-scoped: after its own readiness checks, application deployment requests DNS refresh; a dedicated refresh operation will inspect Podman and publish only a live, valid address for the declared network. Absent, stopped, or not-ready targets remain pending, are not started by Gateway, and have no record. Application lifecycle requests refresh after readiness, stop, and replacement. No generic background watcher is planned; protocol session lifecycle hooks are separate, narrowly scoped operations. Unexpected application crashes may leave a prior DNS record until explicit refresh or Gateway restart, but generated state must never fall back to that stale address.
@@ -107,10 +122,22 @@ Inspect and recover with:
 ```bash
 sudo systemctl status gateway.service
 sudo journalctl -u gateway.service
+sudo podman ps -a --filter name=gateway
+sudo podman inspect gateway
+sudo podman logs --tail 100 gateway
 sudo ./scripts/deploy-gateway.sh --check config/host_config.json
 ```
 
-Apply does not delete application networks. In the approved design, Gateway apply never changes application containers; on a clean host it can bootstrap with none present. If activation or health checks fail, it restores the previous generated Quadlet, configuration, and DNS files, then attempts to restore the prior service and image tag. Newly created networks, image layers, and persistent host keys remain; failure output reports additive network changes. Inspect systemd and Podman state before retrying.
+If the container is still running, use `sudo podman exec -it gateway /bin/bash` for interactive
+inspection. A stopped container remains available to `podman inspect` and `podman logs`.
+
+Apply does not delete application networks. In the approved design, Gateway apply never changes
+application containers; on a clean host it can bootstrap with none present. Failures before service
+activation restore the previous generated Quadlet, configuration, and DNS files, then attempt to
+restore the prior service and image tag. Activation or readiness failures instead preserve the
+debug Quadlet, ownership-marked systemd drop-in, and Podman container for diagnosis; a successful
+retry restores normal service behavior and removes the temporary override. Newly created networks,
+image layers, and persistent host keys remain; failure output reports additive network changes.
 
 Decommissioning is a separate operator action. First stop and disable the gateway, then remove only its generated Quadlet and container. Keep application networks, host keys, secrets, and application data unless their owners separately approve removal:
 
