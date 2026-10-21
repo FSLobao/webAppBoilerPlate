@@ -51,6 +51,44 @@ def test_wireguard_server_key_path_must_resolve_outside_repository(
         )
 
 
+def test_missing_wireguard_server_key_is_planned_for_apply(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Allow a missing external key during read-only preflight."""
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    key_path = tmp_path / "host-secrets" / "wireguard" / "server.key"
+    messages: list[str] = []
+    monkeypatch.setattr(
+        host_preflight, "_validate_wireguard_key_directory", lambda _path: None
+    )
+
+    host_preflight._validate_wireguard_server_key_path(
+        key_path, repository, messages.append
+    )
+
+    assert not key_path.exists()
+    expected_message = (
+        "[host-preflight] PENDING: WireGuard server key will be generated "
+        f"during --apply at {key_path}."
+    )
+    assert messages == [expected_message]
+
+
+def test_missing_wireguard_server_key_inside_repository_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """Keep planned key creation outside the source checkout."""
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    key_path = repository / "secrets" / "server.key"
+
+    with pytest.raises(ValueError, match="outside the Git repository"):
+        host_preflight._validate_wireguard_server_key_path(
+            key_path, repository, lambda _message: None
+        )
+
+
 def test_wireguard_udp_preflight_probes_selected_bind_and_port(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -157,6 +157,67 @@ grep -Fxq \
     'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.1.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route cleanup was not rendered'
 printf 'PASS: WireGuard renders explicit UDP bind, read-only server key, persistent public peers, minimum capability, and owned return route\n'
+mkdir -m 0700 "$TMP_DIR/wireguard-key-directory" "$TMP_DIR/key-bin"
+jq --arg key_path "$TMP_DIR/wireguard-key-directory/server.key" \
+    '.gateway.remote_access.wireguard.server_private_key_path = $key_path' \
+    "$TMP_DIR/wireguard-enabled.json" > "$TMP_DIR/wireguard-key-config.json"
+cat > "$TMP_DIR/key-bin/podman" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '%s\n' "$*" >> "$PODMAN_KEY_CALL_LOG"
+if [[ "$*" == *'server-key validate'* ]]; then
+    exit 0
+fi
+[[ "$*" == *'server-key generate'* ]] || exit 97
+volume=''
+filename=''
+while (($#)); do
+    case "$1" in
+        --volume) volume=$2; shift 2 ;;
+        --filename) filename=$2; shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ -n "$volume" && -n "$filename" ]] || exit 96
+printf 'test-only-server-key\n' > "${volume%%:*}/$filename"
+chmod 0600 "${volume%%:*}/$filename"
+SH
+chmod 0755 "$TMP_DIR/key-bin/podman"
+PATH="$TMP_DIR/key-bin:$PATH" PODMAN_KEY_CALL_LOG="$TMP_DIR/key-generation.log" \
+    bash -c 'source "$1"; ensure_wireguard_server_key "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard-key-config.json" \
+    > "$TMP_DIR/key-generation-output.log" 2>&1 || \
+    fail 'WireGuard apply helper did not provision a missing server key'
+[[ "$(stat -c %a "$TMP_DIR/wireguard-key-directory/server.key")" == 600 ]] || \
+    fail 'Generated WireGuard server key mode was not 0600'
+grep -Fq 'server-key generate --filename server.key' "$TMP_DIR/key-generation.log" || \
+    fail 'WireGuard key generator was not invoked for a missing key'
+grep -Fq -- '--network none' "$TMP_DIR/key-generation.log" || \
+    fail 'WireGuard key generator was not network-isolated'
+grep -Fq -- '--read-only --cap-drop=all' "$TMP_DIR/key-generation.log" || \
+    fail 'WireGuard key generator did not use a read-only, capability-free root filesystem'
+grep -Fq -- \
+    "--volume $TMP_DIR/wireguard-key-directory:/run/gateway/wireguard:rw,noexec,nosuid,nodev" \
+    "$TMP_DIR/key-generation.log" || fail 'WireGuard key helper did not receive only the restricted key directory'
+! grep -Fq 'test-only-server-key' "$TMP_DIR/key-generation-output.log" || \
+    fail 'WireGuard private key contents were written to command output'
+before=$(sha256sum "$TMP_DIR/wireguard-key-directory/server.key")
+: > "$TMP_DIR/key-generation.log"
+PATH="$TMP_DIR/key-bin:$PATH" PODMAN_KEY_CALL_LOG="$TMP_DIR/key-generation.log" \
+    bash -c 'source "$1"; ensure_wireguard_server_key "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard-key-config.json" \
+    > "$TMP_DIR/key-reuse-output.log" 2>&1 || \
+    fail 'WireGuard apply helper failed to reuse an existing server key'
+after=$(sha256sum "$TMP_DIR/wireguard-key-directory/server.key")
+[[ "$before" == "$after" ]] || fail 'WireGuard redeployment replaced an existing server key'
+grep -Fq 'server-key validate' "$TMP_DIR/key-generation.log" || \
+    { cat "$TMP_DIR/key-reuse-output.log" >&2; cat "$TMP_DIR/key-generation.log" >&2; \
+        fail 'Existing WireGuard server key was not validated'; }
+grep -Fq 'server.key:/run/gateway/wireguard/server.key:ro,noexec,nosuid,nodev' \
+    "$TMP_DIR/key-generation.log" || fail 'Existing server key was not mounted read-only for validation'
+! grep -Fq 'server-key generate' "$TMP_DIR/key-generation.log" || \
+    fail 'WireGuard redeployment regenerated an existing server key'
+printf 'PASS: WireGuard key is generated only when missing and reused for existing client profiles\n'
 jq '.gateway.remote_access.openvpn |= . + {
         "enabled":true
     }' "$TMP_DIR/ssh-tun-enabled.json" > "$TMP_DIR/shared-remote-access.json"

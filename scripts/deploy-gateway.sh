@@ -18,6 +18,8 @@ SERVICE_WAS_ENABLED=0
 SOCKET_WAS_ACTIVE=0
 ACTIVATION_ATTEMPTED=0
 NETWORKS_CREATED=()
+WIREGUARD_KEY_CREATED=0
+WIREGUARD_KEY_PATH=''
 
 usage() {
     printf 'Usage: %s --validate-config|--check|--apply [host_config.json]\n' "${0##*/}"
@@ -76,6 +78,77 @@ generate_dns_candidate() {
             "$dns_name" "$container" >> "$output_path"
     done < <(jq -r '.dns_records[]? | [.name, .container] | @tsv' "$config_path")
     chmod 0644 "$output_path"
+}
+# ---------------------------------- #
+
+# Validate an existing WireGuard server key in a short-lived read-only container.
+# Arguments: configured host key path. Reads only that key and never emits its contents.
+# Output: validation status only; failures are reported to stderr.
+validate_wireguard_server_key() {
+    local key_path=$1
+
+    podman run --pull=never --rm --network none --user 0 --userns=host \
+        --read-only --cap-drop=all --security-opt=no-new-privileges \
+        --env PYTHONDONTWRITEBYTECODE=1 \
+        --volume "$key_path:/run/gateway/wireguard/server.key:ro,noexec,nosuid,nodev" \
+        --entrypoint /usr/local/bin/gateway-wireguard "$IMAGE" \
+        server-key validate || fail "Existing WireGuard server key is invalid: $key_path"
+}
+# ---------------------------------- #
+
+# Generate a missing WireGuard server key in a short-lived isolated container.
+# Arguments: validated host config path. Reads the built image and writes only the configured key.
+# Output: status messages only; the private key stays in the helper container and mounted file.
+ensure_wireguard_server_key() {
+    local config_path=$1 wireguard_enabled key_path key_directory key_filename
+    local mode
+
+    wireguard_enabled=$(jq -r '.gateway.remote_access.wireguard.enabled // false' "$config_path")
+    [[ "$wireguard_enabled" == true ]] || return 0
+    key_path=$(jq -r '.gateway.remote_access.wireguard.server_private_key_path' "$config_path")
+
+    if [[ -e "$key_path" || -L "$key_path" ]]; then
+        [[ -f "$key_path" && ! -L "$key_path" && -s "$key_path" ]] || \
+            fail "Existing WireGuard server key is not a non-empty regular file: $key_path"
+        validate_wireguard_server_key "$key_path"
+        printf '[gateway] Reusing the configured WireGuard server key; existing client profiles remain valid.\n'
+        return 0
+    fi
+
+    key_directory=${key_path%/*}
+    key_filename=${key_path##*/}
+    [[ "$key_directory" != "$key_path" && -n "$key_filename" ]] || \
+        fail 'WireGuard server key path must name a file in a directory.'
+    if [[ -L "$key_directory" ]]; then
+        fail "WireGuard server key directory must not be a symlink: $key_directory"
+    elif [[ -e "$key_directory" ]]; then
+        [[ -d "$key_directory" ]] || fail "WireGuard server key parent is not a directory: $key_directory"
+        mode=$(stat -c %a -- "$key_directory") || fail "Cannot inspect WireGuard server key directory: $key_directory"
+        (( (8#$mode & 0022) == 0 )) || \
+            fail "WireGuard server key directory must not be group/world writable: $key_directory"
+    else
+        install -d -o root -g root -m 0700 -- "$key_directory" || \
+            fail "Could not create WireGuard server key directory: $key_directory"
+    fi
+
+    if ! podman run --pull=never --rm --network none --user 0 --userns=host \
+        --read-only --cap-drop=all --security-opt=no-new-privileges \
+        --env PYTHONDONTWRITEBYTECODE=1 \
+        --volume "$key_directory:/run/gateway/wireguard:rw,noexec,nosuid,nodev" \
+        --entrypoint /usr/local/bin/gateway-wireguard "$IMAGE" \
+        server-key generate --filename "$key_filename"; then
+        if [[ -e "$key_path" || -L "$key_path" ]]; then
+            WIREGUARD_KEY_CREATED=1
+            WIREGUARD_KEY_PATH=$key_path
+        fi
+        fail "WireGuard server-key generation failed; an existing key was not overwritten."
+    fi
+
+    WIREGUARD_KEY_CREATED=1
+    WIREGUARD_KEY_PATH=$key_path
+    [[ -f "$key_path" && ! -L "$key_path" && -s "$key_path" ]] || \
+        fail "WireGuard server-key helper did not create a regular key file: $key_path"
+    printf '[gateway] Generated the persistent WireGuard server key at %s.\n' "$key_path"
 }
 # ---------------------------------- #
 
@@ -399,10 +472,18 @@ cleanup_after_apply() {
     trap - EXIT
 
     if (( status != 0 && APPLY_MUTATING == 1 )); then
+        if (( WIREGUARD_KEY_CREATED == 1 )); then
+            printf '[gateway] Retained the WireGuard server key at %s; reuse it on retry to preserve client profiles.\n' \
+                "$WIREGUARD_KEY_PATH" >&2
+        fi
         if (( ROLLBACK_READY == 1 )); then
             rollback_deployment
         else
             printf '[gateway] Apply stopped before activation; additive directories, host keys, networks, or image layers may remain. No data or secrets were removed.\n' >&2
+        fi
+        if (( WIREGUARD_KEY_CREATED == 1 )); then
+            printf '[gateway] Retained the WireGuard server key at %s; reuse it on retry to preserve client profiles.\n' \
+                "$WIREGUARD_KEY_PATH" >&2
         fi
     fi
     [[ -z "$STAGED_CONFIG" ]] || rm -f -- "$STAGED_CONFIG"
@@ -495,6 +576,7 @@ apply_deployment() {
     podman build --pull=always --file "$GATEWAY_CONTAINERFILE" \
         --tag "$IMAGE" "$GATEWAY_BUILD_CONTEXT" || fail 'Debian gateway image build failed.'
     desired_image_id=$(podman image inspect --format '{{.Id}}' "$IMAGE") || fail 'Cannot inspect the built gateway image.'
+    ensure_wireguard_server_key "$config_path"
     ensure_host_keys
     stage_managed_files "$config_path"
     validate_quadlet_candidate "$STAGED_QUADLET"

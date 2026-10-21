@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Gateway WireGuard server and root-only peer administration CLI.
+"""Run the Gateway WireGuard server and root-only key/peer administration CLI.
 
 The server reconciles only public peer metadata stored under
 ``/var/lib/gateway/wireguard``. Peer private keys exist only in memory during
@@ -19,6 +19,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import UTC, datetime
@@ -50,6 +51,7 @@ INTERFACE = "wg0"
 OWNER_ID = hashlib.sha256(b"gateway-wireguard").hexdigest()
 PEER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 KEY_PATTERN = re.compile(r"[A-Za-z0-9+/]{43}=")
+SERVER_KEY_FILENAME_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 # Linux asm-generic/ioctls.h defines TIOCGDEV as _IOR('T', 0x32, unsigned int).
 LINUX_TIOCGDEV = 0x80045432
 FAIL_STOP_TABLE = "gateway_wireguard_fail_stop"
@@ -78,6 +80,109 @@ def _run(arguments: list[str], *, input_text: str | None = None) -> str:
     if result.returncode:
         raise WireGuardError(f"WireGuard command failed: {arguments[0]}")
     return result.stdout.strip()
+
+
+def _generate_server_key(filename: str) -> None:
+    """Create a private server key atomically without replacing an existing key."""
+    if filename in {".", ".."} or not SERVER_KEY_FILENAME_PATTERN.fullmatch(filename):
+        raise WireGuardError("WireGuard server-key filename is invalid.")
+    directory = SERVER_KEY_PATH.parent
+    try:
+        directory_stat = directory.lstat()
+    except OSError as error:
+        raise WireGuardError(
+            "WireGuard server-key output directory is unavailable."
+        ) from error
+    if (
+        not stat.S_ISDIR(directory_stat.st_mode)
+        or directory.is_symlink()
+        or directory_stat.st_uid != os.geteuid()
+        or stat.S_IMODE(directory_stat.st_mode) & 0o022
+    ):
+        raise WireGuardError("WireGuard server-key output directory is unsafe.")
+    key_path = directory / filename
+    try:
+        key_path.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise WireGuardError(
+            "Could not inspect WireGuard server-key destination."
+        ) from error
+    else:
+        raise WireGuardError(
+            "WireGuard server key already exists; refusing to replace it."
+        )
+    private_key = _run(["wg", "genkey"])
+    if not KEY_PATTERN.fullmatch(private_key):
+        raise WireGuardError("WireGuard generated an invalid server key.")
+    public_key = _run(["wg", "pubkey"], input_text=private_key)
+    if not KEY_PATTERN.fullmatch(public_key):
+        raise WireGuardError("WireGuard generated an invalid server public key.")
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix=".wireguard-server-key-", dir=directory
+        ) as temporary_directory:
+            temporary_path = Path(temporary_directory) / "server.key"
+            descriptor = os.open(
+                temporary_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o600,
+            )
+            with os.fdopen(descriptor, "w", encoding="ascii") as key_file:
+                os.fchmod(key_file.fileno(), 0o600)
+                key_file.write(f"{private_key}\n")
+                key_file.flush()
+                os.fsync(key_file.fileno())
+            try:
+                os.link(temporary_path, key_path)
+            except FileExistsError as error:
+                raise WireGuardError(
+                    "WireGuard server key already exists; refusing to replace it."
+                ) from error
+            directory_descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+    except WireGuardError:
+        raise
+    except OSError as error:
+        raise WireGuardError(
+            "Could not create the WireGuard server key safely."
+        ) from error
+
+
+def _validate_server_key_metadata(key_path: Path) -> None:
+    """Validate server-key file ownership and permissions without reading it."""
+    try:
+        key_stat = key_path.lstat()
+    except OSError as error:
+        raise WireGuardError("Mounted WireGuard server key is unavailable.") from error
+    if (
+        not stat.S_ISREG(key_stat.st_mode)
+        or key_path.is_symlink()
+        or key_stat.st_uid != 0
+        or key_stat.st_size == 0
+        or stat.S_IMODE(key_stat.st_mode) & 0o077
+        or not stat.S_IMODE(key_stat.st_mode) & 0o400
+    ):
+        raise WireGuardError("Mounted WireGuard server key is unsafe.")
+
+
+def _validate_server_key_file() -> None:
+    """Verify the mounted server key without displaying private material."""
+    _validate_server_key_metadata(SERVER_KEY_PATH)
+    try:
+        key_contents = SERVER_KEY_PATH.read_text(encoding="ascii")
+    except OSError as error:
+        raise WireGuardError(
+            "Could not read the mounted WireGuard server key."
+        ) from error
+    private_key = key_contents.removesuffix("\n")
+    if not KEY_PATTERN.fullmatch(private_key):
+        raise WireGuardError("Mounted WireGuard server key is invalid.")
+    _run(["wg", "pubkey"], input_text=private_key)
 
 
 def _enabled(config: dict[str, Any]) -> dict[str, Any]:
@@ -1171,14 +1276,7 @@ def _configure_server(config: dict[str, Any], wireguard: dict[str, Any]) -> str:
         raise WireGuardError(
             "Host kernel WireGuard support is unavailable; no module was loaded."
         )
-    key_stat = SERVER_KEY_PATH.lstat()
-    if (
-        not stat.S_ISREG(key_stat.st_mode)
-        or SERVER_KEY_PATH.is_symlink()
-        or key_stat.st_uid != 0
-        or stat.S_IMODE(key_stat.st_mode) & 0o077
-    ):
-        raise WireGuardError("Mounted WireGuard server key is unsafe.")
+    _validate_server_key_metadata(SERVER_KEY_PATH)
     if not Path("/var/lib/gateway/wireguard").is_dir():
         raise WireGuardError("Persistent WireGuard peer storage is not mounted.")
     state = _read_peers()
@@ -1298,6 +1396,19 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--owner", required=True)
     generate.add_argument("--purpose", required=True)
     generate.add_argument("--endpoint", required=True)
+    server_key_parser = commands.add_parser(
+        "server-key", help="provision the persistent server key"
+    )
+    server_key_operations = server_key_parser.add_subparsers(
+        dest="operation", required=True
+    )
+    server_key_generate = server_key_operations.add_parser(
+        "generate", help="generate the server key without replacing an existing key"
+    )
+    server_key_generate.add_argument("--filename", required=True)
+    server_key_operations.add_parser(
+        "validate", help="validate the mounted server key without displaying it"
+    )
     approve = operations.add_parser("approve", help="activate a pending peer")
     approve.add_argument("peer_id")
     approve.add_argument("--approval-reference", required=True)
@@ -1308,6 +1419,23 @@ def main(argv: list[str] | None = None) -> int:
     operations.add_parser("list", help="list public peer metadata")
     args = parser.parse_args(argv)
     try:
+        if args.command == "server-key":
+            if os.geteuid() != 0:
+                raise WireGuardError(
+                    "WireGuard server-key provisioning requires container root."
+                )
+            if args.operation == "generate":
+                _generate_server_key(args.filename)
+                _validate_server_key_metadata(SERVER_KEY_PATH.parent / args.filename)
+                print(
+                    f"[wireguard] Created server key at "
+                    f"{SERVER_KEY_PATH.parent / args.filename}.",
+                    file=sys.stderr,
+                )
+                return 0
+            _validate_server_key_file()
+            print("[wireguard] Existing server key is valid.", file=sys.stderr)
+            return 0
         if args.command == "run":
             run_server(load_host_config(args.config))
             return 0

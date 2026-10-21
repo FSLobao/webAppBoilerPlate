@@ -270,7 +270,9 @@ def _rollback_acquisition(
                     failed_steps.append("forwarding")
             elif current != "0":
                 failed_steps.append("forwarding")
-        except OSError, UnicodeError:
+        except OSError:
+            failed_steps.append("forwarding")
+        except UnicodeError:
             failed_steps.append("forwarding")
         if failed_steps:
             return tuple(failed_steps)
@@ -284,7 +286,9 @@ def _rollback_acquisition(
             )
             if deleted.returncode != 0:
                 failed_steps.append("table")
-    except OSError, ForwardingError:
+    except OSError:
+        failed_steps.append("table")
+    except ForwardingError:
         failed_steps.append("table")
     return tuple(failed_steps)
 
@@ -518,7 +522,9 @@ def release_forwarding(
                     current = forwarding_path.read_text(encoding="ascii").strip()
                 if current != "0":
                     failed_steps.append("forwarding")
-            except OSError, UnicodeError:
+            except OSError:
+                failed_steps.append("forwarding")
+            except UnicodeError:
                 failed_steps.append("forwarding")
         if failed_steps:
             state.update(

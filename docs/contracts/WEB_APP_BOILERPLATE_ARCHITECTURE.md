@@ -166,7 +166,8 @@ runtime IPv4, CLI root-only de peers, publicação UDP condicional e receitas de
 implementados. A configuração versionada habilita WireGuard e o cliente OpenVPN; SSH TUN permanece
 desativado. WireGuard usa `0.0.0.0:1194/UDP`, pool `192.168.10.0/24`, servidor/resolver
 `192.168.10.1` e chave externa em `/etc/gateway/wireguard/server.key`. O allocator reserva o
-endereço `.1` para o servidor. O endpoint acessível pelo cliente não fica no JSON nem no preflight:
+endereço `.1` para o servidor. `--apply` gera a chave somente quando ausente; chave existente é
+reutilizada para preservar perfis de cliente já emitidos. O endpoint acessível pelo cliente não fica no JSON nem no preflight:
 `peer generate --endpoint` o inclui no perfil `.conf`. A aceitação de túnel e forwarding do kernel
 não foi validada no host-alvo.
 O runtime SSH TUN está implementado, mas ativação real e aceitação em host-alvo permanecem
@@ -682,9 +683,11 @@ entrega o perfil uma vez somente por `/dev/tty` direto em primeiro plano, após 
 stdin/stdout no mesmo terminal. Não persiste nem registra a chave privada; plaintext existe
 transitoriamente em memória. TTY não comprova ausência de gravação externa; operador deve usar
 terminal confiável sem gravação. Falha de escrita exige identificar e revogar o peer pendente; não
-recuperar nem reimprimir a chave. A chave privada do servidor é fornecida por caminho explícito
-root-managed fora do Git e montada somente para leitura no Gateway. Comandos não usam API ou
-interface pública.
+recuperar nem reimprimir a chave. A chave privada do servidor fica em
+`/etc/gateway/wireguard/server.key`, root-owned fora do Git, e é montada somente para leitura no
+Gateway. `--apply` cria essa chave somente se o caminho configurado estiver ausente; redeployments
+reutilizam a chave existente e mantêm válidos os perfis de cliente já emitidos. Comandos não usam
+API ou interface pública.
 
 WireGuard, OpenVPN e SSH TUN usam IPv4 para este contrato; isso não desativa IPv6 no host nem nos
 clientes. Não haverá NAT, DNAT/SNAT ou forwarding entre redes de aplicações. Peers podem alcançar
@@ -1255,7 +1258,7 @@ As decisões de topologia confirmadas estão registradas na seção 34. Os valor
 7. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
 8. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
 9. O schema aceita `dev.anatel` e receitas de split DNS existem para Windows 11, Linux e macOS. Validar DNS, rotas preservadas e cleanup em cada sistema operacional; `dns_records` está vazio.
-10. Provisionar a chave root-managed do servidor WireGuard em `/etc/gateway/wireguard/server.key`. A configuração fixa bind `0.0.0.0`, UDP `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1`; o allocator reserva o endereço do servidor. Fornecer endpoint alcançável a cada `peer generate --endpoint`. Validar host routes, key e bind UDP antes de ativar; endpoint reachability fica sob responsabilidade da rede externa.
+10. A configuração fixa bind `0.0.0.0`, UDP `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1`; o allocator reserva o endereço do servidor. Read-only preflight informa quando a chave está ausente; `--apply` a gera somente depois das verificações e reutiliza a chave existente. Mantenha a chave configurada para preservar perfis de cliente já emitidos. Fornecer endpoint alcançável a cada `peer generate --endpoint`. Validar host routes, key e bind UDP antes de ativar; endpoint reachability fica sob responsabilidade da rede externa.
 11. A CLI root-only, aprovação auditável e entrega única por `/dev/tty` estão implementadas. Usar terminal confiável não gravado; testar segredos ausentes de armazenamento/logs/erros e falhas de saída. Revogar peer pendente se a entrega falhar; não recuperar nem reimprimir chave.
 12. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
 
@@ -1394,7 +1397,7 @@ Resolva os inputs restantes da seção 29 antes da implementação. Valide Podma
 
 O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `192.168.9.2` e `192.168.8.2` foram aprovados para as duas interfaces do Gateway.
 
-`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` é área separada para configuração de túneis; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. Schema e runtime WireGuard estão implementados e habilitados na configuração versionada. O bind/porta são `0.0.0.0:1194/UDP`; o pool `192.168.10.0/24` reserva `192.168.10.1` para servidor e resolver. A chave root-managed fica em `/etc/gateway/wireguard/server.key`. Cada perfil recebe seu endpoint via `peer generate --endpoint`; ele não pertence ao JSON nem ao preflight. A aceitação do túnel aguarda chave provisionada, preflight no host e testes no alvo.
+`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` é área separada para configuração de túneis; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. Schema e runtime WireGuard estão implementados e habilitados na configuração versionada. O bind/porta são `0.0.0.0:1194/UDP`; o pool `192.168.10.0/24` reserva `192.168.10.1` para servidor e resolver. `--apply` gera a chave root-owned em `/etc/gateway/wireguard/server.key` somente quando ausente e preserva uma chave existente. Cada perfil recebe seu endpoint via `peer generate --endpoint`; ele não pertence ao JSON nem ao preflight. A aceitação do túnel aguarda preflight no host e testes no alvo.
 
 `192.168.9.0/24` foi selecionado como a primeira rede /24 acima do conflito conhecido, usando o inventário versionado `shared`/`webApp` e a rota host `192.168.7.0/24` observada em `eth0`. Essa escolha não prova disponibilidade contra outras redes ou rotas. Gateway `--check` valida redes Podman, mas não verifica a tabela de rotas do host; a aceitação exige revisão no host-alvo de todas as redes e rotas relevantes.
 

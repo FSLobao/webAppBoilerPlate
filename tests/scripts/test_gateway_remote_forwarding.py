@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import json
 import subprocess
@@ -97,7 +98,9 @@ def _paths(tmp_path: Path) -> tuple[Path, Path, Path]:
 def test_module_compiles_and_imports() -> None:
     """Compile the source and confirm its importable module is available."""
     source_path = Path(forwarding.__file__)
-    compile(source_path.read_text(encoding="utf-8"), str(source_path), "exec")
+    source = source_path.read_text(encoding="utf-8")
+    ast.parse(source, filename=str(source_path), feature_version=(3, 13))
+    compile(source, str(source_path), "exec")
 
     assert (
         importlib.import_module("gateway.development.remote_forwarding") is forwarding

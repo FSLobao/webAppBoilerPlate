@@ -33,8 +33,9 @@ WireGuard, CLI root-only de peers e handoff explícito de DNS por readiness. A c
 habilita OpenVPN e WireGuard; SSH TUN permanece desativado. WireGuard usa bind `0.0.0.0`, UDP
 `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1` e chave externa em
 `/etc/gateway/wireguard/server.key`. O endpoint acessível pelo cliente é fornecido em cada chamada
-`peer generate --endpoint`, não na configuração do servidor. A chave precisa ser provisionada antes
-do preflight. A aceitação de túnel e forwarding do kernel não foi validada no host-alvo. Receitas de
+`peer generate --endpoint`, não na configuração do servidor. O `--check` não cria a chave; `--apply`
+a gera somente se estiver ausente e reutiliza uma chave existente para preservar perfis já emitidos.
+A aceitação de túnel e forwarding do kernel não foi validada no host-alvo. Receitas de
 split DNS para `dev.anatel` existem para Windows 11, Linux e macOS, mas exigem validação em cada
 sistema. Não implante em host live; consulte
 [docs/plans/gateway-implementation.md](docs/plans/gateway-implementation.md).
@@ -116,8 +117,10 @@ schema aceita o sufixo e as receitas implementam split DNS por sistema operacion
 listener, pool, endereço do servidor/resolver e caminho da chave. O endpoint público não fica no
 config nem no preflight: `peer generate --endpoint` inclui o host no perfil `.conf` do cliente.
 O bind `0.0.0.0` publica UDP `1194` em todas as interfaces IPv4 do host; preflight verifica o bind
-local, mas não a alcançabilidade externa. Nenhum requisito de firewall/perímetro externo foi
-aprovado. Nenhuma rota default do cliente será substituída. Consulte o [plano
+local, mas não a alcançabilidade externa. Se a chave estiver ausente, `--apply` a cria depois do
+preflight; `--check` permanece somente leitura. Para preservar perfis de cliente já emitidos em
+redeploys, mantenha a chave existente no caminho configurado; `--apply` a reutiliza e nunca a
+substitui. Nenhum requisito de firewall/perímetro externo foi aprovado. Nenhuma rota default do cliente será substituída. Consulte o [plano
 do Gateway](docs/plans/gateway-plan.md), o [status de implementação](docs/plans/gateway-implementation.md)
 e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
 
@@ -394,7 +397,7 @@ precisa das chaves privadas dos desenvolvedores.
 | `/etc/gateway/tls/gateway.cert` | Certificado TLS válido do Cockpit. Para geração e confiança nos clientes, veja [Gateway Cockpit TLS](docs/recipes/gateway-cockpit-tls.md). |
 | `/etc/gateway/tls/gateway.key` | Chave privada correspondente; root-owned e sem acesso por grupo/outros (normalmente modo `0600`). |
 | `/etc/gateway/openvpn/client.ovpn` | Perfil OpenVPN externo; arquivo regular root-owned, legível apenas por root (normalmente modo `0600`), montado somente para leitura quando o runtime é habilitado. O código não abre nem copia seu conteúdo. |
-| `/etc/gateway/wireguard/server.key` (`gateway.remote_access.wireguard.server_private_key_path`) | Chave privada do servidor WireGuard; arquivo regular root-owned, modo `0600`, fora do Git e montado somente para leitura. Provisionar antes do preflight; nunca incluir o conteúdo no JSON. |
+| `/etc/gateway/wireguard/server.key` (`gateway.remote_access.wireguard.server_private_key_path`) | Chave privada do servidor WireGuard; arquivo regular root-owned, modo `0600`, fora do Git e montado somente para leitura. `--apply` gera somente quando ausente; uma chave existente é reutilizada para preservar perfis já emitidos. Nunca incluir o conteúdo no JSON. |
 
 Receita curta para criar e instalar a chave pública de login no Windows 11:
 [Gateway SSH key](docs/recipes/windows-11-gateway-ssh-key.md).
@@ -426,8 +429,9 @@ sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 portas, redes, rotas IPv4 do host, socket rootful e ferramentas exigidas; não inspeciona containers
 de aplicação ou targets DNS. Se OpenVPN estiver habilitado, verifica apenas metadados de propriedade,
 modo e arquivo regular do perfil; não lê seu conteúdo. Se WireGuard estiver habilitado, verifica
-inputs, suporte do kernel/ferramentas, metadados da chave e disponibilidade local de bind UDP antes
-de qualquer mutação. Não valida o endpoint por peer nem sua alcançabilidade externa.
+inputs, suporte do kernel/ferramentas, metadados da chave se existente e disponibilidade local de
+bind UDP antes de qualquer mutação. Se a chave faltar, informa que `--apply` a criará. Não valida o
+endpoint por peer nem sua alcançabilidade externa.
 Redes ausentes são informadas como criação planejada. O comando geral
 `host-preflight.sh --check` também verifica rotas e continua inspecionando os containers declarados.
 Não contorne a verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
@@ -451,10 +455,11 @@ operacional.
   `/dev/net/tun` e `NET_ADMIN`, instala forwarding restrito TUN-para-Podman e gerencia somente a
   rota IPv4 do pool com protocolo reservado `186`. A configuração versionada não habilita esse
   runtime.
-- Com WireGuard habilitado e inputs explícitos, monta a chave privada do servidor somente para
-  leitura, publica `0.0.0.0:1194/UDP`, adiciona `NET_ADMIN` e instala a rota de retorno exata para
-  o pool. O preflight não carrega módulo; se suporte do kernel estiver ausente, falha antes da
-  mutação. O endpoint público é fornecido apenas ao gerar cada perfil.
+- Com WireGuard habilitado, `--apply` gera a chave somente se estiver ausente, depois do preflight e
+  da construção da imagem. Chave existente é validada e reutilizada; nunca é substituída. O Gateway
+  monta somente o arquivo de chave em leitura, publica `0.0.0.0:1194/UDP`, adiciona `NET_ADMIN` e
+  instala a rota de retorno exata para o pool. O preflight não carrega módulo; se suporte do kernel
+  estiver ausente, falha antes da mutação. O endpoint público é fornecido apenas ao gerar cada perfil.
 
 O script não cria as credenciais externas, containers de aplicação, volumes ou dados de aplicação.
 Também não usa `--privileged`, não expõe a API Podman por TCP e não altera SELinux. Se o apply falhar,

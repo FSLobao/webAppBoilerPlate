@@ -1,7 +1,8 @@
 # WireGuard peer onboarding on macOS
 
 > WireGuard runtime and peer CLI are implemented, and checked-in config enables the server.
-> Do not activate it until the host key is provisioned and kernel, UDP bind, and route preflight pass.
+> Do not use peers until `--apply` completes after host preflight. It creates a missing server key
+> and reuses an existing key to preserve issued profiles.
 > Supply a reachable endpoint for each client profile; it is not stored in host config.
 > Peer operations require Gateway root and a direct, non-recording terminal.
 

@@ -430,20 +430,88 @@ def _validate_ssh_tun_keys_file(config: dict[str, Any]) -> None:
 def _require_external_key_path(
     key_path: pathlib.Path, repository_root: pathlib.Path
 ) -> None:
-    """Reject a WireGuard server key resolved inside the checked-out repository."""
+    """Reject a WireGuard server-key path resolved inside the repository."""
     try:
-        resolved_key_path = key_path.resolve(strict=True)
+        resolved_key_path = key_path.resolve(strict=False)
         resolved_repository_root = repository_root.resolve(strict=True)
     except (OSError, RuntimeError) as error:
-        raise ValueError("configured WireGuard server key is unavailable") from error
+        raise ValueError("configured WireGuard server-key path is invalid") from error
     if resolved_key_path.is_relative_to(resolved_repository_root):
         raise ValueError(
             "configured WireGuard server key must be outside the Git repository"
         )
 
 
-def _validate_wireguard_inputs(config: dict[str, Any]) -> None:
-    """Check kernel support, UDP bind availability, and server-key metadata."""
+def _validate_wireguard_server_key_path(
+    key_path: pathlib.Path,
+    repository_root: pathlib.Path,
+    announce: Callable[[str], None],
+) -> None:
+    """Validate an existing server key or report its planned creation."""
+    _require_external_key_path(key_path, repository_root)
+    try:
+        key_stat = key_path.lstat()
+    except FileNotFoundError:
+        _validate_wireguard_key_directory(key_path.parent)
+        announce(
+            "[host-preflight] PENDING: WireGuard server key will be generated "
+            f"during --apply at {key_path}."
+        )
+        return
+    except OSError as error:
+        raise ValueError("configured WireGuard server key is unavailable") from error
+    _validate_wireguard_key_directory(key_path.parent)
+    mode = stat.S_IMODE(key_stat.st_mode)
+    if (
+        not stat.S_ISREG(key_stat.st_mode)
+        or key_path.is_symlink()
+        or key_stat.st_uid != 0
+        or key_stat.st_size == 0
+        or mode & 0o077
+        or not mode & 0o400
+    ):
+        raise ValueError(
+            "WireGuard server key must be a non-empty, readable, "
+            "root-owned private regular file"
+        )
+
+
+def _validate_wireguard_key_directory(directory: pathlib.Path) -> None:
+    """Reject unsafe existing directories in the server-key path."""
+    current = directory
+    while True:
+        try:
+            directory_stat = current.lstat()
+        except FileNotFoundError:
+            if current == current.parent:
+                raise ValueError(
+                    "WireGuard server-key directory path has no existing ancestor"
+                )
+            current = current.parent
+            continue
+        except OSError as error:
+            raise ValueError(
+                "configured WireGuard server-key directory is unavailable"
+            ) from error
+        if (
+            not stat.S_ISDIR(directory_stat.st_mode)
+            or current.is_symlink()
+            or directory_stat.st_uid != 0
+            or stat.S_IMODE(directory_stat.st_mode) & 0o022
+        ):
+            raise ValueError(
+                "WireGuard server-key path must use root-owned directories "
+                "that are not group/world writable"
+            )
+        if current == current.parent:
+            return
+        current = current.parent
+
+
+def _validate_wireguard_inputs(
+    config: dict[str, Any], announce: Callable[[str], None]
+) -> None:
+    """Check kernel support, UDP bind availability, and server-key readiness."""
     gateway = config.get("gateway")
     remote_access = gateway.get("remote_access") if isinstance(gateway, dict) else None
     wireguard = (
@@ -458,22 +526,7 @@ def _validate_wireguard_inputs(config: dict[str, Any]) -> None:
         )
     key_path = pathlib.Path(wireguard["server_private_key_path"])
     repository_root = pathlib.Path(__file__).resolve().parents[2]
-    _require_external_key_path(key_path, repository_root)
-    try:
-        key_stat = key_path.lstat()
-    except OSError as error:
-        raise ValueError("configured WireGuard server key is unavailable") from error
-    mode = stat.S_IMODE(key_stat.st_mode)
-    if (
-        not stat.S_ISREG(key_stat.st_mode)
-        or key_path.is_symlink()
-        or key_stat.st_uid != 0
-        or mode & 0o077
-        or not mode & 0o400
-    ):
-        raise ValueError(
-            "WireGuard server key must be a readable, root-owned private regular file"
-        )
+    _validate_wireguard_server_key_path(key_path, repository_root, announce)
     _validate_wireguard_udp_listener(wireguard)
 
 
@@ -509,7 +562,7 @@ def validate_gateway_networks(
     Args:
         config: Structurally validated host configuration.
         run_command: Subprocess-compatible runner, injectable for tests.
-        announce: Receives planned network and pending DNS messages.
+        announce: Receives planned network, DNS, and missing server-key messages.
 
     Raises:
         RuntimeError: A Podman or route command fails.
@@ -530,7 +583,7 @@ def validate_gateway_networks(
     )
     _validate_openvpn_profile_file(config)
     _validate_ssh_tun_keys_file(config)
-    _validate_wireguard_inputs(config)
+    _validate_wireguard_inputs(config, announce)
     command_runner = run_command or subprocess.run
     existing_networks = _inspect_podman_networks(command_runner)
     declared_networks = _validate_declared_networks(

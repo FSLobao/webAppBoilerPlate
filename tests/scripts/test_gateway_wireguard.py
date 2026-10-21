@@ -11,6 +11,7 @@ import os
 import pty
 import select
 import signal
+import stat
 import subprocess
 import time
 from pathlib import Path
@@ -105,6 +106,135 @@ def test_runtime_rejects_pool_network_address_as_wireguard_server() -> None:
 
     with pytest.raises(wireguard.WireGuardError, match="pool or UDP port is invalid"):
         wireguard._enabled(config)
+
+
+def test_server_key_generation_creates_private_file_and_cleans_temporary_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Create a one-time server key without leaving a temporary key file."""
+    key_directory = tmp_path / "wireguard"
+    key_directory.mkdir(mode=0o700)
+    key_directory.chmod(0o700)
+    key_path = key_directory / "server.key"
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", key_path)
+    commands: list[tuple[list[str], str | None]] = []
+
+    def run(arguments: list[str], *, input_text: str | None = None) -> str:
+        commands.append((arguments, input_text))
+        if arguments == ["wg", "genkey"]:
+            return PRIVATE_KEY
+        if arguments == ["wg", "pubkey"] and input_text == PRIVATE_KEY:
+            return SERVER_PUBLIC_KEY
+        raise AssertionError(f"unexpected command: {arguments}")
+
+    monkeypatch.setattr(wireguard, "_run", run)
+
+    wireguard._generate_server_key("server.key")
+
+    assert key_path.read_text(encoding="ascii") == f"{PRIVATE_KEY}\n"
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    assert [path.name for path in key_directory.iterdir()] == ["server.key"]
+    assert commands == [
+        (["wg", "genkey"], None),
+        (["wg", "pubkey"], PRIVATE_KEY),
+    ]
+
+
+def test_server_key_generation_never_replaces_existing_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep the existing server key unchanged when provisioning is retried."""
+    key_directory = tmp_path / "wireguard"
+    key_directory.mkdir(mode=0o700)
+    key_directory.chmod(0o700)
+    key_path = key_directory / "server.key"
+    key_path.write_text("existing-key\n", encoding="ascii")
+    key_path.chmod(0o600)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", key_path)
+    monkeypatch.setattr(
+        wireguard, "_run", lambda _arguments: pytest.fail("keygen must not run")
+    )
+
+    with pytest.raises(wireguard.WireGuardError, match="already exists"):
+        wireguard._generate_server_key("server.key")
+
+    assert key_path.read_text(encoding="ascii") == "existing-key\n"
+    assert [path.name for path in key_directory.iterdir()] == ["server.key"]
+
+
+def test_server_key_generation_rejects_invalid_wg_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Do not install malformed output as a persistent server key."""
+    key_directory = tmp_path / "wireguard"
+    key_directory.mkdir(mode=0o700)
+    key_directory.chmod(0o700)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", key_directory / "server.key")
+    monkeypatch.setattr(wireguard, "_run", lambda _arguments: "invalid")
+
+    with pytest.raises(wireguard.WireGuardError, match="invalid server key"):
+        wireguard._generate_server_key("server.key")
+
+    assert list(key_directory.iterdir()) == []
+
+
+def test_server_key_cli_rejects_non_root(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Require root for server-key provisioning."""
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(
+        wireguard, "_generate_server_key", lambda _filename: pytest.fail("must not run")
+    )
+
+    assert wireguard.main(["server-key", "generate", "--filename", "server.key"]) == 1
+    assert "requires container root" in capsys.readouterr().err
+
+
+def test_server_key_cli_generates_only_status_output(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Dispatch generation without exposing the private key in CLI output."""
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", tmp_path / "server.key")
+    generated_names: list[str] = []
+    monkeypatch.setattr(wireguard, "_generate_server_key", generated_names.append)
+    monkeypatch.setattr(wireguard, "_validate_server_key_metadata", lambda _path: None)
+
+    assert wireguard.main(["server-key", "generate", "--filename", "server.key"]) == 0
+
+    output = capsys.readouterr()
+    assert generated_names == ["server.key"]
+    assert "Created server key at" in output.err
+    assert PRIVATE_KEY not in output.out + output.err
+
+
+def test_existing_server_key_validation_never_prints_private_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Validate the mounted server key through wg without exposing its contents."""
+    key_directory = tmp_path / "wireguard"
+    key_directory.mkdir(mode=0o700)
+    key_directory.chmod(0o700)
+    key_path = key_directory / "server.key"
+    key_path.write_text(f"{PRIVATE_KEY}\n", encoding="ascii")
+    key_path.chmod(0o600)
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", key_path)
+    monkeypatch.setattr(wireguard, "_validate_server_key_metadata", lambda _path: None)
+    calls: list[tuple[list[str], str | None]] = []
+
+    def run(arguments: list[str], *, input_text: str | None = None) -> str:
+        calls.append((arguments, input_text))
+        return SERVER_PUBLIC_KEY
+
+    monkeypatch.setattr(wireguard, "_run", run)
+
+    wireguard._validate_server_key_file()
+
+    assert calls == [(["wg", "pubkey"], PRIVATE_KEY)]
+    assert PRIVATE_KEY not in capsys.readouterr().out
 
 
 def test_peer_generation_rejects_invalid_client_endpoint_before_state_changes(
