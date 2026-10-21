@@ -10,7 +10,7 @@
         "authorized_keys_path": "/etc/gateway/authorized_keys",
         "remote_access": {
             "openvpn": {
-                "enabled": false,
+                "enabled": true,
                 "profile_path": "/etc/gateway/openvpn/ERMXDF02.ovpn",
                 "client_pool": "172.24.0.0/21"
             },

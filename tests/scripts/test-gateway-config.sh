@@ -65,8 +65,7 @@ expected_networks=(
 printf 'PASS: all declared Podman networks are rendered; HTTP proxy routes are not networks\n'
 
 jq '.gateway.remote_access.openvpn |= . + {
-        "enabled":true,
-        "profile_reviewed":true
+        "enabled":true
     }' "$TMP_DIR/valid.json" > "$TMP_DIR/openvpn-enabled.json"
 bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
     _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-enabled.json" "$TMP_DIR/openvpn.container"
@@ -91,8 +90,7 @@ if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
 fi
 printf 'PASS: OpenVPN Quadlet opt-in mounts the opaque profile read-only and owns only the tagged return route\n'
 jq '.gateway.remote_access.openvpn |= (del(.client_pool) + {
-        "enabled":true,
-        "profile_reviewed":true
+        "enabled":true
     })' "$TMP_DIR/valid.json" > "$TMP_DIR/openvpn-no-pool.json"
 "$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/openvpn-no-pool.json" \
     > "$TMP_DIR/openvpn-no-pool-validation.log" 2>&1
@@ -161,8 +159,7 @@ grep -Fxq \
     "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route cleanup was not rendered'
 printf 'PASS: WireGuard renders explicit UDP bind, read-only server key, persistent public peers, minimum capability, and owned return route\n'
 jq '.gateway.remote_access.openvpn |= . + {
-        "enabled":true,
-        "profile_reviewed":true
+        "enabled":true
     }' "$TMP_DIR/ssh-tun-enabled.json" > "$TMP_DIR/shared-remote-access.json"
 bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
     _ "$DEPLOY_SCRIPT" "$TMP_DIR/shared-remote-access.json" "$TMP_DIR/shared.container"
@@ -210,11 +207,13 @@ case "$*" in
 esac
 SH
 chmod 0755 "$TMP_DIR/route-bin/ip"
+jq '.gateway.remote_access.openvpn.enabled = false' "$TMP_DIR/valid.json" \
+    > "$TMP_DIR/openvpn-disabled-route.json"
 PATH="$TMP_DIR/route-bin:$PATH" \
     OPENVPN_ROUTE_STATE='[{"dst":"172.24.0.0/21","gateway":"10.89.1.2","protocol":"186","table":"main"}]' \
     ROUTE_MUTATION_LOG="$TMP_DIR/route-mutations.log" \
     bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
-    _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json"
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-disabled-route.json"
 grep -Fxq -- \
     '-4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
     "$TMP_DIR/route-mutations.log" || fail 'Owned OpenVPN return route was not cleaned'
@@ -222,7 +221,7 @@ PATH="$TMP_DIR/route-bin:$PATH" \
     OPENVPN_ROUTE_STATE='[{"dst":"172.24.0.0/21","gateway":"10.89.1.2","protocol":"static","table":"main"}]' \
     ROUTE_MUTATION_LOG="$TMP_DIR/foreign-route-mutations.log" \
     bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
-    _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json"
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-disabled-route.json"
 [[ ! -e "$TMP_DIR/foreign-route-mutations.log" ]] || \
     fail 'Unowned OpenVPN-pool route was removed'
 printf 'PASS: host cleanup removes only the exact protocol-186 return route\n'

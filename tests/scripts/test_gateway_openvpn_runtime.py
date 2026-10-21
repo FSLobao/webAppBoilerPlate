@@ -28,14 +28,13 @@ from gateway.development.remote_forwarding import ForwardingRollbackError
 from gateway.development.remote_forwarding import _rules as shared_forwarding_rules
 
 
-def _config(*, enabled: bool = True, profile_reviewed: bool = True) -> dict:
+def _config(*, enabled: bool = True) -> dict:
     """Build isolated OpenVPN runtime metadata."""
     return {
         "gateway": {
             "remote_access": {
                 "openvpn": {
                     "enabled": enabled,
-                    "profile_reviewed": profile_reviewed,
                     "client_pool": "172.24.0.0/21",
                 }
             }
@@ -48,12 +47,6 @@ def _config(*, enabled: bool = True, profile_reviewed: bool = True) -> dict:
             }
         ],
     }
-
-
-def test_openvpn_runtime_requires_operator_profile_review() -> None:
-    """Reject activation until an operator reviews the opaque profile."""
-    with pytest.raises(RuntimeErrorSafe, match="operator-reviewed"):
-        _openvpn_config(_config(profile_reviewed=False))
 
 
 def test_openvpn_runtime_without_pool_warns_and_accepts_assigned_address(
@@ -158,6 +151,11 @@ def test_disabled_openvpn_cannot_start_runtime() -> None:
     """Reject direct runtime invocation when configuration disables OpenVPN."""
     with pytest.raises(RuntimeErrorSafe, match="while disabled"):
         _openvpn_config(_config(enabled=False))
+
+
+def test_enabled_openvpn_runtime_needs_no_extra_confirmation_field() -> None:
+    """Accept enabled runtime metadata without a separate confirmation field."""
+    assert _openvpn_config(_config())["enabled"] is True
 
 
 def test_enabled_openvpn_runtime_coexists_with_ssh_tun_configuration() -> None:

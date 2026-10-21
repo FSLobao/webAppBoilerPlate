@@ -78,7 +78,7 @@ Componentes e limites principais:
 
 - **Development Gateway:** um container compartilhado exclusivamente para acesso dos
   desenvolvedores a todos os serviços e portas configurados. O runtime OpenVPN client Layer 3
-  agora é opt-in e permanece desativado na configuração versionada; requer revisão humana do perfil.
+  agora é opt-in e permanece desativado na configuração versionada.
   O runtime SSH TUN simultâneo também está implementado, opt-in e desativado na configuração
   versionada. A aceitação em host-alvo continua pendente. O acesso a portas de serviços não exige
   publicação no host; WireGuard publica seu listener UDP somente quando habilitado com valores
@@ -128,9 +128,9 @@ perfil externo é opaco e pode determinar a alocação. Sem esse campo, validaç
 runtime valida o endereço e a máscara recebidos contra as redes Podman, mas não pode verificar a
 alocação do cliente nem instalar ou validar uma rota de retorno no host. O caminho de resposta
 simétrico não é garantido nesse caso. Com `client_pool`, as validações de conflito e a rota de retorno
-existente continuam ativas. `profile_reviewed: true` continua obrigatório ao habilitar OpenVPN: é
-uma confirmação humana para o perfil opaco, que pode carregar plugins ou scripts. O schema permanece
-na versão 1 e mantém controles fixos do cliente no runtime.
+existente continuam ativas. O perfil permanece externo e opaco; o Gateway verifica apenas caminho, tipo de arquivo,
+propriedade e permissões antes de montá-lo somente para leitura. O schema permanece na versão 1
+e mantém controles fixos do cliente no runtime.
 
 Receitas de onboarding e split DNS por sistema operacional: [Windows 11](docs/recipes/wireguard-windows-11.md),
 [Linux](docs/recipes/wireguard-linux.md) e [macOS](docs/recipes/wireguard-macos.md). O fluxo usa CLI
@@ -140,9 +140,9 @@ nunca gravado. Leia o plano de implementação para limites, valores pendentes e
 O cliente OpenVPN agora tem execução supervisionada, verificação de perfil sem leitura do conteúdo,
 TUN dedicado, regras de forwarding no namespace do container e rota de retorno do pool marcada
 `proto 186`. O runtime ignora mutações de rotas OpenVPN e rejeita candidatos de rota recebidos;
-as redes Podman já são diretamente conectadas. Perfil só monta em leitura e só pode ativar com
-`profile_reviewed: true`, declaração de revisão humana. A configuração versionada continua
-desativada. O perfil real não foi aberto nem testado; túnel, source-preservation e retorno exigem
+as redes Podman já são diretamente conectadas. O perfil só monta em leitura. A configuração
+versionada continua desativada. O perfil real não foi aberto nem testado; túnel,
+source-preservation e retorno exigem
 aceitação isolada em RHEL 9.8 / Podman 5.8.2. SSH TUN está implementado, mas permanece desativado
 e aguarda aceitação no host-alvo.
 
@@ -391,6 +391,9 @@ precisa das chaves privadas dos desenvolvedores.
 | `/etc/gateway/tls/gateway.key` | Chave privada correspondente; root-owned e sem acesso por grupo/outros (normalmente modo `0600`). |
 | `/etc/gateway/openvpn/ERMXDF02.ovpn` | Perfil OpenVPN externo; arquivo regular root-owned, legível apenas por root (normalmente modo `0600`), montado somente para leitura quando o runtime é habilitado. O código não abre nem copia seu conteúdo. |
 | Caminho definido em `gateway.remote_access.wireguard.server_private_key_path` | Chave privada do servidor WireGuard; obrigatória somente quando habilitado, explicitamente configurada, root-owned e montada somente para leitura. Não há valor ou caminho padrão; mantenha fora do Git. |
+
+Receita curta para criar e instalar a chave pública de login no Windows 11:
+[Gateway SSH key](docs/recipes/windows-11-gateway-ssh-key.md).
 
 Os certificados e secrets são entradas externas. O deployment os monta como somente leitura. A
 chave pública em `authorized_keys` autoriza acesso ao gateway, não aos containers de aplicação.

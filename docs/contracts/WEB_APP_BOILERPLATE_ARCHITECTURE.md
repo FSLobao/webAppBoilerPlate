@@ -167,8 +167,8 @@ implementados. WireGuard, cliente OpenVPN e SSH TUN permanecem opt-in e desativa
 versionada. Valores de deployment WireGuard seguem pendentes. O host RHEL 9.8 atual não tem módulo
 WireGuard nem ferramenta `wg`; portanto, aceitação de túnel e forwarding do kernel não foi validada.
 O runtime SSH TUN está implementado, mas ativação real e aceitação em host-alvo permanecem
-pendentes. O perfil OpenVPN externo exige revisão humana e o gate `profile_reviewed: true`;
-diretivas IPv6 locais não são suportadas pelo runtime.
+pendentes. O perfil OpenVPN externo é montado sem leitura pelo Gateway; diretivas IPv6 locais não
+são suportadas pelo runtime.
 O Gateway usa `Restart=always` para recuperar serviços base após falhas. Com marcador crítico
 WireGuard persistente, o startup mantém SSH, DNS e Cockpit, não inicia o runtime WireGuard e tenta
 instalar regras nftables de descarte para `wg0` e a porta UDP; se a instalação falhar, registra
@@ -527,7 +527,7 @@ Os CIDRs não podem se sobrepor.
 
 Os endereços de desenvolvedores vêm de pools de túnel dedicados, nunca dos CIDRs Podman. O servidor WireGuard terá pool IPv4 ainda não definido; o servidor OpenVPN externo aloca os endereços de seus clientes; o pool SSH TUN é uma entrada de deployment e aloca pares ponto-a-ponto distintos por sessão. `gateway.remote_access.openvpn.client_pool` é opcional: sem ele, o runtime valida o endereço/máscara recebidos contra subnets Podman, mas não pode conferir a alocação externa nem instalar/validar a rota de retorno no host. O preflight avisa que roteamento simétrico de resposta não é garantido. Com pool configurado, os checks de conflito e a rota de retorno host existentes permanecem obrigatórios. Descubra os endereços/rotas ativos e compare-os com redes Podman e rotas relevantes do host, da LAN dos desenvolvedores e corporativas antes de instalar estado.
 
-O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Este setup novo não mantém compatibilidade de migração de configuração OpenVPN: `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` JSON são campos retirados e rejeitados em schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus contratos continuam definindo compatibilidade. `profile_reviewed: true` continua obrigatório porque o perfil opaco pode usar plugins ou scripts; não ler seu conteúdo mantém essa confirmação como gate humano. O servidor WireGuard é executado pelo Gateway; pool, endereço do servidor, endpoint, bind/porta UDP, resolver e caminho da chave privada são inputs de deployment, não decisões selecionadas. Receitas implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
+O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Este setup novo não mantém compatibilidade de migração de configuração OpenVPN: `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` JSON são campos retirados e rejeitados em schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus contratos continuam definindo compatibilidade. O Gateway verifica caminho, tipo, propriedade e permissões do perfil antes de montá-lo somente para leitura; não lê seu conteúdo nem exige confirmação separada para ativação. O servidor WireGuard é executado pelo Gateway; pool, endereço do servidor, endpoint, bind/porta UDP, resolver e caminho da chave privada são inputs de deployment, não decisões selecionadas. Receitas implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
 
 Endereços IP individuais de containers não devem ser tratados como identificadores permanentes.
 
@@ -686,11 +686,12 @@ próprios usuários, pool, sessões e lifecycle. O servidor OpenVPN externo cont
 externamente e aloca endereços ao cliente OpenVPN do Gateway. Opções de domínio pertencem ao
 servidor/perfil OpenVPN externo e não serão reaproveitadas como domínio WireGuard. Protocolo, porta
 e topologia também pertencem ao servidor/perfil; `client_to_client` é configuração do servidor. O
-JSON do Gateway mantém caminho opaco do perfil, estado de revisão e `client_pool` opcional; não
+JSON do Gateway mantém caminho opaco do perfil e `client_pool` opcional; não
 mantém endpoint OpenVPN. O schema permanece na versão 1 e rejeita os campos OpenVPN retirados
 listados acima, sem compatibilidade de migração. Sem `client_pool`, não há
 checagem de prefixo contra alocação, rota de retorno gerenciada nem garantia de resposta simétrica.
-Os parâmetros fixos de segurança do cliente continuam definidos no runtime.
+Os parâmetros fixos de segurança do cliente continuam definidos no runtime; a ativação não exige
+uma confirmação de revisão separada.
 
 Pools configurados, endpoints WireGuard, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede corporativa
 não podem se sobrepor. Prefixo de cliente ambíguo entre transportes falha fechado; não selecionar

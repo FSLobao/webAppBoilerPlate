@@ -300,7 +300,7 @@ This repository now contains the opt-in Gateway session allocator, IPv4 forwardi
 
 ## OpenVPN profile handling
 
-The configuration field is `gateway.remote_access.openvpn.profile_path`; host preflight checks its path and file metadata without reading the profile. The opaque profile must pass the operator's `profile_reviewed: true` gate before OpenVPN enablement. Its external file references, plugins, scripts, endpoint, authentication, and directives require human review. The runtime does not support OpenVPN local IPv6 directives; keep profile review blocked if any are present or required. SSH TUN testing does not need an OpenVPN profile. Do not place the profile in this repository or Git.
+The configuration field is `gateway.remote_access.openvpn.profile_path`; host preflight checks its path and file metadata without reading the profile. The runtime does not support OpenVPN local IPv6 directives. SSH TUN testing does not need an OpenVPN profile. Do not place the profile in this repository or Git.
 
 The externally provided path is `/etc/gateway/openvpn/ERMXDF02.ovpn`. Treat the profile as a secret because it may embed credentials. Keep the root-owned directory at mode `0700` and the root-owned file at mode `0600`, outside Git. Do not copy, read, stat, log, or distribute it as part of SSH TUN setup.
 

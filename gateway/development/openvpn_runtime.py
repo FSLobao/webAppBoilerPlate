@@ -79,15 +79,10 @@ def _openvpn_config(config: Mapping[str, Any]) -> dict[str, Any]:
     openvpn = remote_access.get("openvpn") if isinstance(remote_access, dict) else None
     if not isinstance(openvpn, dict) or openvpn.get("enabled") is not True:
         raise RuntimeErrorSafe("OpenVPN runtime was invoked while disabled.")
-    if openvpn.get("profile_reviewed") is not True:
-        raise RuntimeErrorSafe(
-            "OpenVPN activation requires an operator-reviewed profile."
-        )
     allowed_fields = {
         "enabled",
         "profile_path",
         "client_pool",
-        "profile_reviewed",
     }
     unsupported_fields = set(openvpn) - allowed_fields
     if unsupported_fields:

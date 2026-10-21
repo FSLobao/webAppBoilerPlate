@@ -233,7 +233,7 @@ def validate_remote_access_config(
         "enabled",
         "profile_path",
     }
-    optional_openvpn_keys = {"client_pool", "profile_reviewed"}
+    optional_openvpn_keys = {"client_pool"}
     if (
         not isinstance(openvpn, dict)
         or set(openvpn) - openvpn_keys - optional_openvpn_keys
@@ -244,16 +244,6 @@ def validate_remote_access_config(
         )
     if not isinstance(openvpn["enabled"], bool):
         raise TypeError("gateway.remote_access.openvpn.enabled must be boolean")
-    if "profile_reviewed" in openvpn and not isinstance(
-        openvpn["profile_reviewed"], bool
-    ):
-        raise TypeError(
-            "gateway.remote_access.openvpn.profile_reviewed must be boolean"
-        )
-    if openvpn["enabled"] and openvpn.get("profile_reviewed") is not True:
-        raise ValueError(
-            "enabled OpenVPN requires operator-reviewed profile_reviewed: true"
-        )
     _validate_profile_path(openvpn["profile_path"])
     openvpn_pool = None
     if "client_pool" in openvpn:

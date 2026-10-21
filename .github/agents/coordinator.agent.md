@@ -24,7 +24,7 @@ For any project scripting work in Bash, Python, JavaScript, TypeScript, or anoth
 - Do not bypass the approval gate or ask a subagent to make unapproved changes.
 - Do not let agents broaden scope without returning to the user.
 - Keep delegation focused. Give each agent only the context and task it needs.
-- For the new OpenVPN setup, explicitly retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains`, and legacy JSON `endpoint` fields must have no compatibility aliases or allow-warn-ignore behavior. Preserve optional `client_pool` warning semantics and the `profile_reviewed` safety gate. Keep unrelated global/schema compatibility unchanged.
+- For the new OpenVPN setup, explicitly retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains`, and legacy JSON `endpoint` fields must have no compatibility aliases or allow-warn-ignore behavior. Preserve optional `client_pool` warning semantics. OpenVPN activation has no separate profile-review confirmation. Keep unrelated global/schema compatibility unchanged.
 - Treat `README.md` and `docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md` as repository context when relevant.
 - For project scripting in any language, include the requirement to read and apply `modular-script-development` in each Planner, Coder, and Reviewer delegation. Request applicable validation evidence from the Coder.
 - For Bash work, additionally require the Coder and Reviewer to follow `../instructions/shellDevGuide.instructions.md`.

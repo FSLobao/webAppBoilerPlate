@@ -94,6 +94,16 @@ def test_accepts_optional_remote_access_metadata_without_reading_profile() -> No
     validate_remote_access_config(config)
 
 
+def test_enabled_openvpn_needs_no_extra_confirmation_field() -> None:
+    """Accept enabled OpenVPN metadata without a separate confirmation field."""
+    openvpn = OPENVPN_CONFIG.copy() | {"enabled": True}
+
+    validate_remote_access_config(
+        _config(openvpn=openvpn),
+        announce=lambda _message: None,
+    )
+
+
 def test_checked_in_config_omits_retired_openvpn_fields() -> None:
     """Validate canonical OpenVPN config without duplicated server settings."""
     config_path = Path(__file__).resolve().parents[2] / "config/host_config.json"
@@ -148,19 +158,6 @@ def test_wireguard_disabled_can_retain_prior_pool_for_owned_route_cleanup() -> N
     )
 
 
-def test_enabled_openvpn_requires_operator_review_of_opaque_profile() -> None:
-    """Require human profile review before an enabled OpenVPN runtime."""
-    openvpn = OPENVPN_CONFIG.copy() | {
-        "enabled": True,
-    }
-
-    with pytest.raises(ValueError, match="profile_reviewed"):
-        validate_remote_access_config(_config(openvpn=openvpn))
-
-    openvpn["profile_reviewed"] = True
-    validate_remote_access_config(_config(openvpn=openvpn))
-
-
 @pytest.mark.parametrize(
     "retired_field",
     [
@@ -187,7 +184,7 @@ def test_rejects_retired_openvpn_fields(retired_field: str) -> None:
 def test_missing_openvpn_pool_warns_and_remains_optional() -> None:
     """Allow an unknown external allocation without inventing a client range."""
     openvpn = {"enabled": True, "profile_path": OPENVPN_CONFIG["profile_path"]}
-    config = _config(openvpn=openvpn | {"profile_reviewed": True})
+    config = _config(openvpn=openvpn)
     config["networks"] = [{"name": "app", "subnet": "203.0.113.0/24"}]
     messages = []
 
@@ -334,7 +331,6 @@ def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route() -> N
     """Allow the managed pool route but reject wrong gateway or route tag."""
     openvpn = OPENVPN_CONFIG.copy() | {
         "enabled": True,
-        "profile_reviewed": True,
     }
     config = _config(openvpn=openvpn)
     owned_route = {
@@ -405,7 +401,6 @@ def test_gateway_preflight_rejects_missing_enabled_profile_without_commands() ->
     """Fail on profile metadata before Podman or route inspection."""
     openvpn = OPENVPN_CONFIG.copy() | {
         "enabled": True,
-        "profile_reviewed": True,
         "profile_path": "/etc/gateway/openvpn/missing-test-profile.ovpn",
     }
     config = _config(openvpn=openvpn)

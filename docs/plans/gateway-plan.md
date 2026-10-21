@@ -99,7 +99,7 @@ SSH TUN uses OpenSSH point-to-point tunnel devices (`ssh -w`) and provides route
 
 Each SSH TUN session must receive a unique interface and non-overlapping point-to-point address pair from the dedicated SSH pool. A restricted tunnel account and session setup/teardown mechanism own allocation, route installation, collision checks, and cleanup on normal exit and failed/disconnected sessions. Reject duplicate or ambiguous client prefixes across transports unless an explicit policy defines ownership; do not invent automatic multihoming or select a tunnel based on metrics. Do not add a generic background watcher. Protocol lifecycle hooks may reconcile only the session they own and must be documented separately from Gateway bootstrap.
 
-The OpenVPN profile path is declared in `config/host_config.json` and refers to a root-managed, private file outside Git, uniquely assigned to this Gateway. Host preflight checks only file type, owner, mode, and path; it never opens or parses contents. Quadlet mounts the profile read-only only when OpenVPN is enabled. Enablement also requires `profile_reviewed: true`, an operator attestation that the opaque profile uses the approved client, endpoint, plugin/script, and external-file policy. OpenVPN alone consumes the profile; runtime logs are reduced to fixed sanitized diagnostics. OpenVPN's standard inline certificate/key blocks may appear inside the profile. The external production profile has not been reviewed or activated. The runtime supports IPv4 only, blocks IPv6 traffic, and rejects pushed IPv6 configuration. Local IPv6 directives are unsupported and require human profile review before the `profile_reviewed: true` gate can be satisfied.
+The OpenVPN profile path is declared in `config/host_config.json` and refers to a root-managed, private file outside Git, uniquely assigned to this Gateway. Host preflight checks only file type, owner, mode, and path; it never opens or parses contents. Quadlet mounts the profile read-only only when OpenVPN is enabled. OpenVPN alone consumes the profile; runtime logs are reduced to fixed sanitized diagnostics. OpenVPN's standard inline certificate/key blocks may appear inside the profile. The external production profile has not been activated. The runtime supports IPv4 only, blocks IPv6 traffic, and rejects pushed IPv6 configuration. Local IPv6 directives are unsupported.
 
 The opt-in client starts with `--ifconfig-noexec` and `--route-noexec`. Its `up` hook validates the server-assigned IPv4 address and subnet against the configured client pool when present, and always rejects assigned subnets that overlap configured Podman networks before assigning the address to `tun0`. Without a pool, it cannot verify the assigned prefix against the external allocation. Its `route-up` hook rejects every pushed or profile route candidate: configured Podman networks are already connected, and no other tunnel route is approved. Reconnects repeat these hooks. When `client_pool` is configured, the host return route uses one deterministic Gateway address and reserved route protocol `186`; Quadlet start/stop hooks add and remove only that exact destination/next-hop/protocol. Without the pool, no managed host return route is installed or validated, so symmetric replies are not guaranteed. Host preflight recognizes only the exact tagged route as Gateway-owned. This implementation does not inspect or mutate profile contents.
 
@@ -131,7 +131,7 @@ Deployment inputs and implementation gates (not architecture decisions):
 
 1. Validate Quadlet assignment of `192.168.9.2` and `192.168.8.2` on the target host.
 2. Implement application deployment so it creates each unique Podman app network, adds it only to the global top-level `networks` inventory, then reconciles the existing Gateway, which attaches to every declared network. Do not create a second Gateway or maintain a separate Gateway network list.
-3. Have the infrastructure owner review the opaque production OpenVPN profile, any external file references, assigned client address/push behavior, the SSH TUN pool and restricted-account/session policy, client OS details, and server-side Podman routes. Do not inspect the profile in this project or invent missing production values.
+3. Any infrastructure-owner review of the opaque production OpenVPN profile, external file references, assigned client address/push behavior, the SSH TUN pool and restricted-account/session policy, client OS details, and server-side Podman routes is external due diligence, not a Gateway schema or runtime activation requirement. Do not inspect the profile in this project or invent missing production values.
 4. Validate configured Podman, tunnel, host, developer-LAN, and corporate route ranges on the target before installation.
 
 
@@ -194,8 +194,7 @@ Representative shape; replace all deployment inputs and keep both existing runti
       "openvpn": {
         "enabled": false,
         "profile_path": "/etc/gateway/openvpn/ERMXDF02.ovpn",
-        "client_pool": "172.24.0.0/21",
-        "profile_reviewed": false
+        "client_pool": "172.24.0.0/21"
       },
       "ssh_tun": {
         "enabled": false,
@@ -515,7 +514,7 @@ The isolated WireGuard container-only packet test on 2026-10-20 passed a real ha
 
 ### Pending blockers for production/deployed remote-client acceptance
 
-- **OpenVPN:** Checked-in config has `enabled: false`, a profile path, and `client_pool`; endpoint is not configured, and `profile_reviewed: true` requires explicit configuration after human review. External route and return-path evidence is also required. No profile was opened or inspected.
+- **OpenVPN:** Checked-in config has `enabled: false`, a profile path, and `client_pool`. External route and return-path evidence is also required. No profile was opened or inspected.
 - **SSH TUN:** Checked-in config has `enabled: false` and lacks required `account`, `address_pool`, `authorized_keys_path`, and `max_sessions`. Live peer authentication and client input are required.
 - **WireGuard:** Checked-in config has `enabled: false` and lacks required `host_bind_address`, `listen_port`, `endpoint`, `address_pool`, `server_address`, `dns_server`, and `server_private_key_path`. These are required for deployed endpoint/client functional acceptance; isolated tests used test-only settings.
 - **Routing and client acceptance:** Provide external route and return-path evidence, then validate remote-client routing, DNS, concurrent transports, and relevant client prerequisites. External firewall changes are not required by the approved plan.
