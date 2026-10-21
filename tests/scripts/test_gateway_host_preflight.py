@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import socket
 import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
-import scripts.gateway.host_preflight as host_preflight
+from scripts.gateway import host_preflight
 from scripts.gateway.host_preflight import (
     cockpit_password_is_valid,
     host_platform_matches_target,
@@ -46,6 +49,44 @@ def test_wireguard_server_key_path_must_resolve_outside_repository(
         host_preflight._require_external_key_path(
             link_directory / "server.key", repository
         )
+
+
+def test_wireguard_udp_preflight_probes_selected_bind_and_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe the configured UDP listener without retaining a host socket."""
+    probe = Mock()
+    probe.__enter__ = Mock(return_value=probe)
+    probe.__exit__ = Mock(return_value=None)
+    monkeypatch.setattr(host_preflight.socket, "socket", Mock(return_value=probe))
+
+    host_preflight._validate_wireguard_udp_listener(
+        {"host_bind_address": "0.0.0.0", "listen_port": 1194}
+    )
+
+    host_preflight.socket.socket.assert_called_once_with(
+        socket.AF_INET, socket.SOCK_DGRAM
+    )
+    probe.bind.assert_called_once_with(("0.0.0.0", 1194))
+    probe.__exit__.assert_called_once()
+
+
+def test_wireguard_udp_preflight_rejects_occupied_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report a UDP port already bound on the selected host address."""
+    probe = Mock()
+    probe.__enter__ = Mock(return_value=probe)
+    probe.__exit__ = Mock(return_value=None)
+    probe.bind.side_effect = OSError(errno.EADDRINUSE, "address already in use")
+    monkeypatch.setattr(host_preflight.socket, "socket", Mock(return_value=probe))
+
+    with pytest.raises(ValueError, match="UDP port 1194 is already in use"):
+        host_preflight._validate_wireguard_udp_listener(
+            {"host_bind_address": "0.0.0.0", "listen_port": 1194}
+        )
+
+    probe.__exit__.assert_called_once()
 
 
 def _fake_ip_routes(

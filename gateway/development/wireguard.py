@@ -88,7 +88,6 @@ def _enabled(config: dict[str, Any]) -> dict[str, Any]:
         "enabled",
         "host_bind_address",
         "listen_port",
-        "endpoint",
         "address_pool",
         "server_address",
         "dns_server",
@@ -114,7 +113,7 @@ def _enabled(config: dict[str, Any]) -> dict[str, Any]:
     if (
         pool.prefixlen == 0
         or pool.num_addresses < 4
-        or server in pool
+        or server in (pool.network_address, pool.broadcast_address)
         or server.is_unspecified
         or server.is_multicast
         or isinstance(wireguard["listen_port"], bool)
@@ -122,22 +121,6 @@ def _enabled(config: dict[str, Any]) -> dict[str, Any]:
         or not 1 <= wireguard["listen_port"] <= 65535
     ):
         raise WireGuardError("WireGuard address pool or UDP port is invalid.")
-    endpoint = wireguard["endpoint"]
-    try:
-        ipaddress.IPv4Address(endpoint)
-    except (ipaddress.AddressValueError, TypeError):  # fmt: skip
-        if (
-            not isinstance(endpoint, str)
-            or not endpoint
-            or len(endpoint) > 253
-            or any(
-                not re.fullmatch(
-                    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label
-                )
-                for label in endpoint.rstrip(".").split(".")
-            )
-        ):
-            raise WireGuardError("WireGuard endpoint is invalid.") from None
     if bind.is_multicast:
         raise WireGuardError("WireGuard host bind address is invalid.")
     networks = config.get("networks")
@@ -160,9 +143,9 @@ def _enabled(config: dict[str, Any]) -> dict[str, Any]:
             raise WireGuardError("WireGuard addresses conflict with a Podman network.")
         if item.get("gateway_address") == str(resolver):
             resolver_is_gateway = True
-    if not resolver_is_gateway:
+    if not resolver_is_gateway and resolver != server:
         raise WireGuardError(
-            "WireGuard DNS resolver is not a configured Gateway address."
+            "WireGuard DNS resolver is not a configured Gateway or server address."
         )
     other = remote.get("openvpn", {})
     ssh_tun = remote.get("ssh_tun", {})
@@ -659,13 +642,34 @@ def _peer_address(
     raise WireGuardError("WireGuard peer address pool is exhausted.")
 
 
+def _validate_profile_endpoint(endpoint: str) -> str:
+    """Validate the host used by a generated client profile."""
+    try:
+        ipaddress.IPv4Address(endpoint)
+        return endpoint
+    except ipaddress.AddressValueError:
+        if (
+            not endpoint
+            or len(endpoint) > 253
+            or any(
+                not re.fullmatch(
+                    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label
+                )
+                for label in endpoint.rstrip(".").split(".")
+            )
+        ):
+            raise WireGuardError("WireGuard endpoint is invalid.") from None
+        return endpoint
+
+
 def _profile(
     config: dict[str, Any],
     wireguard: dict[str, Any],
     private_key: str,
     peer: dict[str, Any],
+    endpoint: str,
 ) -> str:
-    """Build one IPv4-only split-tunnel profile in memory."""
+    """Build one IPv4-only split-tunnel profile using the supplied endpoint."""
     networks = [
         ipaddress.IPv4Network(entry["subnet"], strict=True)
         for entry in config["networks"]
@@ -684,7 +688,7 @@ def _profile(
         f"# Split DNS resolver; apply OS-specific dev.anatel settings: {resolver}\n\n"
         "[Peer]\n"
         f"PublicKey = {server_public}\n"
-        f"Endpoint = {wireguard['endpoint']}:{wireguard['listen_port']}\n"
+        f"Endpoint = {endpoint}:{wireguard['listen_port']}\n"
         f"AllowedIPs = {', '.join(allowed)}\n"
         "PersistentKeepalive = 25\n"
     )
@@ -905,10 +909,25 @@ def _write_profile_once(profile: str, descriptor: int) -> None:
 
 
 def generate_peer(
-    config: dict[str, Any], peer_id: str, owner: str, purpose: str
+    config: dict[str, Any], peer_id: str, owner: str, purpose: str, endpoint: str
 ) -> tuple[str, str, int]:
-    """Create pending public metadata and return one profile only in memory."""
+    """Create pending metadata and return one profile only in memory.
+
+    Args:
+        config: Validated Gateway host configuration.
+        peer_id: Unique peer identifier.
+        owner: Approved device or user owner.
+        purpose: Reason for the peer's access.
+        endpoint: Reachable IPv4 address or DNS name for client profiles.
+
+    Returns:
+        One-time profile, public-key fingerprint, and verified terminal descriptor.
+
+    Raises:
+        WireGuardError: If inputs, peer state, or terminal delivery setup is invalid.
+    """
     wireguard = _enabled(config)
+    endpoint = _validate_profile_endpoint(endpoint)
     if os.geteuid() != 0:
         raise WireGuardError("WireGuard peer administration requires container root.")
     if not PEER_ID_PATTERN.fullmatch(peer_id):
@@ -965,7 +984,7 @@ def generate_peer(
         )
         _write_peers(state)
         stored = True
-        profile = _profile(config, wireguard, private_key, peer)
+        profile = _profile(config, wireguard, private_key, peer, endpoint)
     except (OSError, WireGuardError) as error:
         os.close(terminal)
         if stored and peer is not None:
@@ -1278,6 +1297,7 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--id", required=True)
     generate.add_argument("--owner", required=True)
     generate.add_argument("--purpose", required=True)
+    generate.add_argument("--endpoint", required=True)
     approve = operations.add_parser("approve", help="activate a pending peer")
     approve.add_argument("peer_id")
     approve.add_argument("--approval-reference", required=True)
@@ -1311,7 +1331,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_host_config(CONFIG_PATH)
         if args.operation == "generate":
             profile, fingerprint, terminal = generate_peer(
-                config, args.id, args.owner, args.purpose
+                config, args.id, args.owner, args.purpose, args.endpoint
             )
             try:
                 print(

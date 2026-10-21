@@ -163,9 +163,12 @@ O egress iniciado por containers usa a saída normal do Podman rootful no host e
 
 WireGuard é servidor aditivo no Gateway; não substitui cliente OpenVPN nem SSH TUN. O schema,
 runtime IPv4, CLI root-only de peers, publicação UDP condicional e receitas de split DNS estão
-implementados. WireGuard, cliente OpenVPN e SSH TUN permanecem opt-in e desativados na configuração
-versionada. Valores de deployment WireGuard seguem pendentes. O host RHEL 9.8 atual não tem módulo
-WireGuard nem ferramenta `wg`; portanto, aceitação de túnel e forwarding do kernel não foi validada.
+implementados. A configuração versionada habilita WireGuard e o cliente OpenVPN; SSH TUN permanece
+desativado. WireGuard usa `0.0.0.0:1194/UDP`, pool `192.168.10.0/24`, servidor/resolver
+`192.168.10.1` e chave externa em `/etc/gateway/wireguard/server.key`. O allocator reserva o
+endereço `.1` para o servidor. O endpoint acessível pelo cliente não fica no JSON nem no preflight:
+`peer generate --endpoint` o inclui no perfil `.conf`. A aceitação de túnel e forwarding do kernel
+não foi validada no host-alvo.
 O runtime SSH TUN está implementado, mas ativação real e aceitação em host-alvo permanecem
 pendentes. O perfil OpenVPN externo é montado sem leitura pelo Gateway; diretivas IPv6 locais não
 são suportadas pelo runtime.
@@ -527,7 +530,7 @@ Os CIDRs não podem se sobrepor.
 
 Os endereços de desenvolvedores vêm de pools de túnel dedicados, nunca dos CIDRs Podman. O servidor WireGuard terá pool IPv4 ainda não definido; o servidor OpenVPN externo aloca os endereços de seus clientes; o pool SSH TUN é uma entrada de deployment e aloca pares ponto-a-ponto distintos por sessão. `gateway.remote_access.openvpn.client_pool` é opcional: sem ele, o runtime valida o endereço/máscara recebidos contra subnets Podman, mas não pode conferir a alocação externa nem instalar/validar a rota de retorno no host. O preflight avisa que roteamento simétrico de resposta não é garantido. Com pool configurado, os checks de conflito e a rota de retorno host existentes permanecem obrigatórios. Descubra os endereços/rotas ativos e compare-os com redes Podman e rotas relevantes do host, da LAN dos desenvolvedores e corporativas antes de instalar estado.
 
-O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Este setup novo não mantém compatibilidade de migração de configuração OpenVPN: `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` JSON são campos retirados e rejeitados em schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus contratos continuam definindo compatibilidade. O Gateway verifica caminho, tipo, propriedade e permissões do perfil antes de montá-lo somente para leitura; não lê seu conteúdo nem exige confirmação separada para ativação. O servidor WireGuard é executado pelo Gateway; pool, endereço do servidor, endpoint, bind/porta UDP, resolver e caminho da chave privada são inputs de deployment, não decisões selecionadas. Receitas implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
+O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Este setup novo não mantém compatibilidade de migração de configuração OpenVPN: `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` JSON são campos retirados e rejeitados em schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus contratos continuam definindo compatibilidade. O Gateway verifica caminho, tipo, propriedade e permissões do perfil antes de montá-lo somente para leitura; não lê seu conteúdo nem exige confirmação separada para ativação. O servidor WireGuard é executado pelo Gateway com bind `0.0.0.0`, UDP `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1` e caminho de chave `/etc/gateway/wireguard/server.key`. O endpoint cliente é fornecido por perfil com `peer generate --endpoint`, fora do JSON e do preflight. Receitas `.conf` implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
 
 Endereços IP individuais de containers não devem ser tratados como identificadores permanentes.
 
@@ -649,9 +652,12 @@ deployment. Nenhum painel ou API administrativa pública será criado.
 Todos os peers WireGuard aprovados recebem rotas split para **todos os CIDRs** no array top-level
 `networks`, incluindo `shared`, redes de aplicações e redes de PostgreSQL. A configuração atual
 inclui `192.168.9.0/24` (`shared`) e `192.168.8.0/29` (`webApp`). Esses valores não definem o pool
-WireGuard nem o endereço do resolver. Pool de peers, endereço IPv4 do servidor no túnel, endpoint,
-bind/porta UDP, resolver DNS e caminho da chave privada do servidor são inputs de deployment
-pendentes. Valide-os contra rotas locais, LAN, Podman e redes corporativas antes da ativação.
+WireGuard. O pool `192.168.10.0/24` inclui o endereço do servidor `192.168.10.1`, reservado pelo
+allocator; o resolver usa esse endereço do túnel. Se o resolver não estiver em um CIDR Podman, o
+perfil inclui seu `/32` além dos CIDRs Podman. A configuração define bind/porta e caminho da chave;
+o endpoint IPv4/DNS é obrigatório somente ao gerar cada perfil. Preflight valida pools e rotas do
+host, disponibilidade local do bind UDP e a chave, mas não valida endpoint nem alcançabilidade
+externa. Valide pools contra rotas locais, LAN, Podman e redes corporativas antes da ativação.
 Clientes não recebem rota default pelo túnel. WireGuard não distribui rotas nem DNS: cada perfil
 cliente declara somente os CIDRs IPv4 Podman configurados em `AllowedIPs`; não incluir rota default.
 
@@ -670,14 +676,15 @@ serviços, inclusive PostgreSQL. Esses administradores são confiáveis para con
 Autenticação e autorização de serviço continuam obrigatórias; conectividade VPN não concede
 credenciais. Não há API/HTTP de administração exposta.
 
-O serviço gera a chave privada de cada peer dentro do Gateway e a entrega uma vez somente por
-`/dev/tty` direto em primeiro plano, após confirmar stdin/stdout no mesmo terminal. Não persiste nem
-registra essa chave; plaintext existe transitoriamente em memória. TTY não comprova ausência de
-gravação externa; operador deve usar terminal confiável sem gravação. Falha de escrita exige
-identificar e revogar o peer pendente; não recuperar nem reimprimir a chave. A chave privada do
-servidor é fornecida por caminho explícito root-managed fora do Git e montada somente para leitura
-no Gateway. A chave privada de cliente não é a chave pública do peer: a chave pública é cadastrada
-no servidor. Comandos não usam API ou interface pública.
+O serviço gera a chave privada e o perfil `.conf` de cada peer dentro do Gateway. O operador fornece
+endpoint alcançável com `peer generate --endpoint`; o perfil usa a porta UDP configurada. O Gateway
+entrega o perfil uma vez somente por `/dev/tty` direto em primeiro plano, após confirmar
+stdin/stdout no mesmo terminal. Não persiste nem registra a chave privada; plaintext existe
+transitoriamente em memória. TTY não comprova ausência de gravação externa; operador deve usar
+terminal confiável sem gravação. Falha de escrita exige identificar e revogar o peer pendente; não
+recuperar nem reimprimir a chave. A chave privada do servidor é fornecida por caminho explícito
+root-managed fora do Git e montada somente para leitura no Gateway. Comandos não usam API ou
+interface pública.
 
 WireGuard, OpenVPN e SSH TUN usam IPv4 para este contrato; isso não desativa IPv6 no host nem nos
 clientes. Não haverá NAT, DNAT/SNAT ou forwarding entre redes de aplicações. Peers podem alcançar
@@ -693,13 +700,12 @@ checagem de prefixo contra alocação, rota de retorno gerenciada nem garantia d
 Os parâmetros fixos de segurança do cliente continuam definidos no runtime; a ativação não exige
 uma confirmação de revisão separada.
 
-Pools configurados, endpoints WireGuard, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede corporativa
-não podem se sobrepor. Prefixo de cliente ambíguo entre transportes falha fechado; não selecionar
-automaticamente multihoming. Reconnect OpenVPN revalida rotas/endereço candidatos antes de ativá-los.
-Pool WireGuard, endpoint, bind/porta UDP, resolver e caminho da chave privada do servidor são
-inputs de deployment pendentes. Autorização administrativa é root-only por CLI; a entrega de chave
-usa TTY direto com os limites acima. Aceitação de kernel, rede e sistema operacional cliente segue
-pendente.
+Pools configurados, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede
+corporativa não podem se sobrepor. Prefixo de cliente ambíguo entre transportes falha fechado; não
+selecionar automaticamente multihoming. Reconnect OpenVPN revalida rotas/endereço candidatos antes
+de ativá-los. Endpoint WireGuard é um input por perfil, não uma rota de host. Autorização
+administrativa é root-only por CLI; a entrega de chave usa TTY direto com os limites acima.
+Aceitação de kernel, rede e sistema operacional cliente segue pendente.
 
 
 ---
@@ -710,12 +716,12 @@ O acesso remoto de desenvolvedores usa roteamento IP entre peers WireGuard, o cl
 
 Direção de rotas:
 
-1. Peers WireGuard recebem `AllowedIPs` com cada CIDR Podman configurado. O servidor OpenVPN externo aloca endereços de cliente e o dono externo direciona cada CIDR Podman ao cliente OpenVPN do Gateway. Clientes SSH TUN recebem rotas da própria sessão.
+1. Peers WireGuard recebem `AllowedIPs` com cada CIDR Podman configurado e um `/32` para o resolver quando ele não pertence a esses CIDRs. O servidor OpenVPN externo aloca endereços de cliente e o dono externo direciona cada CIDR Podman ao cliente OpenVPN do Gateway. Clientes SSH TUN recebem rotas da própria sessão.
 2. O Gateway alcança cada CIDR Podman pelas rotas conectadas às interfaces Podman já anexadas. Não instale rota de CIDR de aplicação de volta por um túnel de desenvolvedor.
 3. No Gateway, cada prefixo de cliente remoto retorna pelo túnel que o possui. Cada sessão SSH TUN possui interface e par de endereços únicos, com rotas alocadas e removidas por lifecycle hook daquela sessão.
 4. Containers enviam replies pela rota Podman normal ao host. O host instala um próximo salto determinístico do Gateway por prefixo de cliente remoto, não cópias concorrentes do mesmo prefixo por cada rede Podman. Se testes mostrarem que tabelas de policy routing são necessárias, elas devem ser explícitas e ter propriedade/reconciliação definida.
 
-Antes de alterar estado, validar pools configurados, endpoints WireGuard, SSH, rotas candidatas, CIDRs Podman e rotas relevantes do host/LAN/corporativas. OpenVPN não tem endpoint JSON. Sem `client_pool`, o runtime verifica endereço/máscara atribuídos contra subnets Podman, mas não valida a alocação externa nem gerencia rota host de retorno; roteamento simétrico não é garantido. Permitir rotas gerenciadas exatas e redes conectadas Podman/túnel necessárias; não rejeitar em bloco rotas default ou ranges conectados necessários. Rotas e regras têm proprietário identificável, reconciliação idempotente e rollback limitado ao estado candidato possuído pelo Gateway/sessão. Candidato inválido não altera rotas, forwarding, DNS ou serviços. Reconnect OpenVPN revalida alterações de rotas pushed antes da ativação. Não há watcher genérico; hooks de sessão são separados e limitados ao ciclo de vida de protocolo.
+Antes de alterar estado, validar pools configurados, bind/porta UDP WireGuard, rotas candidatas, CIDRs Podman e rotas relevantes do host/LAN/corporativas. Endpoint WireGuard é fornecido por perfil e não entra no preflight. OpenVPN não tem endpoint JSON. Sem `client_pool`, o runtime verifica endereço/máscara atribuídos contra subnets Podman, mas não valida a alocação externa nem gerencia rota host de retorno; roteamento simétrico não é garantido. Permitir rotas gerenciadas exatas e redes conectadas Podman/túnel necessárias; não rejeitar em bloco rotas default ou ranges conectados necessários. Rotas e regras têm proprietário identificável, reconciliação idempotente e rollback limitado ao estado candidato possuído pelo Gateway/sessão. Candidato inválido não altera rotas, forwarding, DNS ou serviços. Reconnect OpenVPN revalida alterações de rotas pushed antes da ativação. Não há watcher genérico; hooks de sessão são separados e limitados ao ciclo de vida de protocolo.
 
 Containers podem iniciar conexões para qualquer destino externo alcançável pela rota padrão do host. O egress usa o caminho normal do Podman rootful e pode usar masquerading; serviços externos verão o endereço de saída do host. Esse comportamento é separado do acesso remoto de desenvolvedores, que preserva o IP de origem.
 
@@ -1215,7 +1221,7 @@ As seguintes decisões são consideradas parte do contrato:
 | SSH keys | Individuais por desenvolvedor |
 | SSH shared keys | Não |
 | SSH Certificate Authority | Fora do boilerplate inicial |
-| WireGuard | Servidor IPv4-only aditivo no Gateway; peers aprovados alcançam todos CIDRs Podman; `dev.anatel` interno-only; chaves de peer geradas no Gateway e entregues uma vez por canal autenticado ainda a desenhar |
+| WireGuard | Servidor IPv4-only aditivo no Gateway; peers aprovados alcançam todos CIDRs Podman; `dev.anatel` interno-only; perfis `.conf` e chaves de peer gerados no Gateway e entregues uma vez por `/dev/tty` |
 | OpenVPN | Servidor externo existente aloca endereços ao cliente OpenVPN do Gateway; protocolo, porta, topologia e opções de domínio pertencem ao servidor/perfil; `client_to_client` é configuração do servidor; o cliente e WireGuard permanecem separados |
 | SSH TUN | Múltiplas sessões simultâneas usam pool próprio; runtime OpenSSH TUN é mantido |
 | Firewall de usuários | Fora do gateway |
@@ -1249,7 +1255,7 @@ As decisões de topologia confirmadas estão registradas na seção 34. Os valor
 7. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
 8. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
 9. O schema aceita `dev.anatel` e receitas de split DNS existem para Windows 11, Linux e macOS. Validar DNS, rotas preservadas e cleanup em cada sistema operacional; `dns_records` está vazio.
-10. Fornecer pool/endereço IPv4 do servidor WireGuard, endpoint, bind/porta UDP, resolver e caminho root-managed da chave privada do servidor. Validar no host-alvo antes de ativar.
+10. Provisionar a chave root-managed do servidor WireGuard em `/etc/gateway/wireguard/server.key`. A configuração fixa bind `0.0.0.0`, UDP `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1`; o allocator reserva o endereço do servidor. Fornecer endpoint alcançável a cada `peer generate --endpoint`. Validar host routes, key e bind UDP antes de ativar; endpoint reachability fica sob responsabilidade da rede externa.
 11. A CLI root-only, aprovação auditável e entrega única por `/dev/tty` estão implementadas. Usar terminal confiável não gravado; testar segredos ausentes de armazenamento/logs/erros e falhas de saída. Revogar peer pendente se a entrega falhar; não recuperar nem reimprimir chave.
 12. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
 
@@ -1278,7 +1284,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - WireGuard server aditivo, OpenVPN client e múltiplos clientes SSH TUN simultâneos permitirem tráfego Layer 3 IPv4 split-tunnel para todos os CIDRs Podman, incluindo PostgreSQL, sem NAT, preservando a origem e as rotas default dos clientes;
 - peers WireGuard usarem split DNS para `dev.anatel` em Windows 11, Linux e macOS, sem alterar o resolver global, sem registros AAAA e sem tornar o domínio público;
 - onboarding de peer exigir aprovação e auditoria; chaves privadas de peer serem geradas dentro do Gateway, entregues uma vez por canal autenticado e nunca persistidas/logadas;
-- pools e endpoints de túnel não se sobreporem a CIDRs Podman nem rotas relevantes de host/LAN/corporativas; alocações SSH por sessão serem únicas, com cleanup isolado;
+- pools de túnel não se sobreporem a CIDRs Podman nem rotas relevantes de host/LAN/corporativas; endpoint do cliente ser fornecido por perfil, sem configuração ou preflight no servidor; alocações SSH por sessão serem únicas, com cleanup isolado;
 - rotas externas direcionarem CIDRs Podman ao cliente OpenVPN do Gateway e o Gateway alcançar aplicações por interfaces Podman conectadas, com rotas de retorno determinísticas ao túnel proprietário;
 - reconnect OpenVPN revalidar rotas pushed, candidato inválido não mutar estado e rotas/regras terem ownership, reconciliação idempotente e rollback definidos;
 - não haver forwarding entre redes de aplicação, DHCP, bridging Ethernet, TAP, deployment do servidor OpenVPN externo, nem watcher genérico;
@@ -1388,7 +1394,7 @@ Resolva os inputs restantes da seção 29 antes da implementação. Valide Podma
 
 O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `192.168.9.2` e `192.168.8.2` foram aprovados para as duas interfaces do Gateway.
 
-`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` é área separada para configuração de túneis; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. Schema e runtime WireGuard estão implementados, mas desativados na configuração versionada. As decisões de topologia estão confirmadas; pool, endereço do servidor, endpoint, bind/porta, resolver e caminho da chave são inputs de deployment. A aceitação do túnel aguarda suporte do kernel e testes no host-alvo.
+`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` é área separada para configuração de túneis; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. Schema e runtime WireGuard estão implementados e habilitados na configuração versionada. O bind/porta são `0.0.0.0:1194/UDP`; o pool `192.168.10.0/24` reserva `192.168.10.1` para servidor e resolver. A chave root-managed fica em `/etc/gateway/wireguard/server.key`. Cada perfil recebe seu endpoint via `peer generate --endpoint`; ele não pertence ao JSON nem ao preflight. A aceitação do túnel aguarda chave provisionada, preflight no host e testes no alvo.
 
 `192.168.9.0/24` foi selecionado como a primeira rede /24 acima do conflito conhecido, usando o inventário versionado `shared`/`webApp` e a rota host `192.168.7.0/24` observada em `eth0`. Essa escolha não prova disponibilidade contra outras redes ou rotas. Gateway `--check` valida redes Podman, mas não verifica a tabela de rotas do host; a aceitação exige revisão no host-alvo de todas as redes e rotas relevantes.
 
@@ -1403,6 +1409,6 @@ Inputs operacionais e gates de implementação restantes:
 3. `/app` e `/app/api/` apontam ao mesmo `webApp:8000`; FastAPI serve os assets Vite e a API.
 4. Decisão confirmada: FastAPI serve assets e API no mesmo processo `webApp:8000` e mantém credenciais PostgreSQL. Browser assets não são processos do container; teste que build output e respostas HTTP nunca exponham essas credenciais.
 5. Implementar deployment NGINX e atualização idempotente do Gateway quando novas redes forem adicionadas.
-6. Verificar pools/endpoints de túnel e CIDRs Podman contra redes/rotas do host, LAN de desenvolvedores e ambiente corporativo antes de deployment. Preservar rotas default e conectadas necessárias.
+6. Verificar pools de túnel e CIDRs Podman contra redes/rotas do host, LAN de desenvolvedores e ambiente corporativo antes de deployment. Verificar bind/porta UDP local; não inferir endpoint público nem testar sua alcançabilidade no preflight. Preservar rotas default e conectadas necessárias.
 7. SSH do Gateway usa bind `0.0.0.0` para forwarding externo sob controle do perímetro; Cockpit permanece em `127.0.0.1`.
 8. Confirmar em teste o próximo salto determinístico para retorno dos containers; não instalar rotas conflitantes de um mesmo prefixo por todas as redes Podman.

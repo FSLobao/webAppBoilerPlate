@@ -3,17 +3,19 @@
 Gateway network checks report planned creation and DNS readiness without
 inspecting application containers. Both checks reject unrelated overlapping
 IPv4 host routes while permitting exact routes tied to inspected Podman
-bridges. Gateway checks also validate configured remote pools and literal
-endpoints against that route snapshot. Generic host checks inspect declared
-container state and report stopped containers as pending.
+bridges. Gateway checks also validate configured remote pools and the WireGuard
+UDP listener. Generic host checks inspect declared container state and report
+stopped containers as pending.
 """
 
 from __future__ import annotations
 
 import argparse
+import errno
 import ipaddress
 import json
 import pathlib
+import socket
 import stat
 import subprocess
 import sys
@@ -441,7 +443,7 @@ def _require_external_key_path(
 
 
 def _validate_wireguard_inputs(config: dict[str, Any]) -> None:
-    """Check kernel support and server-key metadata without opening the key."""
+    """Check kernel support, UDP bind availability, and server-key metadata."""
     gateway = config.get("gateway")
     remote_access = gateway.get("remote_access") if isinstance(gateway, dict) else None
     wireguard = (
@@ -472,6 +474,29 @@ def _validate_wireguard_inputs(config: dict[str, Any]) -> None:
         raise ValueError(
             "WireGuard server key must be a readable, root-owned private regular file"
         )
+    _validate_wireguard_udp_listener(wireguard)
+
+
+def _validate_wireguard_udp_listener(wireguard: dict[str, Any]) -> None:
+    """Check whether the configured host address and UDP port can be bound."""
+    bind_address = wireguard["host_bind_address"]
+    listen_port = wireguard["listen_port"]
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+            listener.bind((bind_address, listen_port))
+    except PermissionError as error:
+        raise ValueError(
+            "WireGuard UDP listener availability check needs permission to bind "
+            f"{bind_address}:{listen_port}"
+        ) from error
+    except OSError as error:
+        if error.errno == errno.EADDRINUSE:
+            raise ValueError(
+                f"WireGuard UDP port {listen_port} is already in use on {bind_address}"
+            ) from error
+        raise ValueError(
+            f"WireGuard UDP listener {bind_address}:{listen_port} cannot be bound"
+        ) from error
 
 
 def validate_gateway_networks(
@@ -494,7 +519,9 @@ def validate_gateway_networks(
 
     External commands: ``podman network ls``, ``podman network inspect``, and
     ``ip -j -4 route show table all``.
-    The function never inspects application containers or mutates host state.
+    A WireGuard check briefly binds and closes the configured UDP socket without
+    sending packets. The function never inspects application containers or leaves
+    host state changed.
     """
     validate_host_config(config)
     validate_remote_access_config(

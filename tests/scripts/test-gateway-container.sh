@@ -93,11 +93,11 @@ chmod 0644 "$TMP_DIR/tls/gateway.cert"
 printf 'test-only-password\n' > "$TMP_DIR/run/cockpit-password"
 chmod 0600 "$TMP_DIR/run/cockpit-password"
 jq '.networks = [{"name":"project-a-net","subnet":"10.89.1.0/24","gateway_address":"10.89.1.1"}] |
+    .gateway.remote_access.openvpn.enabled = false |
     .gateway.remote_access.wireguard = {
         "enabled":true,
         "host_bind_address":"0.0.0.0",
         "listen_port":54000,
-        "endpoint":"192.0.2.1",
         "address_pool":"198.18.0.0/24",
         "server_address":"10.254.0.1",
         "dns_server":"10.89.1.1",

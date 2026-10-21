@@ -132,10 +132,9 @@ jq '.gateway.remote_access.wireguard = {
         "enabled":true,
         "host_bind_address":"127.0.0.1",
         "listen_port":54000,
-        "endpoint":"203.0.113.20",
         "address_pool":"198.18.1.0/24",
-        "server_address":"10.254.0.1",
-        "dns_server":"10.89.1.2",
+        "server_address":"198.18.1.1",
+        "dns_server":"198.18.1.1",
         "server_private_key_path":"/etc/gateway/wireguard/test-server.key"
     }' "$TMP_DIR/valid.json" > "$TMP_DIR/wireguard-enabled.json"
 "$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/wireguard-enabled.json" >/dev/null
@@ -172,10 +171,9 @@ jq '.gateway.remote_access.wireguard = {
         "enabled":true,
         "host_bind_address":"127.0.0.1",
         "listen_port":54000,
-        "endpoint":"203.0.113.20",
         "address_pool":"198.18.1.0/24",
-        "server_address":"10.254.0.1",
-        "dns_server":"10.89.1.2",
+        "server_address":"198.18.1.1",
+        "dns_server":"198.18.1.1",
         "server_private_key_path":"/etc/gateway/wireguard/test-server.key"
     }' "$TMP_DIR/shared-remote-access.json" > "$TMP_DIR/all-remotes.json"
 bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \

@@ -18,7 +18,13 @@
                 "enabled": false
             },
             "wireguard": {
-                "enabled": false
+                "enabled": true,
+                "host_bind_address": "0.0.0.0",
+                "listen_port": 1194,
+                "address_pool": "192.168.10.0/24",
+                "server_address": "192.168.10.1",
+                "dns_server": "192.168.10.1",
+                "server_private_key_path": "/etc/gateway/wireguard/server.key"
             }
         }
     },

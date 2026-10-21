@@ -62,7 +62,6 @@ def _wireguard_config(**overrides: object) -> dict[str, object]:
         "enabled": True,
         "host_bind_address": "127.0.0.1",
         "listen_port": 54000,
-        "endpoint": "203.0.113.18",
         "address_pool": "198.18.1.0/24",
         "server_address": "10.254.0.1",
         "dns_server": "192.168.9.2",
@@ -139,6 +138,43 @@ def test_accepts_fully_configured_wireguard_only_when_explicitly_enabled() -> No
             }
         }
     )
+
+
+def test_accepts_server_address_inside_peer_pool_as_split_dns_resolver() -> None:
+    """Reserve the server address in the peer pool and allow it as the resolver."""
+    wireguard = _wireguard_config(
+        address_pool="192.168.10.0/24",
+        server_address="192.168.10.1",
+        dns_server="192.168.10.1",
+    )
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = wireguard
+
+    validate_remote_access_config(config)
+
+
+def test_rejects_pool_network_address_as_wireguard_server() -> None:
+    """Reject a non-host network address for the server inside its peer pool."""
+    wireguard = _wireguard_config(
+        address_pool="192.168.10.0/24",
+        server_address="192.168.10.0",
+        dns_server="192.168.10.0",
+    )
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = wireguard
+
+    with pytest.raises(ValueError, match="usable host address"):
+        validate_remote_access_config(config)
+
+
+def test_rejects_wireguard_endpoint_in_host_config() -> None:
+    """Keep client-reachable endpoints out of persistent host configuration."""
+    wireguard = _wireguard_config(endpoint="vpn.example.test")
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = wireguard
+
+    with pytest.raises(ValueError, match="missing or unsupported fields"):
+        validate_remote_access_config(config)
 
 
 def test_wireguard_disabled_can_retain_prior_pool_for_owned_route_cleanup() -> None:

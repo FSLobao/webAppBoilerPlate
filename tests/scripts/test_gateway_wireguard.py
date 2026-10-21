@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import pty
@@ -40,7 +41,6 @@ def _config() -> dict[str, Any]:
                     "enabled": True,
                     "host_bind_address": "0.0.0.0",
                     "listen_port": 54000,
-                    "endpoint": "vpn.example.test",
                     "address_pool": "198.18.0.0/24",
                     "server_address": "10.254.0.1",
                     "dns_server": "192.168.9.2",
@@ -79,6 +79,46 @@ def test_enabled_wireguard_requires_every_explicit_deployment_input() -> None:
 
     with pytest.raises(ValueError, match="explicit host bind"):
         validate_remote_access_config(config)
+
+
+def test_peer_allocator_reserves_server_address_inside_peer_pool() -> None:
+    """Start peer assignments after the reserved server and DNS address."""
+    config = _config()
+    wg_settings = config["gateway"]["remote_access"]["wireguard"]
+    wg_settings["address_pool"] = "192.168.10.0/24"
+    wg_settings["server_address"] = "192.168.10.1"
+    wg_settings["dns_server"] = "192.168.10.1"
+    wireguard_config = wireguard._enabled(config)
+
+    assert wireguard._peer_address(wireguard_config, []) == ipaddress.IPv4Address(
+        "192.168.10.2"
+    )
+
+
+def test_runtime_rejects_pool_network_address_as_wireguard_server() -> None:
+    """Reject a network or broadcast address as the server tunnel address."""
+    config = _config()
+    wg_settings = config["gateway"]["remote_access"]["wireguard"]
+    wg_settings["address_pool"] = "192.168.10.0/24"
+    wg_settings["server_address"] = "192.168.10.0"
+    wg_settings["dns_server"] = "192.168.10.0"
+
+    with pytest.raises(wireguard.WireGuardError, match="pool or UDP port is invalid"):
+        wireguard._enabled(config)
+
+
+def test_peer_generation_rejects_invalid_client_endpoint_before_state_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject an invalid client endpoint before generating or storing a peer."""
+    monkeypatch.setattr(
+        wireguard, "_run", lambda *_args, **_kwargs: pytest.fail("unexpected command")
+    )
+
+    with pytest.raises(wireguard.WireGuardError, match="endpoint is invalid"):
+        wireguard.generate_peer(
+            _config(), "peer-invalid", "owner", "purpose", "bad endpoint"
+        )
 
 
 @pytest.mark.parametrize(
@@ -130,7 +170,11 @@ def test_generate_peer_stores_public_metadata_only_and_builds_exact_split_routes
 
     monkeypatch.setattr(wireguard, "_run", run)
     profile, fingerprint, terminal = wireguard.generate_peer(
-        _config(), "peer-001", "person@example.test", "workstation access"
+        _config(),
+        "peer-001",
+        "person@example.test",
+        "workstation access",
+        "vpn.example.test",
     )
     os.close(terminal)
 
@@ -143,6 +187,7 @@ def test_generate_peer_stores_public_metadata_only_and_builds_exact_split_routes
     assert "AllowedIPs = 192.168.9.0/24, 192.168.8.0/29" in profile
     assert "0.0.0.0/0" not in profile
     assert "198.18.0.1/32" in profile
+    assert "Endpoint = vpn.example.test:54000" in profile
     assert fingerprint == hashlib.sha256(PEER_PUBLIC_KEY.encode()).hexdigest()
 
     persistent = wireguard.PEERS_PATH.read_text(encoding="utf-8")
@@ -239,6 +284,8 @@ def test_peer_generate_cli_delivers_profile_to_controlling_pty(
                 "person@example.test",
                 "--purpose",
                 "PTY regression",
+                "--endpoint",
+                "vpn.example.test",
             ]
         )
         private_key.clear()
@@ -390,6 +437,8 @@ def test_peer_generate_cli_rejects_redirected_pipes_before_keygen(
                 "person@example.test",
                 "--purpose",
                 "pipe regression",
+                "--endpoint",
+                "vpn.example.test",
             ]
         )
         wireguard.sys.stderr.flush()

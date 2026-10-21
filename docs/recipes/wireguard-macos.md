@@ -1,7 +1,8 @@
 # WireGuard peer onboarding on macOS
 
-> WireGuard runtime and peer CLI are implemented, but checked-in config keeps the server disabled.
-> Do not activate it until deployment inputs, server key, kernel support, and route preflight pass.
+> WireGuard runtime and peer CLI are implemented, and checked-in config enables the server.
+> Do not activate it until the host key is provisioned and kernel, UDP bind, and route preflight pass.
+> Supply a reachable endpoint for each client profile; it is not stored in host config.
 > Peer operations require Gateway root and a direct, non-recording terminal.
 
 ## Approved network contract
@@ -26,14 +27,16 @@
 1. A trusted Gateway administrator verifies developer/device identity and records owner, purpose,
    approval reference, and expiry. Do not send private keys or public endpoints in a public ticket.
 2. Confirm the operator terminal is direct and is not recorded or multiplexed. Generate the peer
-   with a foreground interactive TTY:
+   with a foreground interactive TTY. WireGuard clients import a `.conf` profile; this CLI generates
+   the client key and profile once, so no separate key-generation script is needed:
 
    ```bash
    podman exec --interactive --tty --user 0 gateway \
      gateway-wireguard peer generate \
      --id "mac-device-01" \
      --owner "approved-owner-id" \
-     --purpose "development access"
+     --purpose "development access" \
+     --endpoint "<APPROVED_REACHABLE_HOST>"
    ```
 
    Gateway stores pending public metadata, then prints the profile once to `/dev/tty`. The private
@@ -70,8 +73,9 @@
    screenshots, clipboard history, shared folders, source control, and unapproved sync storage.
    Deletion may not erase backups or snapshots. Service authentication remains required.
 
-The CLI generates this client profile shape from explicit deployment inputs. Placeholders below
-are not deployment values:
+The CLI generates this client profile shape from the supplied endpoint and configured UDP port.
+The endpoint is a public IPv4 address or DNS name, without a port. Placeholders below are not
+deployment values:
 
 ```ini
 [Interface]
@@ -81,7 +85,7 @@ Address = <ASSIGNED_PEER_IPV4_PREFIX>
 
 [Peer]
 PublicKey = <GATEWAY_SERVER_PUBLIC_KEY>
-Endpoint = <APPROVED_PUBLIC_ENDPOINT>:<HOST_PUBLISHED_UDP_PORT>
+Endpoint = <APPROVED_REACHABLE_HOST>:1194
 AllowedIPs = <EVERY_TOP_LEVEL_PODMAN_CIDR>
 ```
 

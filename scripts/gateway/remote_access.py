@@ -361,7 +361,6 @@ def validate_remote_access_config(
         "enabled",
         "host_bind_address",
         "listen_port",
-        "endpoint",
         "address_pool",
         "server_address",
         "dns_server",
@@ -401,9 +400,6 @@ def validate_remote_access_config(
             raise ValueError(
                 "gateway.remote_access.wireguard.listen_port must be between 1 and 65535"
             )
-        wg_endpoint = _validate_endpoint(
-            wireguard["endpoint"], "gateway.remote_access.wireguard.endpoint"
-        )
         wg_pool = _ipv4_network(
             wireguard["address_pool"], "gateway.remote_access.wireguard.address_pool"
         )
@@ -426,32 +422,21 @@ def validate_remote_access_config(
                 server_address_ip = parsed
             else:
                 resolver_address_ip = parsed
-        if server_address_ip in wg_pool:
+        if wg_pool.prefixlen <= 30 and server_address_ip in (
+            wg_pool.network_address,
+            wg_pool.broadcast_address,
+        ):
             raise ValueError(
-                "WireGuard server_address must not overlap its peer address_pool"
+                "WireGuard server_address must be a usable host address in the peer pool"
             )
-        if wg_endpoint is not None:
-            for network in networks:
-                if wg_endpoint in network.subnet:
-                    raise ValueError(
-                        f"WireGuard endpoint {wg_endpoint} overlaps Podman network "
-                        f"'{network.name}' subnet {network.subnet}"
-                    )
         _validate_private_key_path(wireguard["server_private_key_path"])
-        if not any(network.address == resolver_address_ip for network in networks):
+        if resolver_address_ip != server_address_ip and not any(
+            network.address == resolver_address_ip for network in networks
+        ):
             raise ValueError(
-                "WireGuard dns_server must match a configured Gateway network address"
+                "WireGuard dns_server must match a configured Gateway network "
+                "address or server_address"
             )
-        if wg_endpoint is not None:
-            if wg_endpoint in wg_pool:
-                raise ValueError(
-                    f"WireGuard endpoint {wg_endpoint} overlaps WireGuard peer pool {wg_pool}"
-                )
-            for name, pool in pools:
-                if wg_endpoint in pool:
-                    raise ValueError(
-                        f"WireGuard endpoint {wg_endpoint} overlaps {name} {pool}"
-                    )
         pools.append(("WireGuard peer pool", wg_pool))
         if wireguard["enabled"] and not any(
             network.address is not None for network in networks
@@ -569,28 +554,6 @@ def validate_remote_access_host_routes(
                     f"{destination} (table={route.get('table', 'unspecified')}, "
                     f"dev={route.get('dev', 'unspecified')})"
                 )
-
-    if isinstance(remote.get("wireguard"), dict):
-        wireguard = remote["wireguard"]
-        if wireguard.get("enabled") is True:
-            wg_endpoint = _validate_endpoint(
-                wireguard["endpoint"], "gateway.remote_access.wireguard.endpoint"
-            )
-            if wg_endpoint is not None:
-                for route in routes:
-                    if route.get("type") != "local":
-                        continue
-                    raw_destination = route.get("dst")
-                    if raw_destination == "default" or raw_destination is None:
-                        continue
-                    destination = ipaddress.ip_network(
-                        str(raw_destination), strict=False
-                    )
-                    if destination.version == 4 and wg_endpoint in destination:
-                        raise ValueError(
-                            f"WireGuard endpoint {wg_endpoint} conflicts with local host "
-                            f"route {destination}"
-                        )
 
 
 def validate_activation_addresses(
