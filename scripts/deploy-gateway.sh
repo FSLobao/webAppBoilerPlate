@@ -20,6 +20,7 @@ ACTIVATION_ATTEMPTED=0
 NETWORKS_CREATED=()
 WIREGUARD_KEY_CREATED=0
 WIREGUARD_KEY_PATH=''
+WIREGUARD_KERNEL_LOAD_ATTEMPTED=0
 
 usage() {
     printf 'Usage: %s --validate-config|--check|--apply [host_config.json]\n' "${0##*/}"
@@ -78,6 +79,20 @@ generate_dns_candidate() {
             "$dns_name" "$container" >> "$output_path"
     done < <(jq -r '.dns_records[]? | [.name, .container] | @tsv' "$config_path")
     chmod 0644 "$output_path"
+}
+# ---------------------------------- #
+
+# Load WireGuard kernel support only when the validated configuration enables it.
+# Arguments: validated host configuration path. May load a host kernel module.
+# Output: loader status; failures are reported to stderr.
+ensure_wireguard_kernel_module() {
+    local config_path=$1 wireguard_enabled
+
+    wireguard_enabled=$(jq -r '.gateway.remote_access.wireguard.enabled // false' "$config_path")
+    [[ "$wireguard_enabled" == true ]] || return 0
+    WIREGUARD_KERNEL_LOAD_ATTEMPTED=1
+    run_python_module scripts.gateway.wireguard_kernel || \
+        fail 'Could not load WireGuard kernel support; check host module availability and policy.'
 }
 # ---------------------------------- #
 
@@ -182,7 +197,7 @@ render_quadlet_candidate() {
     local ssh_tun_volume='' ssh_tun_runtime=''
     local openvpn_host_route='' ssh_tun_host_route=''
     local wireguard_volume='' wireguard_peers_volume='' wireguard_runtime=''
-    local wireguard_host_route='' wireguard_enabled wireguard_key_path
+    local wireguard_host_route='' wireguard_module_load='' wireguard_enabled wireguard_key_path
     local wireguard_bind_address wireguard_port wireguard_pool
     local openvpn_enabled ssh_tun_enabled profile_path client_pool route_gateway
     local ssh_tun_pool ssh_tun_keys_path
@@ -248,6 +263,7 @@ render_quadlet_candidate() {
         if [[ "$openvpn_enabled" != true && "$ssh_tun_enabled" != true ]]; then
             wireguard_runtime='AddCapability=NET_ADMIN'
         fi
+        wireguard_module_load='ExecStartPre=/usr/sbin/modprobe --use-blacklist wireguard'
         published_lines+=$(printf '\nPublishPort=%s:%s:%s/udp' \
             "$wireguard_bind_address" "$wireguard_port" "$wireguard_port")
         wireguard_host_route=$(printf \
@@ -266,6 +282,7 @@ render_quadlet_candidate() {
     template=${template//@@WIREGUARD_VOLUME@@/$wireguard_volume}
     template=${template//@@WIREGUARD_PEERS_VOLUME@@/$wireguard_peers_volume}
     template=${template//@@WIREGUARD_RUNTIME@@/$wireguard_runtime}
+    template=${template//@@WIREGUARD_MODULE_LOAD@@/$wireguard_module_load}
     template=${template//@@WIREGUARD_HOST_ROUTE@@/$wireguard_host_route}
     template=${template//@@NETWORKS@@/$network_lines}
     template=${template//@@PUBLISHED_PORTS@@/$published_lines}
@@ -472,6 +489,9 @@ cleanup_after_apply() {
     trap - EXIT
 
     if (( status != 0 && APPLY_MUTATING == 1 )); then
+        if (( WIREGUARD_KERNEL_LOAD_ATTEMPTED == 1 )); then
+            printf '[gateway] WireGuard kernel module is not unloaded during rollback; it may remain loaded for other host workloads.\n' >&2
+        fi
         if (( WIREGUARD_KEY_CREATED == 1 )); then
             printf '[gateway] Retained the WireGuard server key at %s; reuse it on retry to preserve client profiles.\n' \
                 "$WIREGUARD_KEY_PATH" >&2
@@ -560,6 +580,7 @@ apply_deployment() {
     "$PREFLIGHT_SCRIPT" --check-gateway "$config_path"
     APPLY_MUTATING=1
     trap cleanup_after_apply EXIT
+    ensure_wireguard_kernel_module "$config_path"
 
     if systemctl is-active --quiet "$UNIT_NAME"; then SERVICE_WAS_ACTIVE=1; fi
     if systemctl is-enabled --quiet "$UNIT_NAME"; then SERVICE_WAS_ENABLED=1; fi

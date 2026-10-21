@@ -34,6 +34,7 @@ from scripts.gateway.remote_access import (
     validate_remote_access_config,
     validate_remote_access_host_routes,
 )
+from scripts.gateway.wireguard_kernel import check_wireguard_kernel_support
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -509,7 +510,9 @@ def _validate_wireguard_key_directory(directory: pathlib.Path) -> None:
 
 
 def _validate_wireguard_inputs(
-    config: dict[str, Any], announce: Callable[[str], None]
+    config: dict[str, Any],
+    announce: Callable[[str], None],
+    run_command: CommandRunner,
 ) -> None:
     """Check kernel support, UDP bind availability, and server-key readiness."""
     gateway = config.get("gateway")
@@ -519,10 +522,10 @@ def _validate_wireguard_inputs(
     )
     if not isinstance(wireguard, dict) or wireguard.get("enabled") is not True:
         return
-    if not pathlib.Path("/sys/module/wireguard").is_dir():
-        raise ValueError(
-            "WireGuard kernel support is not loaded; load it through host policy, "
-            "not Gateway deployment"
+    if not check_wireguard_kernel_support(run_command=run_command):
+        announce(
+            "[host-preflight] PENDING: WireGuard kernel support will be loaded "
+            "during --apply and each Gateway service start."
         )
     key_path = pathlib.Path(wireguard["server_private_key_path"])
     repository_root = pathlib.Path(__file__).resolve().parents[2]
@@ -572,19 +575,19 @@ def validate_gateway_networks(
 
     External commands: ``podman network ls``, ``podman network inspect``, and
     ``ip -j -4 route show table all``.
-    A WireGuard check briefly binds and closes the configured UDP socket without
-    sending packets. The function never inspects application containers or leaves
-    host state changed.
+    A WireGuard check dry-runs modprobe and briefly binds then closes the
+    configured UDP socket without sending packets. The function never inspects
+    application containers or leaves host state changed.
     """
     validate_host_config(config)
     validate_remote_access_config(
         config,
         announce=lambda message: announce(f"[host-preflight] WARNING: {message}"),
     )
+    command_runner = run_command or subprocess.run
     _validate_openvpn_profile_file(config)
     _validate_ssh_tun_keys_file(config)
-    _validate_wireguard_inputs(config, announce)
-    command_runner = run_command or subprocess.run
+    _validate_wireguard_inputs(config, announce, command_runner)
     existing_networks = _inspect_podman_networks(command_runner)
     declared_networks = _validate_declared_networks(
         config,

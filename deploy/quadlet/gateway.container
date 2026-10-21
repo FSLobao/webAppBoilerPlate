@@ -33,6 +33,7 @@ Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
 [Service]
 Restart=always
 TimeoutStartSec=120
+@@WIREGUARD_MODULE_LOAD@@
 @@OPENVPN_HOST_ROUTE@@
 @@SSH_TUN_HOST_ROUTE@@
 @@WIREGUARD_HOST_ROUTE@@

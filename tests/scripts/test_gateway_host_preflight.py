@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from scripts.gateway import host_preflight
+from scripts.gateway import host_preflight, wireguard_kernel
 from scripts.gateway.host_preflight import (
     cockpit_password_is_valid,
     host_platform_matches_target,
@@ -125,6 +125,189 @@ def test_wireguard_udp_preflight_rejects_occupied_port(
         )
 
     probe.__exit__.assert_called_once()
+
+
+def test_wireguard_module_preflight_is_read_only_and_reports_load_plan(
+    tmp_path: Path,
+) -> None:
+    """Dry-run modprobe when WireGuard is available but not yet loaded."""
+    module_path = tmp_path / "sys" / "module" / "wireguard"
+    modprobe_path = tmp_path / "usr" / "sbin" / "modprobe"
+    calls: list[list[str]] = []
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        assert kwargs == {
+            "check": False,
+            "capture_output": True,
+            "text": True,
+        }
+        return subprocess.CompletedProcess(
+            command, 0, "insmod /lib/modules/wireguard.ko\n", ""
+        )
+
+    loaded = wireguard_kernel.check_wireguard_kernel_support(
+        run_command=run_command,
+        module_path=module_path,
+        modprobe_path=modprobe_path,
+    )
+
+    assert not loaded
+    assert not module_path.exists()
+    assert calls == [
+        [
+            str(modprobe_path),
+            "--use-blacklist",
+            "--dry-run",
+            "--verbose",
+            "wireguard",
+        ]
+    ]
+
+
+def test_wireguard_host_preflight_reports_planned_module_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Allow an unloaded, loadable module and report the apply action."""
+    module_path = tmp_path / "sys" / "module" / "wireguard"
+    modprobe_path = tmp_path / "usr" / "sbin" / "modprobe"
+    calls: list[list[str]] = []
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command, 0, "insmod /lib/modules/wireguard.ko\n", ""
+        )
+
+    monkeypatch.setattr(
+        host_preflight,
+        "check_wireguard_kernel_support",
+        lambda *, run_command: wireguard_kernel.check_wireguard_kernel_support(
+            run_command=run_command,
+            module_path=module_path,
+            modprobe_path=modprobe_path,
+        ),
+    )
+    monkeypatch.setattr(
+        host_preflight, "_validate_wireguard_server_key_path", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        host_preflight, "_validate_wireguard_udp_listener", lambda _wireguard: None
+    )
+    wireguard = {
+        "enabled": True,
+        "host_bind_address": "127.0.0.1",
+        "listen_port": 1194,
+        "server_private_key_path": str(tmp_path / "server.key"),
+    }
+    messages: list[str] = []
+
+    host_preflight._validate_wireguard_inputs(
+        {"gateway": {"remote_access": {"wireguard": wireguard}}},
+        messages.append,
+        run_command,
+    )
+
+    assert messages == [
+        (
+            "[host-preflight] PENDING: WireGuard kernel support will be loaded "
+            "during --apply and each Gateway service start."
+        )
+    ]
+    assert len(calls) == 1
+    assert not module_path.exists()
+
+
+def test_wireguard_module_preflight_rejects_unavailable_support(
+    tmp_path: Path,
+) -> None:
+    """Reject an unloaded WireGuard module when modprobe cannot resolve it."""
+    modprobe_path = tmp_path / "usr" / "sbin" / "modprobe"
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command, 1, "", "modprobe: FATAL: Module wireguard not found"
+        )
+
+    with pytest.raises(wireguard_kernel.WireGuardKernelError, match="not found"):
+        wireguard_kernel.check_wireguard_kernel_support(
+            run_command=run_command,
+            module_path=tmp_path / "sys" / "module" / "wireguard",
+            modprobe_path=modprobe_path,
+        )
+
+
+def test_wireguard_module_load_verifies_sysfs_after_modprobe(
+    tmp_path: Path,
+) -> None:
+    """Load WireGuard and confirm the kernel exposes the module."""
+    module_path = tmp_path / "sys" / "module" / "wireguard"
+    modprobe_path = tmp_path / "usr" / "sbin" / "modprobe"
+    calls: list[list[str]] = []
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        module_path.mkdir(parents=True)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    loaded = wireguard_kernel.load_wireguard_kernel_support(
+        run_command=run_command,
+        module_path=module_path,
+        modprobe_path=modprobe_path,
+    )
+
+    assert loaded
+    assert calls == [[str(modprobe_path), "--use-blacklist", "wireguard"]]
+
+
+def test_wireguard_module_load_is_idempotent_when_already_loaded(
+    tmp_path: Path,
+) -> None:
+    """Do not invoke modprobe again when the kernel module is already loaded."""
+    module_path = tmp_path / "sys" / "module" / "wireguard"
+    module_path.mkdir(parents=True)
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        raise AssertionError(f"unexpected command: {command}")
+
+    loaded = wireguard_kernel.load_wireguard_kernel_support(
+        run_command=run_command,
+        module_path=module_path,
+        modprobe_path=tmp_path / "usr" / "sbin" / "modprobe",
+    )
+
+    assert not loaded
+
+
+def test_wireguard_module_load_rejects_success_without_loaded_module(
+    tmp_path: Path,
+) -> None:
+    """Reject modprobe success when WireGuard never appears in sysfs."""
+    modprobe_path = tmp_path / "usr" / "sbin" / "modprobe"
+
+    def run_command(
+        command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with pytest.raises(
+        wireguard_kernel.WireGuardKernelError, match="sys/module/wireguard is absent"
+    ):
+        wireguard_kernel.load_wireguard_kernel_support(
+            run_command=run_command,
+            module_path=tmp_path / "sys" / "module" / "wireguard",
+            modprobe_path=modprobe_path,
+        )
 
 
 def _fake_ip_routes(

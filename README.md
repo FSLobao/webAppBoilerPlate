@@ -429,9 +429,10 @@ sudo ./scripts/deploy-gateway.sh --apply config/host_config.json
 portas, redes, rotas IPv4 do host, socket rootful e ferramentas exigidas; não inspeciona containers
 de aplicação ou targets DNS. Se OpenVPN estiver habilitado, verifica apenas metadados de propriedade,
 modo e arquivo regular do perfil; não lê seu conteúdo. Se WireGuard estiver habilitado, verifica
-inputs, suporte do kernel/ferramentas, metadados da chave se existente e disponibilidade local de
-bind UDP antes de qualquer mutação. Se a chave faltar, informa que `--apply` a criará. Não valida o
-endpoint por peer nem sua alcançabilidade externa.
+inputs, se `modprobe` consegue resolver o módulo sem carregá-lo, metadados da chave se existente e
+disponibilidade local de bind UDP antes de qualquer mutação. Se o módulo estiver descarregado, informa
+que `--apply` o carregará. Se a chave faltar, informa que `--apply` a criará. Não instala pacotes nem
+altera a política de módulos do host. Não valida o endpoint por peer nem sua alcançabilidade externa.
 Redes ausentes são informadas como criação planejada. O comando geral
 `host-preflight.sh --check` também verifica rotas e continua inspecionando os containers declarados.
 Não contorne a verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
@@ -455,11 +456,14 @@ operacional.
   `/dev/net/tun` e `NET_ADMIN`, instala forwarding restrito TUN-para-Podman e gerencia somente a
   rota IPv4 do pool com protocolo reservado `186`. A configuração versionada não habilita esse
   runtime.
-- Com WireGuard habilitado, `--apply` gera a chave somente se estiver ausente, depois do preflight e
-  da construção da imagem. Chave existente é validada e reutilizada; nunca é substituída. O Gateway
-  monta somente o arquivo de chave em leitura, publica `0.0.0.0:1194/UDP`, adiciona `NET_ADMIN` e
-  instala a rota de retorno exata para o pool. O preflight não carrega módulo; se suporte do kernel
-  estiver ausente, falha antes da mutação. O endpoint público é fornecido apenas ao gerar cada perfil.
+- Com WireGuard habilitado, `--apply` carrega o módulo com `modprobe` e confirma
+  `/sys/module/wireguard` antes das demais mutações. A unidade Quadlet carrega o módulo em cada início,
+  inclusive após reboot. Ambos respeitam a blacklist do host. O deployment não instala pacotes nem
+  descarrega o módulo durante rollback ou quando WireGuard é desabilitado. `--apply` gera a chave
+  somente se estiver ausente, depois do preflight e da construção da imagem. Chave existente é
+  validada e reutilizada; nunca é substituída. O Gateway monta somente o arquivo de chave em leitura,
+  publica `0.0.0.0:1194/UDP`, adiciona `NET_ADMIN` e instala a rota de retorno exata para o pool. O
+  endpoint público é fornecido apenas ao gerar cada perfil.
 
 O script não cria as credenciais externas, containers de aplicação, volumes ou dados de aplicação.
 Também não usa `--privileged`, não expõe a API Podman por TCP e não altera SELinux. Se o apply falhar,

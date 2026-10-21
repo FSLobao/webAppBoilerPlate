@@ -148,6 +148,9 @@ grep -Fxq \
     "$TMP_DIR/wireguard.container" || fail 'WireGuard public peer inventory was not persisted'
 grep -Fxq 'AddCapability=NET_ADMIN' "$TMP_DIR/wireguard.container" || \
     fail 'WireGuard minimum network capability was not added'
+grep -Fxq \
+    'ExecStartPre=/usr/sbin/modprobe --use-blacklist wireguard' \
+    "$TMP_DIR/wireguard.container" || fail 'WireGuard module load was not added to the Gateway service'
 grep -Fxq 'PublishPort=127.0.0.1:54000:54000/udp' "$TMP_DIR/wireguard.container" || \
     fail 'WireGuard UDP host publication was not rendered'
 grep -Fxq \
@@ -156,7 +159,43 @@ grep -Fxq \
 grep -Fxq \
     'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.1.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route cleanup was not rendered'
+if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
+    [[ -x /usr/libexec/podman/quadlet ]]; then
+    bash -c 'source "$1"; validate_quadlet_candidate "$2"' \
+        _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard.container"
+    printf 'PASS: host Quadlet generator accepts WireGuard module loading at service start\n'
+fi
 printf 'PASS: WireGuard renders explicit UDP bind, read-only server key, persistent public peers, minimum capability, and owned return route\n'
+jq '.gateway.remote_access.wireguard.enabled = false' "$TMP_DIR/valid.json" \
+    > "$TMP_DIR/wireguard-disabled.json"
+bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard-disabled.json" "$TMP_DIR/wireguard-disabled.container"
+if grep -Fxq \
+    'ExecStartPre=/usr/sbin/modprobe --use-blacklist wireguard' \
+    "$TMP_DIR/wireguard-disabled.container"; then
+    fail 'Disabled WireGuard still renders the module load command'
+fi
+printf 'PASS: disabled WireGuard does not request host module loading\n'
+MODULE_CALL_LOG="$TMP_DIR/wireguard-module-call.log" bash -c '
+    source "$1"
+    run_python_module() {
+        printf "%s\n" "$1" >> "$MODULE_CALL_LOG"
+    }
+    ensure_wireguard_kernel_module "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard-enabled.json"
+grep -Fxq 'scripts.gateway.wireguard_kernel' "$TMP_DIR/wireguard-module-call.log" || \
+    fail 'Enabled WireGuard did not request kernel module loading during apply'
+: > "$TMP_DIR/wireguard-module-call.log"
+MODULE_CALL_LOG="$TMP_DIR/wireguard-module-call.log" bash -c '
+    source "$1"
+    run_python_module() {
+        printf "%s\n" "$1" >> "$MODULE_CALL_LOG"
+    }
+    ensure_wireguard_kernel_module "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/wireguard-disabled.json"
+[[ ! -s "$TMP_DIR/wireguard-module-call.log" ]] || \
+    fail 'Disabled WireGuard requested kernel module loading during apply'
+printf 'PASS: apply requests host module loading only when WireGuard is enabled\n'
 mkdir -m 0700 "$TMP_DIR/wireguard-key-directory" "$TMP_DIR/key-bin"
 jq --arg key_path "$TMP_DIR/wireguard-key-directory/server.key" \
     '.gateway.remote_access.wireguard.server_private_key_path = $key_path' \
