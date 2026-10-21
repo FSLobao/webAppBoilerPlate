@@ -51,6 +51,10 @@ jq '.networks = [
 "$DEPLOY_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 "$PREFLIGHT_SCRIPT" --validate-config "$TMP_DIR/valid.json" >/dev/null
 printf 'PASS: valid configuration accepted\n'
+jq '.gateway.startup_readiness.interval_seconds = 61' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/invalid-readiness.json"
+expect_invalid 'startup readiness interval greater than timeout' \
+    "$TMP_DIR/invalid-readiness.json"
 
 bash -c 'source "$1"; render_quadlet_candidate "$2" "$3"' \
     _ "$DEPLOY_SCRIPT" "$TMP_DIR/valid.json" "$TMP_DIR/rendered.container"
@@ -234,6 +238,57 @@ if grep -Eq '^(enable|disable)( |$)' "$TMP_DIR/systemctl-call.log"; then
     fail 'Quadlet rollback tried to enable or disable a generated unit'
 fi
 printf 'PASS: generated Quadlet units start, restart, and roll back without enable/disable calls\n'
+jq '.gateway.startup_readiness = {"timeout_seconds":3,"interval_seconds":1}' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/readiness-retry.json"
+: > "$TMP_DIR/readiness-retry.log"
+READINESS_CHECK_LOG="$TMP_DIR/readiness-retry.log" \
+    bash -c '
+        source "$1"
+        check_gateway_health_once() {
+            printf "attempt\n" >> "$READINESS_CHECK_LOG"
+            if [[ "$(wc -l < "$READINESS_CHECK_LOG")" -lt 3 ]]; then
+                printf "temporary startup miss\n" >&2
+                return 1
+            fi
+            printf "health ready\n"
+        }
+        sleep() { SECONDS=$((SECONDS + $1)); }
+        wait_for_gateway_health "$2" "$3"
+    ' _ "$DEPLOY_SCRIPT" "$TMP_DIR/readiness-retry.json" "$TMP_DIR/dns-hosts" \
+    > "$TMP_DIR/readiness-retry-output.log" 2>&1
+[[ "$(grep -c '^attempt$' "$TMP_DIR/readiness-retry.log")" == 3 ]] || \
+    fail 'Gateway readiness did not retry twice before succeeding'
+if grep -Fq 'temporary startup miss' "$TMP_DIR/readiness-retry-output.log"; then
+    fail 'Transient readiness errors were printed after a successful retry'
+fi
+grep -Fq 'Health checks passed after 3 attempts.' "$TMP_DIR/readiness-retry-output.log" || \
+    fail 'Gateway readiness success did not report the retry count'
+printf 'PASS: readiness retries suppress transient errors and stop on success\n'
+jq '.gateway.startup_readiness = {"timeout_seconds":3,"interval_seconds":1}' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/readiness-timeout.json"
+: > "$TMP_DIR/readiness-timeout.log"
+if READINESS_CHECK_LOG="$TMP_DIR/readiness-timeout.log" \
+    bash -c '
+        source "$1"
+        check_gateway_health_once() {
+            printf "attempt\n" >> "$READINESS_CHECK_LOG"
+            printf "startup still pending\n" >&2
+            return 1
+        }
+        sleep() { SECONDS=$((SECONDS + $1)); }
+        wait_for_gateway_health "$2" "$3"
+    ' _ "$DEPLOY_SCRIPT" "$TMP_DIR/readiness-timeout.json" "$TMP_DIR/dns-hosts" \
+    > "$TMP_DIR/readiness-timeout-output.log" 2>&1; then
+    fail 'Readiness timeout accepted a Gateway that never became healthy'
+fi
+[[ "$(grep -c '^attempt$' "$TMP_DIR/readiness-timeout.log")" == 3 ]] || \
+    fail 'Readiness timeout did not stop after its configured time budget'
+grep -Fq 'Gateway did not become healthy within 3s after 3 attempts.' \
+    "$TMP_DIR/readiness-timeout-output.log" || \
+    fail 'Readiness timeout did not report its configured bound'
+[[ "$(grep -c '^startup still pending$' "$TMP_DIR/readiness-timeout-output.log")" == 1 ]] || \
+    fail 'Readiness timeout did not report only the last transient failure'
+printf 'PASS: readiness retries stop at the configured timeout and report the last failure\n'
 mkdir -m 0700 "$TMP_DIR/wireguard-key-directory" "$TMP_DIR/key-bin"
 jq --arg key_path "$TMP_DIR/wireguard-key-directory/server.key" \
     '.gateway.remote_access.wireguard.server_private_key_path = $key_path' \

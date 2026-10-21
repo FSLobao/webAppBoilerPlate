@@ -439,7 +439,7 @@ test_dns_candidate() {
         fail 'Candidate DNS records failed DNSMasq validation.'
 }
 
-check_gateway_health() {
+check_gateway_health_once() {
     local config_path=$1 dns_file=$2 ssh_bind_address cockpit_bind_address ssh_port cockpit_port expected_networks attached_networks
     local resolved expected_address dns_name network actual_address
 
@@ -486,6 +486,39 @@ check_gateway_health() {
         [[ "$resolved" == "$expected_address" ]] || fail "DNS health check returned '$resolved' for '$dns_name'; expected '$expected_address'."
     done < "$dns_file"
 }
+
+wait_for_gateway_health() {
+    local config_path=$1 dns_file=$2 timeout_seconds interval_seconds
+    local start_seconds=$SECONDS attempt_count=0 attempt_output last_output=''
+
+    timeout_seconds=$(jq -r '.gateway.startup_readiness.timeout_seconds // 60' "$config_path")
+    interval_seconds=$(jq -r '.gateway.startup_readiness.interval_seconds // 2' "$config_path")
+    while (( attempt_count == 0 || SECONDS - start_seconds < timeout_seconds )); do
+        attempt_count=$((attempt_count + 1))
+        if attempt_output=$(
+            trap - EXIT
+            check_gateway_health_once "$config_path" "$dns_file" 2>&1
+        ); then
+            [[ -z "$attempt_output" ]] || printf '%s\n' "$attempt_output"
+            if (( attempt_count > 1 )); then
+                printf '[gateway] Health checks passed after %s attempts.\n' "$attempt_count"
+            fi
+            return 0
+        fi
+
+        last_output=$attempt_output
+        if (( attempt_count == 1 )); then
+            printf '[gateway] Waiting for readiness (timeout %ss, interval %ss).\n' \
+                "$timeout_seconds" "$interval_seconds"
+        fi
+        (( SECONDS - start_seconds < timeout_seconds )) || break
+        sleep "$interval_seconds"
+    done
+
+    [[ -z "$last_output" ]] || printf '%s\n' "$last_output" >&2
+    fail "Gateway did not become healthy within ${timeout_seconds}s after ${attempt_count} attempts."
+}
+# ---------------------------------- #
 
 cleanup_after_apply() {
     local status=$?
@@ -651,7 +684,7 @@ apply_deployment() {
         podman exec "$CONTAINER_NAME" pkill -HUP dnsmasq || fail 'Could not reload DNSMasq after DNS records changed.'
     fi
 
-    check_gateway_health "$config_path" "$DNS_HOSTS_FILE"
+    wait_for_gateway_health "$config_path" "$DNS_HOSTS_FILE"
     APPLY_MUTATING=0
     ROLLBACK_READY=0
 

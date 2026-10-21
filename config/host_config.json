@@ -7,6 +7,10 @@
         "cockpit_bind_address": "127.0.0.1",
         "ssh_port": 2222,
         "cockpit_port": 9090,
+        "startup_readiness": {
+            "timeout_seconds": 60,
+            "interval_seconds": 2
+        },
         "authorized_keys_path": "/etc/gateway/authorized_keys",
         "remote_access": {
             "openvpn": {

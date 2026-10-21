@@ -6,9 +6,10 @@ import pytest
 
 from scripts.gateway.config_validation import (
     validate_address_declarations,
-    validate_http_proxy_networks,
     validate_config_file,
+    validate_http_proxy_networks,
 )
+from scripts.gateway.host_config_validation import validate_host_config
 
 
 def test_accepts_ipv4_address_and_disjoint_networks() -> None:
@@ -33,6 +34,53 @@ def test_accepts_host_networks_without_gateway() -> None:
     validate_address_declarations(
         {"networks": [{"name": "database", "subnet": "10.90.0.0/24"}]}
     )
+
+
+def test_accepts_startup_readiness_settings() -> None:
+    """Accept bounded Gateway readiness timeout and retry interval settings."""
+    validate_host_config(
+        {
+            "gateway": {
+                "startup_readiness": {
+                    "timeout_seconds": 60,
+                    "interval_seconds": 2,
+                }
+            }
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("readiness", "message"),
+    [
+        (
+            {"timeout_seconds": 0, "interval_seconds": 2},
+            "timeout_seconds must be an integer between 1 and 300",
+        ),
+        (
+            {"timeout_seconds": 60, "interval_seconds": 0},
+            "interval_seconds must be an integer between 1 and 10",
+        ),
+        (
+            {"timeout_seconds": 5, "interval_seconds": 6},
+            "interval_seconds must not exceed timeout_seconds",
+        ),
+        (
+            {"timeout_seconds": True, "interval_seconds": 1},
+            "timeout_seconds must be an integer",
+        ),
+        (
+            {"timeout_seconds": 60},
+            "must contain exactly",
+        ),
+    ],
+)
+def test_rejects_invalid_startup_readiness_settings(
+    readiness: dict[str, object], message: str
+) -> None:
+    """Reject malformed or unbounded Gateway readiness retry settings."""
+    with pytest.raises(ValueError, match=message):
+        validate_host_config({"gateway": {"startup_readiness": readiness}})
 
 
 def test_accepts_static_gateway_addresses_inside_networks() -> None:

@@ -160,7 +160,7 @@ validate_config() {
                 ($config.gateway |
                     object_with_allowed_keys(
                         ["name", "bind_address", "ssh_port", "cockpit_port", "authorized_keys_path"];
-                        ["ssh_bind_address", "cockpit_bind_address", "remote_access"]
+                        ["ssh_bind_address", "cockpit_bind_address", "remote_access", "startup_readiness"]
                     ) and
                     (.name | podman_name) and .name == "gateway" and
                     (.bind_address | type == "string" and length > 0) and
@@ -169,6 +169,13 @@ validate_config() {
                     (.ssh_port | port) and
                     (.cockpit_port | port) and
                     .ssh_port != .cockpit_port and
+                    (if has("startup_readiness") then
+                        (.startup_readiness |
+                            object_with_keys(["timeout_seconds", "interval_seconds"]) and
+                            (.timeout_seconds | type == "number" and floor == . and . >= 1 and . <= 300) and
+                            (.interval_seconds | type == "number" and floor == . and . >= 1 and . <= 10) and
+                            .interval_seconds <= .timeout_seconds)
+                    else true end) and
                     (.authorized_keys_path | type == "string" and
                         test("^/[A-Za-z0-9_./-]+$") and
                         (split("/") | all(.[]; . != "." and . != ".."))))

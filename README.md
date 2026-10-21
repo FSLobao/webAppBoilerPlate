@@ -433,6 +433,11 @@ inputs, se `modprobe` consegue resolver o módulo sem carregá-lo, metadados da 
 disponibilidade local de bind UDP antes de qualquer mutação. Se o módulo estiver descarregado, informa
 que `--apply` o carregará. Se a chave faltar, informa que `--apply` a criará. Não instala pacotes nem
 altera a política de módulos do host. Não valida o endpoint por peer nem sua alcançabilidade externa.
+Após iniciar o unit, `--apply` repete os health checks durante `gateway.startup_readiness.timeout_seconds`
+e aguarda `gateway.startup_readiness.interval_seconds` entre tentativas. Os valores devem estar entre
+1-300 e 1-10 segundos, respectivamente, e o intervalo não pode exceder o timeout. Sem esse objeto,
+os padrões são 60 segundos e 2 segundos. Falhas intermediárias ficam ocultas; ao esgotar o timeout,
+o comando relata a última falha.
 Redes ausentes são informadas como criação planejada. O comando geral
 `host-preflight.sh --check` também verifica rotas e continua inspecionando os containers declarados.
 Não contorne a verificação nem rode `--apply` em Debian, em host live ou antes de aprovação
