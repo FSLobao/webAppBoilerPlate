@@ -20,7 +20,8 @@ change that expresses the approved behavior; do not add compatibility aliases or
 - Maintain consistent terminology and style throughout the documentation to avoid confusion and ensure clarity.
 - Use proper Markdown syntax for headings, lists, code blocks, and other elements to ensure readability and correct rendering.
 - Preserve commands, identifiers, paths, configuration keys, and API names verbatim rather than translating them.
-- For Python comments and docstrings, follow sections 3.1 and 3.2 of [the Python development guide](./pythonDevGuide.instructions.md). For other languages, follow the applicable language guide and neighboring code.
+- For Python comments and docstrings, follow sections 3.1 and 3.2 of [the Python development guide](./pythonDevGuide.instructions.md). For JavaScript and TypeScript documentation comments, follow [the JavaScript/TypeScript development guide](./jsTsDevGuide.instructions.md). For other languages, follow the applicable language guide and neighboring code.
+- For SQL source comments and persisted table, column, and routine descriptions, follow [the SQL development guide](./sqlDevGuide.instructions.md).
 
 ## Page Content and Implementation Status
 

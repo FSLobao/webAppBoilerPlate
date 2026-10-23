@@ -28,7 +28,7 @@ login keys and per-container destination keys.
 The confirmed Layer 3 contract and acceptance
 requirements are in
 [`docs/plans/gateway-plan.md`](../../docs/plans/gateway-plan.md) and
-[`docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md`](../../docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
+[`docs/contracts/ARCHITECTURE.md`](../../docs/contracts/ARCHITECTURE.md).
 WireGuard peer operations are implemented by
 `gateway.development.wireguard`; host module preflight and loading are implemented
 by `wireguard_kernel`. Gateway preflight checks module loadability without loading

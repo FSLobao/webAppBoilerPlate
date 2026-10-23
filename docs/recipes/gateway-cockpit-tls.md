@@ -2,7 +2,7 @@
 
 Use this recipe to supply the external Cockpit certificate and private key required
 by Gateway preflight. It follows the architecture contract's
-[Cockpit control-plane boundary](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md#52-cockpit).
+[Cockpit control-plane boundary](../contracts/ARCHITECTURE.md#52-cockpit).
 It does not configure application HTTPS, SSH login keys, or client certificates.
 
 ## Summary

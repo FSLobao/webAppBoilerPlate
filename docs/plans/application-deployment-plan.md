@@ -1,7 +1,7 @@
 # Application Deployment and Operations Plan
 
 **Status:** Design plan; application lifecycle is not implemented.
-**Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
+**Contract:** [Web Application Boilerplate Architecture](../contracts/ARCHITECTURE.md)
 **Related plans:** [HTTP Proxy](http-proxy-plan.md), [Application Stack](application-stack-plan.md), [Gateway Bootstrap](gateway-plan.md)
 
 ## 1. Goal and Ownership

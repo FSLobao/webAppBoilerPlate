@@ -1,7 +1,7 @@
 # Application Stack Plan
 
 **Status:** Design plan; Vite with vanilla JavaScript and PostgreSQL 18 are selected. Container lifecycle remains unimplemented.
-**Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
+**Contract:** [Web Application Boilerplate Architecture](../contracts/ARCHITECTURE.md)
 
 ## 1. Goal and Components
 

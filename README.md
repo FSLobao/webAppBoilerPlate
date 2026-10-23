@@ -23,7 +23,7 @@ aplicações, desenvolvimento remoto com VS Code, implantação reproduzível e 
 operacional do host.
 
 O contrato arquitetural está em
-[docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
+[docs/contracts/ARCHITECTURE.md](docs/contracts/ARCHITECTURE.md).
 Ele descreve o host-alvo RHEL 9.8 com Podman rootful 5.8.2, os gateways, as redes, o acesso SSH,
 o DNS de desenvolvimento, os secrets e os critérios para a implementação.
 
@@ -126,7 +126,7 @@ preflight; `--check` permanece somente leitura. Para preservar perfis de cliente
 redeploys, mantenha a chave existente no caminho configurado; `--apply` a reutiliza e nunca a
 substitui. Nenhum requisito de firewall/perímetro externo foi aprovado. Nenhuma rota default do cliente será substituída. Consulte o [plano
 do Gateway](docs/plans/gateway-plan.md), o [status de implementação](docs/plans/gateway-implementation.md)
-e o [contrato arquitetural](docs/contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md).
+e o [contrato arquitetural](docs/contracts/ARCHITECTURE.md).
 
 O cliente OpenVPN permanece separado. Protocolo, porta, dispositivo, topologia, autenticação,
 cipher, opções de domínio e `client_to_client` pertencem ao servidor/perfil externo; endpoint também

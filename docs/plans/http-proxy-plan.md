@@ -1,7 +1,7 @@
 # HTTP Proxy Plan
 
 **Status:** Initial route paths and static v1 config validation are selected; NGINX runtime deployment/readiness remains pending. `http_proxy.enabled` is a desired declaration to validate, not evidence of deployed or successful runtime behavior.
-**Contract:** [Web Application Boilerplate Architecture](../contracts/WEB_APP_BOILERPLATE_ARCHITECTURE.md)
+**Contract:** [Web Application Boilerplate Architecture](../contracts/ARCHITECTURE.md)
 
 ## 1. Goal and Boundary
 
