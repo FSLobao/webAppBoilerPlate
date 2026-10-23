@@ -12,8 +12,9 @@ runtimes in [`gateway/development/`](../../gateway/development/).
 metadata, plans candidate routes and session ownership, and exposes
 callback-based application and rollback for tests. Gateway preflight checks
 configured pools and the WireGuard UDP listener against read-only host state.
-The client-reachable WireGuard endpoint is supplied to peer generation and is
-not stored in host config or checked by Gateway preflight.
+The automated WireGuard onboarding script reads the client endpoint and
+peer-approval policy from host config. Direct CLI generation still accepts
+`--endpoint`. Host preflight does not check external endpoint reachability.
 OpenVPN has no endpoint configuration field; its optional `client_pool` enables
 allocation checks and the managed host return route.
 The checked-in config enables OpenVPN and WireGuard; SSH TUN remains disabled.
@@ -44,7 +45,8 @@ container-independent and offline before tunnel activation.
 | `host_config_validation` | `load_host_config(path)`, `validate_host_config(config)`; CLI: `python3 -m scripts.gateway.host_config_validation CONFIG` | Rejects the removed Gateway-level network override; file loading also rejects duplicate keys. Errors go to stderr with status 1. | Reads JSON only. Shares its implementation with container startup; top-level `networks` is the sole Podman network inventory. |
 | `config_validation` | `validate_address_declarations(config)`; CLI: `python3 -m scripts.gateway.config_validation CONFIG` | CLI returns 0 on success; validation errors go to stderr with status 1. | Reads JSON only. |
 | `remote_access` | `validate_remote_access_config(config)`, `validate_remote_access_host_routes(config, routes)`, `validate_activation_addresses(...)`, `plan_remote_routes(...)`, `apply_route_plan(plan, add_route, remove_route)` | Rejects retired and unknown OpenVPN fields, including legacy JSON `endpoint`, plus unknown route/CCD fields and incomplete enabled SSH TUN inputs. `client_pool` is optional. Without it, validation warns and does not validate allocation membership or plan a managed host return route. Candidate default routes and Podman-overlapping routes fail. | Pure validation and planning. Apply calls only supplied callbacks and rolls back confirmed completed changes. Callbacks must leave routes unchanged when they raise; partial mutations cannot be detected safely. It never reads an OpenVPN profile or launches host commands. |
-| `gateway.development.wireguard` | CLI: `gateway-wireguard run [CONFIG]`; `gateway-wireguard server-key generate|validate`; `gateway-wireguard peer generate|approve|revoke|list` | Enabled configuration requires explicit IPv4 server/pool/UDP bind and port/resolver/key-path inputs. `--apply` generates a missing server key after preflight; an existing key is validated and reused, never replaced. Peer generation requires a reachable client endpoint through `--endpoint`; it is not host configuration. Generation creates pending public metadata and writes the one-time `.conf` profile only to verified foreground `/dev/tty`. Approval requires a reference and future timezone-aware expiry. Revocation removes only that peer. If peer rollback, interface deletion, and link-down all fail, the CLI creates a root-owned mode-0600 fail-stop marker and installs nftables drops for wg0, its published UDP input port, and IPv4 UDP output with that source port. The table comment binds its ownership to the marker token; restarts verify an exact existing table without replacing it. The server exits when its health check sees the marker; startup refuses to configure wg0 while it persists, and the Quadlet service holds failed status without automatic restart. | Uses argument-array `wg`/`ip`/`nft` calls. Persists public peer metadata, sanitized audit, and the fixed fail-stop marker only under `/var/lib/gateway/wireguard`; server private key uses the explicit read-only mount. A failed control path can leave live tunnel traffic active despite marker, nft attempt, and server exit. Operator must stop and verify runtime state before removing the marker and restarting. Never stores/logs peer private keys or exposes an HTTP/API. Run peer CLI as container root through `podman exec`; TTY checks cannot detect external recording. |
+| `gateway.development.wireguard` | CLI: `gateway-wireguard run [CONFIG]`; `gateway-wireguard server-key generate|validate`; `gateway-wireguard peer generate|approve|revoke|list` | Enabled configuration requires explicit IPv4 server/pool/UDP bind and port/resolver/key-path inputs. `--apply` generates a missing server key after preflight; an existing key is validated and reused, never replaced. Direct peer generation requires `--endpoint` and writes once to verified foreground `/dev/tty`. Explicit `--profile-stdout` requires separate non-terminal stdout/stderr and emits a public peer marker to stderr for the host onboarding script. Approval requires a reference and future timezone-aware expiry; optional expected fingerprints bind approval/revocation to the intended key. If peer rollback, interface deletion, and link-down all fail, the CLI creates a root-owned mode-0600 fail-stop marker and installs nftables drops for wg0, its published UDP input port, and IPv4 UDP output with that source port. The table comment binds its ownership to the marker token; restarts verify an exact existing table without replacing it. The server exits when its health check sees the marker; startup refuses to configure wg0 while it persists, and the Quadlet service holds failed status without automatic restart. | Uses argument-array `wg`/`ip`/`nft` calls. Persists public peer metadata, sanitized audit, and the fixed fail-stop marker only under `/var/lib/gateway/wireguard`; server private key uses the explicit read-only mount. Gateway never stores client private keys in inventory. The host onboarding script stores the one-time `.conf` only in its configured root-only directory. A failed control path can leave live tunnel traffic active despite marker, nft attempt, and server exit. Operator must stop and verify runtime state before removing the marker and restarting. No public HTTP/API exists. |
+| `onboard-wireguard-peer.sh` | `sudo ./scripts/gateway/onboard-wireguard-peer.sh DEVICE_ID OWNER` | Validates host config; runs generation and approval once; stores one profile under configured `client_profiles_path`. Prints only the final profile path or a sanitized error. | Requires root, Podman, jq, Python 3, and host config validation. Directory is root-owned mode `0700`; profile is root-owned mode `0600`. Uses protected staging, a host lock, fingerprint-bound approval/revocation, and no-overwrite atomic publication. |
 | `wireguard_kernel` | `check_wireguard_kernel_support(run_command, module_path, modprobe_path)`, `load_wireguard_kernel_support(...)`; CLI: `python3 -m scripts.gateway.wireguard_kernel` | Read-only check confirms `modprobe --dry-run` resolves WireGuard without loading it. The CLI loads the module and verifies `/sys/module/wireguard`; failures go to stderr with status 1. | Uses `/usr/sbin/modprobe --use-blacklist`; does not install packages, change module policy, or unload the shared module. |
 | `host_preflight` | `host_platform_matches_target(os_id, os_version)`, `podman_version_matches_target(version)`, `selinux_mode_matches_target(mode)`, `cockpit_password_is_valid(path)`, `validate_gateway_networks(config, run_command, announce)`, `validate_podman_state(config, run_command, announce)`; CLI actions: `host-platform`, `podman-version`, `selinux-mode`, `password-file`, `gateway-networks`, `podman-state` | Gateway network checks report missing networks as planned creation and configured DNS targets as `readiness/unverified`. When WireGuard is enabled, preflight dry-runs module resolution without loading it, checks existing server-key metadata, a temporary UDP bind probe, and route conflicts before mutation. An unloaded but loadable module is reported as planned for `--apply`. A missing key is also reported as planned; preflight does not generate it. It does not validate client endpoint reachability. | The host deployment target is exactly RHEL 9.8 with rootful Podman 5.8.2 and SELinux already Disabled. Gateway checks use read-only Podman network commands and `ip -j -4 route show table all`; they do not inspect or operate application containers. Generic podman-state uses the same host-route check, retains read-only inspection of declared containers, and requires declared networks to exist. The Gateway attaches to every network in the global inventory. |
 | `gateway.development.dns_records` | `generate_dns_records(config, ready_targets, run_command)`; host re-export: `scripts.gateway.dns_records` | Returns active `IPv4 name` records only for supplied configured container names and full Podman IDs that inspect as exact, running, healthy targets on configured networks/subnets. Missing, stopped, or unhealthy targets are pending. | Queries only supplied IDs and exact configured network fields through the existing Gateway Podman socket. Formatted output contains target ID/name, running/health state, and that network's IPv4 address; no environment, mounts, or secret-bearing status is printed. Writes no files. |
@@ -84,16 +86,31 @@ peer pool `192.168.10.0/24`, server/resolver `192.168.10.1`, and key path
 address. `--check` stays read-only and reports planned key creation when the
 path is absent. `--apply` creates a key only when absent; it reuses an existing
 key to preserve previously issued client profiles and never replaces it. The
-reachable client endpoint is supplied per peer with `--endpoint`; host preflight
-does not test external reachability. Key creation uses a short-lived rootful,
-network-isolated helper with no capabilities and one writable key-directory
-mount. The long-running Gateway mounts only the key file read-only. Conditional
-Quadlet publishes the configured UDP port and adds `NET_ADMIN` only when a
-remote transport is enabled.
+host onboarding script reads `client_endpoint`, `peer_purpose`,
+`approval_reference`, `expires_at`, and `client_profiles_path` from
+`config/host_config.json`. The endpoint is not checked for external reachability.
+The host-only profile directory defaults to
+`/var/lib/gateway/wireguard-client-profiles`, separate from Gateway's mounted peer state.
+Key creation uses a short-lived rootful, network-isolated helper with no
+capabilities and one writable key-directory mount. The long-running Gateway
+mounts only the key file read-only. Conditional Quadlet publishes the configured
+UDP port and adds `NET_ADMIN` only when a remote transport is enabled.
 
-The WireGuard administrator workflow uses existing container exec; it adds no
-listener or public API. Generate a pending peer profile only from a direct,
-foreground, non-recording terminal:
+The preferred WireGuard administrator workflow uses a root-only host script and
+existing container exec; it adds no listener or public API. Configure the
+per-peer policy fields in `config/host_config.json`, then run:
+
+```bash
+sudo ./scripts/gateway/onboard-wireguard-peer.sh \
+  "win-platform-laptop-01" "platform-user-1042"
+```
+
+The script captures the profile in protected staging, approves the peer, then
+publishes `peer-<DEVICE_ID>.conf`. It prints only the final path or an error.
+Import the profile on the client through an approved protected transfer.
+
+For direct manual peer administration, generate a pending profile only from a
+direct, foreground, non-recording terminal:
 
 ```bash
 podman exec --interactive --tty --user 0 gateway \
@@ -108,11 +125,13 @@ podman exec --user 0 gateway gateway-wireguard peer revoke \
   "device-01" --reason "access ended"
 ```
 
-Generation writes no profile to stdout, files, environment, logs, or persistent
-state. The endpoint is public metadata, not a secret; the generated profile and
-private key never enter command arguments. A failed or uncertain terminal write leaves an inactive
-pending peer; identify it by ID/public fingerprint and revoke it. Never retry
-or recover its private key. The audit records container UID, not a proven
+Default CLI generation writes no profile to stdout, files, environment, logs, or
+persistent container state. The explicit `--profile-stdout` mode is reserved for
+the host script, which captures output to root-only staging. The endpoint is
+public metadata, not a secret; the generated profile and private key never enter
+command arguments. A failed or uncertain output leaves a pending peer; inspect
+inventory and revoke by ID/fingerprint before retrying. Never recover or
+reprint its private key. The audit records container UID, not a proven
 human identity; host audit must identify the operator invoking `podman exec`.
 Trust every Gateway-container administrator with all-network access.
 

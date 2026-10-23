@@ -1,0 +1,9 @@
+gateway-admin:x:1001:1001::/home/gateway-admin:/bin/bash
+gateway-admin P 2026-10-23 0 99999 7 -1
+Last password change					: Oct 23, 2026
+Password expires					: never
+Password inactive					: never
+Account expires						: never
+Minimum number of days between password change		: 0
+Maximum number of days between password change		: 99999
+Number of days of warning before password expires	: 7

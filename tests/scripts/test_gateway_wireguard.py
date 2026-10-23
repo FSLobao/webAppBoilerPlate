@@ -82,6 +82,44 @@ def test_enabled_wireguard_requires_every_explicit_deployment_input() -> None:
         validate_remote_access_config(config)
 
 
+def test_runtime_accepts_complete_peer_onboarding_configuration() -> None:
+    """Accept all optional host onboarding fields with runtime settings."""
+    config = _config()
+    wireguard_config = config["gateway"]["remote_access"]["wireguard"]
+    wireguard_config.update(
+        {
+            "client_profiles_path": "/var/lib/gateway/wireguard-client-profiles",
+            "peer_purpose": "development access",
+            "client_endpoint": "vpn.example.test",
+            "approval_reference": "change-123",
+            "expires_at": "2036-10-24T00:00:01+00:00",
+        }
+    )
+
+    assert wireguard._enabled(config) is wireguard_config
+
+
+@pytest.mark.parametrize(
+    "extra_fields",
+    [
+        {"client_profiles_path": "/var/lib/gateway/wireguard-client-profiles"},
+        {"unexpected": "value"},
+    ],
+)
+def test_runtime_rejects_partial_or_unsupported_wireguard_fields(
+    extra_fields: dict[str, str],
+) -> None:
+    """Reject incomplete onboarding settings and unknown runtime fields."""
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"].update(extra_fields)
+
+    with pytest.raises(
+        wireguard.WireGuardError,
+        match="WireGuard configuration has missing or unsupported fields",
+    ):
+        wireguard._enabled(config)
+
+
 def test_peer_allocator_reserves_server_address_inside_peer_pool() -> None:
     """Start peer assignments after the reserved server and DNS address."""
     config = _config()
@@ -251,6 +289,122 @@ def test_peer_generation_rejects_invalid_client_endpoint_before_state_changes(
         )
 
 
+def test_approve_peer_rejects_a_mismatched_expected_fingerprint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Do not approve a reused peer ID with a different public key."""
+    _state_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    wireguard._write_peers(
+        {
+            "schema_version": 1,
+            "peers": [
+                {
+                    "id": "peer-001",
+                    "owner": "owner",
+                    "purpose": "test",
+                    "address": "198.18.0.1",
+                    "public_key": PEER_PUBLIC_KEY,
+                    "status": "pending",
+                }
+            ],
+            "audit": [],
+        }
+    )
+    monkeypatch.setattr(
+        wireguard,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("peer activation must not run"),
+    )
+
+    with pytest.raises(wireguard.WireGuardError, match="does not match"):
+        wireguard.approve_peer(
+            _config(),
+            "peer-001",
+            "change-123",
+            "2099-01-01T00:00:00Z",
+            expected_fingerprint="0" * 64,
+        )
+
+    state = json.loads(wireguard.PEERS_PATH.read_text(encoding="utf-8"))
+    assert state["peers"][0]["status"] == "pending"
+
+
+def test_revoke_peer_rejects_a_mismatched_expected_fingerprint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Do not revoke a reused peer ID with a different public key."""
+    _state_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    wireguard._write_peers(
+        {
+            "schema_version": 1,
+            "peers": [
+                {
+                    "id": "peer-001",
+                    "owner": "owner",
+                    "purpose": "test",
+                    "address": "198.18.0.1",
+                    "public_key": PEER_PUBLIC_KEY,
+                    "status": "pending",
+                }
+            ],
+            "audit": [],
+        }
+    )
+    monkeypatch.setattr(
+        wireguard,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail(
+            "pending peer revocation needs no command"
+        ),
+    )
+
+    with pytest.raises(wireguard.WireGuardError, match="does not match"):
+        wireguard.revoke_peer(
+            "peer-001",
+            "onboarding failed",
+            expected_fingerprint="0" * 64,
+        )
+
+    state = json.loads(wireguard.PEERS_PATH.read_text(encoding="utf-8"))
+    assert state["peers"][0]["status"] == "pending"
+
+
+def test_revoke_peer_is_idempotent_for_matching_expected_fingerprint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Treat already-revoked matching peers as successful compensation."""
+    _state_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    wireguard._write_peers(
+        {
+            "schema_version": 1,
+            "peers": [
+                {
+                    "id": "peer-001",
+                    "owner": "owner",
+                    "purpose": "test",
+                    "address": "198.18.0.1",
+                    "public_key": PEER_PUBLIC_KEY,
+                    "status": "revoked",
+                }
+            ],
+            "audit": [],
+        }
+    )
+    fingerprint = hashlib.sha256(PEER_PUBLIC_KEY.encode()).hexdigest()
+
+    assert (
+        wireguard.revoke_peer(
+            "peer-001",
+            "onboarding failed",
+            expected_fingerprint=fingerprint,
+        )
+        == fingerprint
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -336,6 +490,111 @@ def test_one_time_output_writes_only_to_supplied_terminal_fd() -> None:
         assert os.read(read_fd, 128) == b"PrivateKey = one-time\n"
     finally:
         os.close(read_fd)
+
+
+def test_peer_generate_cli_captures_profile_only_to_separate_stdout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Allow the host script to capture one profile without terminal output."""
+    _state_paths(monkeypatch, tmp_path)
+    server_key = tmp_path / "server.key"
+    server_key.write_text("server-private-test-data", encoding="ascii")
+    monkeypatch.setattr(wireguard, "SERVER_KEY_PATH", server_key)
+    monkeypatch.setattr(wireguard, "load_host_config", lambda _: _config())
+    monkeypatch.setattr(wireguard.os, "geteuid", lambda: 0)
+    stdout_path = tmp_path / "profile.conf"
+    stderr_path = tmp_path / "diagnostics.txt"
+    stdout_path.touch(mode=0o600)
+    stderr_path.touch(mode=0o600)
+    stdout_path.chmod(0o600)
+    stderr_path.chmod(0o600)
+    stdout = stdout_path.open("w", encoding="ascii")
+    stderr = stderr_path.open("w", encoding="ascii")
+    monkeypatch.setattr(wireguard.sys, "stdout", stdout)
+    monkeypatch.setattr(wireguard.sys, "stderr", stderr)
+
+    def run(arguments: list[str], *, input_text: str | None = None) -> str:
+        if arguments == ["ip", "link", "show", "dev", wireguard.INTERFACE]:
+            return ""
+        if arguments == ["wg", "genkey"]:
+            return PRIVATE_KEY
+        if arguments == ["wg", "pubkey"]:
+            return (
+                SERVER_PUBLIC_KEY
+                if input_text == "server-private-test-data"
+                else PEER_PUBLIC_KEY
+            )
+        raise AssertionError(f"unexpected WireGuard command: {arguments}")
+
+    monkeypatch.setattr(wireguard, "_run", run)
+    try:
+        status = wireguard.main(
+            [
+                "peer",
+                "generate",
+                "--id",
+                "capture-peer",
+                "--owner",
+                "owner-01",
+                "--purpose",
+                "capture test",
+                "--endpoint",
+                "vpn.example.test",
+                "--profile-stdout",
+            ]
+        )
+        stdout.flush()
+        stderr.flush()
+        profile = stdout_path.read_text(encoding="ascii")
+        diagnostics = stderr_path.read_text(encoding="ascii")
+    finally:
+        stdout.close()
+        stderr.close()
+
+    assert status == 0
+    assert profile.startswith("[Interface]\n")
+    assert f"PrivateKey = {PRIVATE_KEY}\n" in profile
+    assert profile.endswith("PersistentKeepalive = 25\n")
+    fingerprint = hashlib.sha256(PEER_PUBLIC_KEY.encode()).hexdigest()
+    assert diagnostics == f"PEER_CREATED\tcapture-peer\t{fingerprint}\n"
+    persisted = wireguard.PEERS_PATH.read_text(encoding="utf-8")
+    assert PRIVATE_KEY not in persisted
+
+
+def test_profile_stdout_rejects_terminal_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed when capture mode points directly at a terminal."""
+    master, slave = pty.openpty()
+    stdout = os.fdopen(os.dup(slave), "w", encoding="ascii")
+    monkeypatch.setattr(wireguard.sys, "stdout", stdout)
+    try:
+        with pytest.raises(wireguard.WireGuardError, match="non-terminal output"):
+            wireguard._profile_stdout()
+    finally:
+        stdout.close()
+        os.close(master)
+        os.close(slave)
+
+
+def test_profile_stdout_rejects_terminal_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep the capture marker off terminals as well as the private profile."""
+    master, slave = pty.openpty()
+    stdout_path = tmp_path / "profile.conf"
+    stdout = stdout_path.open("w", encoding="ascii")
+    stderr = os.fdopen(os.dup(slave), "w", encoding="ascii")
+    monkeypatch.setattr(wireguard.sys, "stdout", stdout)
+    monkeypatch.setattr(wireguard.sys, "stderr", stderr)
+    try:
+        with pytest.raises(wireguard.WireGuardError, match="non-terminal output"):
+            wireguard._profile_stdout()
+    finally:
+        stdout.close()
+        stderr.close()
+        os.close(master)
+        os.close(slave)
 
 
 def test_direct_terminal_guard_fails_closed_for_piped_output(

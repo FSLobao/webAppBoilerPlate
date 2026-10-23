@@ -32,9 +32,12 @@ Gateway tem configuração, imagem Debian, startup, Quadlet, runtimes opt-in de 
 WireGuard, CLI root-only de peers e handoff explícito de DNS por readiness. A configuração versionada
 habilita OpenVPN e WireGuard; SSH TUN permanece desativado. WireGuard usa bind `0.0.0.0`, UDP
 `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1` e chave externa em
-`/etc/gateway/wireguard/server.key`. O endpoint acessível pelo cliente é fornecido em cada chamada
-`peer generate --endpoint`, não na configuração do servidor. O `--check` não cria a chave; `--apply`
-a gera somente se estiver ausente e reutiliza uma chave existente para preservar perfis já emitidos.
+`/etc/gateway/wireguard/server.key`. `gateway.remote_access.wireguard` define os argumentos de
+onboarding por peer e o diretório de perfis no host. Execute
+`sudo ./scripts/gateway/onboard-wireguard-peer.sh DEVICE_ID OWNER` para gerar, aprovar e salvar um
+perfil `.conf` root-only. O CLI manual ainda aceita `peer generate --endpoint`. O `--check` não cria
+a chave; `--apply` a gera somente se estiver ausente e reutiliza uma chave existente para preservar
+perfis já emitidos.
 A aceitação de túnel e forwarding do kernel não foi validada no host-alvo. Receitas de
 split DNS para `dev.anatel` existem para Windows 11, Linux e macOS, mas exigem validação em cada
 sistema. Não implante em host live; consulte
@@ -115,7 +118,8 @@ WireGuard é aditivo; peers aprovados alcançam todos os CIDRs Podman, inclusive
 forwarding entre aplicações ou rota default pelo túnel. `dev.anatel` é o domínio interno-only; o
 schema aceita o sufixo e as receitas implementam split DNS por sistema operacional. O config define
 listener, pool, endereço do servidor/resolver e caminho da chave. O endpoint público não fica no
-config nem no preflight: `peer generate --endpoint` inclui o host no perfil `.conf` do cliente.
+config nem no preflight de rede. O script de onboarding lê `client_endpoint` do host config e inclui
+o host no perfil `.conf`; o CLI manual também aceita `peer generate --endpoint`.
 O bind `0.0.0.0` publica UDP `1194` em todas as interfaces IPv4 do host; preflight verifica o bind
 local, mas não a alcançabilidade externa. Se a chave estiver ausente, `--apply` a cria depois do
 preflight; `--check` permanece somente leitura. Para preservar perfis de cliente já emitidos em

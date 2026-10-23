@@ -670,24 +670,41 @@ configura split DNS pelo arquivo nativo do túnel. Consulte as receitas implemen
 [macOS](../recipes/wireguard-macos.md). O schema aceita nomes `dev.anatel`; `dns_records` segue
 vazio. Validar comportamento e limpeza das receitas em cada sistema operacional antes do uso.
 
-O fluxo de peer usa CLI root-only pelo `podman exec`, aprovação explícita com referência, expiração,
-inventário público auditável e revogação por peer. Qualquer pessoa com privilégio administrativo no
-container Gateway poderá executar essas operações e terá, por isso, alcance roteado a todos os
-serviços, inclusive PostgreSQL. Esses administradores são confiáveis para conceder esse acesso.
-Autenticação e autorização de serviço continuam obrigatórias; conectividade VPN não concede
-credenciais. Não há API/HTTP de administração exposta.
+O fluxo de peer usa operações root-only, inventário público auditável e revogação por peer. Qualquer
+pessoa com privilégio administrativo no container Gateway poderá executar essas operações e terá,
+por isso, alcance roteado a todos os serviços, inclusive PostgreSQL. Esses administradores são
+confiáveis para conceder esse acesso. Autenticação e autorização de serviço continuam obrigatórias;
+conectividade VPN não concede credenciais. Não há API/HTTP de administração exposta.
 
-O serviço gera a chave privada e o perfil `.conf` de cada peer dentro do Gateway. O operador fornece
-endpoint alcançável com `peer generate --endpoint`; o perfil usa a porta UDP configurada. O Gateway
-entrega o perfil uma vez somente por `/dev/tty` direto em primeiro plano, após confirmar
-stdin/stdout no mesmo terminal. Não persiste nem registra a chave privada; plaintext existe
-transitoriamente em memória. TTY não comprova ausência de gravação externa; operador deve usar
-terminal confiável sem gravação. Falha de escrita exige identificar e revogar o peer pendente; não
-recuperar nem reimprimir a chave. A chave privada do servidor fica em
+A CLI manual gera o perfil `.conf` dentro do Gateway, entrega-o uma vez somente por `/dev/tty`
+direto em primeiro plano e exige aprovação em comando separado. O fluxo automatizado usa o script
+host-side root-only `scripts/gateway/onboard-wireguard-peer.sh`, que recebe somente `DEVICE_ID` e
+`OWNER` como argumentos e lê de `gateway.remote_access.wireguard` em `config/host_config.json`:
+`peer_purpose`, `client_endpoint`, `approval_reference`, `expires_at` e `client_profiles_path`.
+`client_endpoint` serve apenas para montar o perfil; a porta vem de `listen_port`.
+`client_profiles_path` é um caminho absoluto de diretório no host, fora do Git, configurado por
+padrão como `/var/lib/gateway/wireguard-client-profiles`; fica fora do volume de estado WireGuard e
+não é montado no container.
+
+O script gera e aprova o peer em uma chamada, captura o perfil sem mostrá-lo no terminal e publica
+um arquivo `.conf` somente após aprovação. A opção CLI `--profile-stdout` permite uma única saída
+não interativa somente quando stdout e stderr não são terminais e permanecem separados. O script
+redireciona cada fluxo para arquivos temporários protegidos; diagnósticos nunca incluem chave
+privada ou conteúdo do perfil. Ele cria ou verifica diretório `root:root` modo `0700`, grava arquivo `root:root` modo
+`0600`, publica sem sobrescrever e exibe somente sucesso curto ou erro sanitizado. Aprovação e
+revogação usam o fingerprint esperado para impedir ações sobre outra chave com o mesmo ID. Em
+falha conhecida, o script remove staging e tenta revogar o peer pendente ou aprovado. Se a
+compensação falhar, mantém o staging protegido e informa a falha. Se não receber marcador que
+confirme a geração, informa estado incerto e exige inspeção do inventário antes de nova tentativa.
+A entrega do perfil ao dispositivo continua sendo uma operação separada, por canal aprovado e
+protegido.
+
+O Gateway não persiste chaves privadas de cliente em inventário, logs, argumentos ou ambiente. O
+arquivo `.conf` root-only no host contém a chave privada para permitir importação; mantenha-o fora
+de Git, backup compartilhado e sync. A chave privada do servidor fica em
 `/etc/gateway/wireguard/server.key`, root-owned fora do Git, e é montada somente para leitura no
 Gateway. `--apply` cria essa chave somente se o caminho configurado estiver ausente; redeployments
-reutilizam a chave existente e mantêm válidos os perfis de cliente já emitidos. Comandos não usam
-API ou interface pública.
+reutilizam a chave existente e mantêm válidos os perfis de cliente já emitidos.
 
 WireGuard, OpenVPN e SSH TUN usam IPv4 para este contrato; isso não desativa IPv6 no host nem nos
 clientes. Não haverá NAT, DNAT/SNAT ou forwarding entre redes de aplicações. Peers podem alcançar

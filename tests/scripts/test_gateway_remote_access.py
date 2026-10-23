@@ -168,12 +168,73 @@ def test_rejects_pool_network_address_as_wireguard_server() -> None:
 
 
 def test_rejects_wireguard_endpoint_in_host_config() -> None:
-    """Keep client-reachable endpoints out of persistent host configuration."""
+    """Reject the ambiguous legacy endpoint field in host configuration."""
     wireguard = _wireguard_config(endpoint="vpn.example.test")
     config = _config()
     config["gateway"]["remote_access"]["wireguard"] = wireguard
 
     with pytest.raises(ValueError, match="missing or unsupported fields"):
+        validate_remote_access_config(config)
+
+
+def test_accepts_wireguard_peer_onboarding_settings() -> None:
+    """Accept complete host profile-storage and peer-approval settings."""
+    wireguard = _wireguard_config(
+        client_profiles_path="/var/lib/gateway/wireguard-client-profiles",
+        peer_purpose="development access",
+        client_endpoint="vpn.example.test",
+        approval_reference="change-123",
+        expires_at="2036-10-24T00:00:01+00:00",
+    )
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = wireguard
+
+    validate_remote_access_config(config)
+
+
+def test_rejects_partial_wireguard_peer_onboarding_settings() -> None:
+    """Require all peer-onboarding settings together."""
+    wireguard = _wireguard_config(
+        client_profiles_path="/var/lib/gateway/wireguard-client-profiles"
+    )
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = wireguard
+
+    with pytest.raises(ValueError, match="configured together"):
+        validate_remote_access_config(config)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("client_profiles_path", "relative/path", "absolute safe host directory"),
+        (
+            "client_profiles_path",
+            "/var/lib/gateway/wireguard/client-profiles",
+            "outside the Gateway peer-state mount",
+        ),
+        ("peer_purpose", "\n", "printable text"),
+        ("client_endpoint", "not a host", "IPv4 address or DNS name"),
+        ("approval_reference", " ", "printable text"),
+        ("expires_at", "2036-10-24T00:00:01", "UTC offset"),
+    ],
+)
+def test_rejects_invalid_wireguard_peer_onboarding_settings(
+    field: str, value: str, message: str
+) -> None:
+    """Reject unsafe paths, malformed metadata, and naive expiry timestamps."""
+    wireguard = _wireguard_config(
+        client_profiles_path="/var/lib/gateway/wireguard-client-profiles",
+        peer_purpose="development access",
+        client_endpoint="vpn.example.test",
+        approval_reference="change-123",
+        expires_at="2036-10-24T00:00:01+00:00",
+    )
+    wireguard[field] = value
+    config = _config()
+    config["gateway"]["remote_access"]["wireguard"] = wireguard
+
+    with pytest.raises(ValueError, match=message):
         validate_remote_access_config(config)
 
 

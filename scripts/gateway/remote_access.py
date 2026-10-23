@@ -12,6 +12,7 @@ import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 Transport = Literal["openvpn", "ssh_tun", "wireguard"]
@@ -141,6 +142,30 @@ def _validate_private_key_path(value: object) -> None:
         raise ValueError(
             "gateway.remote_access.wireguard.server_private_key_path "
             "must be an absolute safe path"
+        )
+
+
+def _validate_client_profiles_path(value: object) -> None:
+    """Validate the absolute host directory used for generated client profiles."""
+    if (
+        not isinstance(value, str)
+        or not value.startswith("/")
+        or value == "/"
+        or "\0" in value
+        or value.endswith("/")
+        or any(part in ("", ".", "..") for part in value.split("/")[1:])
+        or not re.fullmatch(r"/[A-Za-z0-9/_.-]+", value)
+    ):
+        raise ValueError(
+            "gateway.remote_access.wireguard.client_profiles_path "
+            "must be an absolute safe host directory path"
+        )
+    if value == "/var/lib/gateway/wireguard" or value.startswith(
+        "/var/lib/gateway/wireguard/"
+    ):
+        raise ValueError(
+            "gateway.remote_access.wireguard.client_profiles_path must be outside "
+            "the Gateway peer-state mount"
         )
 
 
@@ -366,9 +391,16 @@ def validate_remote_access_config(
         "dns_server",
         "server_private_key_path",
     }
+    onboarding_keys = {
+        "client_profiles_path",
+        "peer_purpose",
+        "client_endpoint",
+        "approval_reference",
+        "expires_at",
+    }
     if (
         not isinstance(wireguard, dict)
-        or set(wireguard) - wireguard_keys
+        or set(wireguard) - wireguard_keys - onboarding_keys
         or "enabled" not in wireguard
     ):
         raise ValueError(
@@ -376,12 +408,68 @@ def validate_remote_access_config(
         )
     if not isinstance(wireguard["enabled"], bool):
         raise TypeError("gateway.remote_access.wireguard.enabled must be boolean")
+    configured_onboarding_keys = set(wireguard) & onboarding_keys
+    if configured_onboarding_keys and configured_onboarding_keys != onboarding_keys:
+        raise ValueError(
+            "gateway.remote_access.wireguard peer onboarding settings must be "
+            "configured together"
+        )
+    if configured_onboarding_keys:
+        _validate_client_profiles_path(wireguard["client_profiles_path"])
+        purpose = wireguard["peer_purpose"]
+        approval_reference = wireguard["approval_reference"]
+        expires_at = wireguard["expires_at"]
+        if (
+            not isinstance(purpose, str)
+            or not purpose.strip()
+            or len(purpose) > 256
+            or any(
+                ord(character) < 32 or ord(character) == 127 for character in purpose
+            )
+        ):
+            raise ValueError(
+                "gateway.remote_access.wireguard.peer_purpose must be "
+                "non-empty printable text up to 256 characters"
+            )
+        _validate_endpoint(
+            wireguard["client_endpoint"],
+            "gateway.remote_access.wireguard.client_endpoint",
+        )
+        if (
+            not isinstance(approval_reference, str)
+            or not approval_reference.strip()
+            or len(approval_reference) > 128
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in approval_reference
+            )
+        ):
+            raise ValueError(
+                "gateway.remote_access.wireguard.approval_reference must be "
+                "non-empty printable text up to 128 characters"
+            )
+        if not isinstance(expires_at, str):
+            raise TypeError(
+                "gateway.remote_access.wireguard.expires_at must be an "
+                "ISO-8601 timestamp with a UTC offset"
+            )
+        try:
+            parsed_expiry = datetime.fromisoformat(expires_at)
+        except ValueError as error:
+            raise ValueError(
+                "gateway.remote_access.wireguard.expires_at must be an "
+                "ISO-8601 timestamp with a UTC offset"
+            ) from error
+        if parsed_expiry.tzinfo is None or parsed_expiry.utcoffset() is None:
+            raise ValueError(
+                "gateway.remote_access.wireguard.expires_at must include a UTC offset"
+            )
     wg_pool = None
     if wireguard["enabled"] or set(wireguard) != {"enabled"}:
-        if set(wireguard) != wireguard_keys:
+        if not wireguard_keys <= set(wireguard):
             raise ValueError(
-                "enabled WireGuard requires explicit host bind, UDP port, endpoint, "
-                "address pool, server address, DNS resolver, and server key path"
+                "enabled WireGuard requires explicit host bind, UDP port, address "
+                "pool, server address, DNS resolver, and server key path"
             )
         bind_address = _validate_endpoint(
             wireguard["host_bind_address"],

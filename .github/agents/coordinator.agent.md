@@ -1,7 +1,7 @@
 ---
 name: Coordinator
 description: "Use when coordinating a repository task through planning, implementation, and independent review with an approval gate."
-model: "GPT-6 Luna (Copilot)"
+model: "Gemini 3.8 Flash (Copilot)"
 tools: [agent, read, search]
 agents: [Planner, Coder, Reviewer]
 user-invocable: true

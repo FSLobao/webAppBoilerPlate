@@ -1,7 +1,7 @@
 ---
 name: Reviewer
 description: "Use for read-only review of an implementation diff for correctness, regressions, security risks, and missing tests."
-model: "GPT-6 Luna (Copilot)"
+model: "Claude Haiku 5.5 (Copilot)"
 tools: [read, search]
 user-invocable: false
 ---
@@ -14,8 +14,7 @@ For any project scripting work in Bash, Python, JavaScript, TypeScript, or anoth
 ## Review Focus
 - Find correctness defects, behavioral regressions, unsafe edge cases, security risks, and missing tests.
 - Check that changes stay within the approved scope and fit nearby patterns.
-- For the new OpenVPN setup, check that explicitly retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains`, and legacy JSON `endpoint` are rejected, with no compatibility aliases or allow-warn-ignore paths. Check that obsolete compatibility tests/fixtures/docs claims are removed, while optional `client_pool` warning semantics and unrelated global/schema compatibility remain unchanged. OpenVPN activation has no separate profile-review confirmation.
-- For project scripting changes in any language, assess compliance with `modular-script-development` and review the supplied validation evidence. For Bash changes, also assess compliance with `../instructions/shellDevGuide.instructions.md`. Do not execute checks yourself; report missing evidence or request it through the Coordinator.
+- For project scripting changes in any language, assess compliance with `modular-script-development` and review the supplied validation evidence. For Bash changes, also assess compliance with `../instructions/shellDevGuide.instructions.md`. For Python changes, assess compliance with `../instructions/pythonDevGuide.instructions.md`. For JSON changes, assess compliance with `../instructions/jsonDevGuide.instructions.md`. Do not execute checks yourself; report missing evidence or request it through the Coordinator.
 - Treat the supplied diff as the change under review. If it is missing or incomplete, state that the review is limited and request the missing context through the Coordinator.
 - Report only actionable findings. Do not invent issues or make changes.
 

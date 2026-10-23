@@ -3,8 +3,8 @@
 > WireGuard runtime and peer CLI are implemented, and checked-in config enables the server.
 > Do not use peers until `--apply` completes after host preflight. It creates a missing server key
 > and reuses an existing key to preserve issued profiles.
-> Supply a reachable endpoint for each client profile; it is not stored in host config.
-> Peer operations require Gateway root and a direct, non-recording terminal.
+> Automated onboarding reads endpoint and approval policy from host config. Direct manual
+> `peer generate --endpoint` still requires Gateway root and a direct, non-recording terminal.
 
 ## Approved network contract
 
@@ -23,7 +23,26 @@
 - No external firewall/perimeter change is required by this plan. Host port publication does not
   prove endpoint reachability.
 
-## Peer generation, approval, and key handling
+## Automated host onboarding
+
+Set `client_profiles_path`, `peer_purpose`, `client_endpoint`, `approval_reference`, and
+`expires_at` under `gateway.remote_access.wireguard` in `config/host_config.json`. The endpoint is
+an IPv4 address or DNS name without a port. The script uses the configured UDP `listen_port`.
+External reachability must be confirmed by the network administrator; preflight does not test it.
+
+On the Gateway host, run the script as root with a unique device ID and owner label:
+
+```bash
+sudo ./scripts/gateway/onboard-wireguard-peer.sh \
+  "macos-platform-laptop-01" "platform-user-1042"
+```
+
+The script generates and approves the peer in one run. It saves the profile as
+`<client_profiles_path>/peer-<DEVICE_ID>.conf`, with root-only directory mode `0700` and file mode
+`0600`. It prints only the saved path or an error. Transfer the profile to the authorized Mac
+through an approved protected channel; do not expose it in chat, email, or shared storage.
+
+## Manual CLI generation, approval, and key handling
 
 1. A trusted Gateway administrator verifies developer/device identity and records owner, purpose,
    approval reference, and expiry. Do not send private keys or public endpoints in a public ticket.

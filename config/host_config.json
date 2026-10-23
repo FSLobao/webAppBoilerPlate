@@ -28,7 +28,12 @@
                 "address_pool": "192.168.10.0/24",
                 "server_address": "192.168.10.1",
                 "dns_server": "192.168.10.1",
-                "server_private_key_path": "/etc/gateway/wireguard/server.key"
+                "server_private_key_path": "/etc/gateway/wireguard/server.key",
+                "client_profiles_path": "/var/lib/gateway/wireguard-client-profiles",
+                "peer_purpose": "development access",
+                "client_endpoint": "192.168.7.160",
+                "approval_reference": "home lab test",
+                "expires_at": "2036-10-24T00:00:01+00:00"
             }
         }
     },

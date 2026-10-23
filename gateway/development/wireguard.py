@@ -3,7 +3,8 @@
 
 The server reconciles only public peer metadata stored under
 ``/var/lib/gateway/wireguard``. Peer private keys exist only in memory during
-profile generation and are written once to a verified direct terminal.
+profile generation and are written once to a verified terminal or an explicit
+non-terminal capture channel used by the root-only host onboarding script.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 if __package__:
     from .host_config_validation import load_host_config
@@ -51,6 +52,7 @@ INTERFACE = "wg0"
 OWNER_ID = hashlib.sha256(b"gateway-wireguard").hexdigest()
 PEER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 KEY_PATTERN = re.compile(r"[A-Za-z0-9+/]{43}=")
+FINGERPRINT_PATTERN = re.compile(r"[0-9a-f]{64}")
 SERVER_KEY_FILENAME_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 # Linux asm-generic/ioctls.h defines TIOCGDEV as _IOR('T', 0x32, unsigned int).
 LINUX_TIOCGDEV = 0x80045432
@@ -189,7 +191,7 @@ def _enabled(config: dict[str, Any]) -> dict[str, Any]:
     """Return validated enabled WireGuard configuration."""
     remote = config.get("gateway", {}).get("remote_access", {})
     wireguard = remote.get("wireguard")
-    fields = {
+    required_fields = {
         "enabled",
         "host_bind_address",
         "listen_port",
@@ -198,12 +200,26 @@ def _enabled(config: dict[str, Any]) -> dict[str, Any]:
         "dns_server",
         "server_private_key_path",
     }
-    if (
-        not isinstance(wireguard, dict)
-        or set(wireguard) != fields
-        or wireguard.get("enabled") is not True
-    ):
+    onboarding_fields = {
+        "client_profiles_path",
+        "peer_purpose",
+        "client_endpoint",
+        "approval_reference",
+        "expires_at",
+    }
+    if not isinstance(wireguard, dict) or wireguard.get("enabled") is not True:
         raise WireGuardError("WireGuard is disabled in the Gateway configuration.")
+    configured_fields = set(wireguard)
+    configured_onboarding_fields = configured_fields & onboarding_fields
+    if (
+        not required_fields <= configured_fields
+        or configured_fields - required_fields - onboarding_fields
+        or configured_onboarding_fields
+        and configured_onboarding_fields != onboarding_fields
+    ):
+        raise WireGuardError(
+            "WireGuard configuration has missing or unsupported fields."
+        )
     try:
         pool = ipaddress.IPv4Network(wireguard["address_pool"], strict=True)
         server = ipaddress.IPv4Address(wireguard["server_address"])
@@ -996,8 +1012,38 @@ def _direct_tty() -> int:
     return descriptor
 
 
+def _profile_stdout() -> int:
+    """Open stdout once for explicit non-terminal profile capture."""
+    try:
+        descriptor = sys.stdout.fileno()
+        error_descriptor = sys.stderr.fileno()
+        output = os.fstat(descriptor)
+        error = os.fstat(error_descriptor)
+    except (AttributeError, OSError, ValueError) as error:
+        raise WireGuardError(
+            "Profile capture requires a separate non-terminal output stream."
+        ) from error
+    if (
+        os.isatty(descriptor)
+        or os.isatty(error_descriptor)
+        or (output.st_dev, output.st_ino) == (error.st_dev, error.st_ino)
+        or not (
+            stat.S_ISREG(output.st_mode)
+            or stat.S_ISFIFO(output.st_mode)
+            or stat.S_ISSOCK(output.st_mode)
+        )
+    ):
+        raise WireGuardError(
+            "Profile capture requires a separate non-terminal output stream."
+        )
+    try:
+        return os.dup(descriptor)
+    except OSError as error:
+        raise WireGuardError("Could not open the profile capture stream.") from error
+
+
 def _write_profile_once(profile: str, descriptor: int) -> None:
-    """Write profile bytes once to the verified terminal without retry output."""
+    """Write profile bytes once to the verified output descriptor."""
     payload = profile.encode("ascii")
     try:
         written = os.write(descriptor, payload)
@@ -1014,7 +1060,13 @@ def _write_profile_once(profile: str, descriptor: int) -> None:
 
 
 def generate_peer(
-    config: dict[str, Any], peer_id: str, owner: str, purpose: str, endpoint: str
+    config: dict[str, Any],
+    peer_id: str,
+    owner: str,
+    purpose: str,
+    endpoint: str,
+    *,
+    output_mode: Literal["tty", "stdout"] = "tty",
 ) -> tuple[str, str, int]:
     """Create pending metadata and return one profile only in memory.
 
@@ -1024,9 +1076,10 @@ def generate_peer(
         owner: Approved device or user owner.
         purpose: Reason for the peer's access.
         endpoint: Reachable IPv4 address or DNS name for client profiles.
+        output_mode: Direct terminal delivery or explicit non-terminal capture.
 
     Returns:
-        One-time profile, public-key fingerprint, and verified terminal descriptor.
+        One-time profile, public-key fingerprint, and verified output descriptor.
 
     Raises:
         WireGuardError: If inputs, peer state, or terminal delivery setup is invalid.
@@ -1049,11 +1102,16 @@ def generate_peer(
             "Peer owner and purpose must be non-empty, bounded metadata."
         )
     _run(["ip", "link", "show", "dev", INTERFACE])
-    terminal = _direct_tty()
+    if output_mode == "tty":
+        output_descriptor = _direct_tty()
+    elif output_mode == "stdout":
+        output_descriptor = _profile_stdout()
+    else:
+        raise WireGuardError("WireGuard profile output mode is invalid.")
     try:
         descriptor, state = _locked_state()
     except WireGuardError:
-        os.close(terminal)
+        os.close(output_descriptor)
         raise
     private_key = ""
     peer: dict[str, Any] | None = None
@@ -1085,13 +1143,13 @@ def generate_peer(
             state,
             "generate-pending",
             peer,
-            "profile generated for one-time terminal delivery",
+            "profile generated for one-time delivery",
         )
+        profile = _profile(config, wireguard, private_key, peer, endpoint)
         _write_peers(state)
         stored = True
-        profile = _profile(config, wireguard, private_key, peer, endpoint)
     except (OSError, WireGuardError) as error:
-        os.close(terminal)
+        os.close(output_descriptor)
         if stored and peer is not None:
             fingerprint = hashlib.sha256(peer["public_key"].encode("ascii")).hexdigest()
             raise WireGuardError(
@@ -1104,7 +1162,7 @@ def generate_peer(
     return (
         profile,
         hashlib.sha256(peer["public_key"].encode("ascii")).hexdigest(),
-        terminal,
+        output_descriptor,
     )
 
 
@@ -1126,9 +1184,28 @@ def _expiry(value: str) -> str:
 
 
 def approve_peer(
-    config: dict[str, Any], peer_id: str, approval_reference: str, expires_at: str
+    config: dict[str, Any],
+    peer_id: str,
+    approval_reference: str,
+    expires_at: str,
+    *,
+    expected_fingerprint: str | None = None,
 ) -> str:
-    """Activate one pending peer after explicit approval metadata is supplied."""
+    """Activate one pending peer after explicit approval metadata is supplied.
+
+    Args:
+        config: Validated Gateway host configuration.
+        peer_id: Pending peer identifier.
+        approval_reference: Approved change or access-request reference.
+        expires_at: Future ISO-8601 expiry timestamp with a timezone offset.
+        expected_fingerprint: Optional public-key fingerprint required for a match.
+
+    Returns:
+        SHA-256 fingerprint of the approved peer's public key.
+
+    Raises:
+        WireGuardError: If approval metadata, peer state, or fingerprint is invalid.
+    """
     if os.geteuid() != 0:
         raise WireGuardError("WireGuard peer administration requires container root.")
     if (
@@ -1137,6 +1214,10 @@ def approve_peer(
         or len(approval_reference) > 128
     ):
         raise WireGuardError("Peer ID and approval reference are required.")
+    if expected_fingerprint is not None and not FINGERPRINT_PATTERN.fullmatch(
+        expected_fingerprint
+    ):
+        raise WireGuardError("Expected peer fingerprint is invalid.")
     expiry = _expiry(expires_at)
     wireguard = _enabled(config)
     descriptor, state = _locked_state()
@@ -1144,6 +1225,9 @@ def approve_peer(
         peer = next((entry for entry in state["peers"] if entry["id"] == peer_id), None)
         if peer is None or peer["status"] != "pending":
             raise WireGuardError("Only an existing pending peer can be approved.")
+        fingerprint = hashlib.sha256(peer["public_key"].encode("ascii")).hexdigest()
+        if expected_fingerprint is not None and fingerprint != expected_fingerprint:
+            raise WireGuardError("Peer fingerprint does not match the expected value.")
         pool = ipaddress.IPv4Network(wireguard["address_pool"], strict=True)
         if ipaddress.IPv4Address(peer["address"]) not in pool:
             raise WireGuardError("Pending peer address is outside the configured pool.")
@@ -1166,17 +1250,45 @@ def approve_peer(
         os.close(descriptor)
 
 
-def revoke_peer(peer_id: str, reason: str) -> str:
-    """Revoke exactly one peer and persist only public metadata."""
+def revoke_peer(
+    peer_id: str,
+    reason: str,
+    *,
+    expected_fingerprint: str | None = None,
+) -> str:
+    """Revoke exactly one peer and persist only public metadata.
+
+    Args:
+        peer_id: Peer identifier to revoke.
+        reason: Audit reason for revocation.
+        expected_fingerprint: Optional public-key fingerprint required for a match.
+
+    Returns:
+        SHA-256 fingerprint of the revoked peer's public key.
+
+    Raises:
+        WireGuardError: If the peer, reason, or expected fingerprint is invalid.
+    """
     if os.geteuid() != 0:
         raise WireGuardError("WireGuard peer administration requires container root.")
     if not PEER_ID_PATTERN.fullmatch(peer_id) or not reason.strip():
         raise WireGuardError("Peer ID and revocation reason are required.")
+    if expected_fingerprint is not None and not FINGERPRINT_PATTERN.fullmatch(
+        expected_fingerprint
+    ):
+        raise WireGuardError("Expected peer fingerprint is invalid.")
     descriptor, state = _locked_state()
     try:
         peer = next((entry for entry in state["peers"] if entry["id"] == peer_id), None)
-        if peer is None or peer["status"] == "revoked":
-            raise WireGuardError("Peer does not exist or is already revoked.")
+        if peer is None:
+            raise WireGuardError("WireGuard peer does not exist.")
+        fingerprint = hashlib.sha256(peer["public_key"].encode("ascii")).hexdigest()
+        if expected_fingerprint is not None and fingerprint != expected_fingerprint:
+            raise WireGuardError("Peer fingerprint does not match the expected value.")
+        if peer["status"] == "revoked":
+            if expected_fingerprint is not None:
+                return fingerprint
+            raise WireGuardError("WireGuard peer is already revoked.")
         was_approved = peer["status"] == "approved"
         peer["status"] = "revoked"
         peer["revoked_at"] = datetime.now(UTC).isoformat()
@@ -1196,7 +1308,7 @@ def revoke_peer(peer_id: str, reason: str) -> str:
                 raise WireGuardError(
                     "Peer is revoked in inventory; wg0 was disabled after removal failed."
                 )
-        return hashlib.sha256(peer["public_key"].encode("ascii")).hexdigest()
+        return fingerprint
     finally:
         os.close(descriptor)
 
@@ -1396,6 +1508,11 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--owner", required=True)
     generate.add_argument("--purpose", required=True)
     generate.add_argument("--endpoint", required=True)
+    generate.add_argument(
+        "--profile-stdout",
+        action="store_true",
+        help="write profile once to a verified non-terminal output stream",
+    )
     server_key_parser = commands.add_parser(
         "server-key", help="provision the persistent server key"
     )
@@ -1413,9 +1530,11 @@ def main(argv: list[str] | None = None) -> int:
     approve.add_argument("peer_id")
     approve.add_argument("--approval-reference", required=True)
     approve.add_argument("--expires-at", required=True)
+    approve.add_argument("--expected-fingerprint")
     revoke = operations.add_parser("revoke", help="revoke only the named peer")
     revoke.add_argument("peer_id")
     revoke.add_argument("--reason", required=True)
+    revoke.add_argument("--expected-fingerprint")
     operations.add_parser("list", help="list public peer metadata")
     args = parser.parse_args(argv)
     try:
@@ -1459,14 +1578,25 @@ def main(argv: list[str] | None = None) -> int:
         config = load_host_config(CONFIG_PATH)
         if args.operation == "generate":
             profile, fingerprint, terminal = generate_peer(
-                config, args.id, args.owner, args.purpose, args.endpoint
+                config,
+                args.id,
+                args.owner,
+                args.purpose,
+                args.endpoint,
+                output_mode="stdout" if args.profile_stdout else "tty",
             )
             try:
-                print(
-                    f"[wireguard] Pending peer {args.id}; public fingerprint {fingerprint}. "
-                    "One-time profile follows; approve separately before use.",
-                    file=sys.stderr,
-                )
+                if args.profile_stdout:
+                    marker = f"PEER_CREATED\t{args.id}\t{fingerprint}\n".encode("ascii")
+                    if os.write(sys.stderr.fileno(), marker) != len(marker):
+                        raise OSError("short peer creation marker write")
+                else:
+                    print(
+                        f"[wireguard] Pending peer {args.id}; "
+                        f"public fingerprint {fingerprint}. One-time profile follows; "
+                        "approve separately before use.",
+                        file=sys.stderr,
+                    )
             except OSError as error:
                 os.close(terminal)
                 raise WireGuardError(
@@ -1485,7 +1615,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.operation == "approve":
             _enabled(config)
             fingerprint = approve_peer(
-                config, args.peer_id, args.approval_reference, args.expires_at
+                config,
+                args.peer_id,
+                args.approval_reference,
+                args.expires_at,
+                expected_fingerprint=args.expected_fingerprint,
             )
             print(
                 f"[wireguard] Approved peer {args.peer_id}; public fingerprint {fingerprint}.",
@@ -1493,7 +1627,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.operation == "revoke":
-            fingerprint = revoke_peer(args.peer_id, args.reason)
+            fingerprint = revoke_peer(
+                args.peer_id,
+                args.reason,
+                expected_fingerprint=args.expected_fingerprint,
+            )
             print(
                 f"[wireguard] Revoked peer {args.peer_id}; public fingerprint {fingerprint}.",
                 file=sys.stderr,

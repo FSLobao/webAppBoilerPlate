@@ -3,8 +3,8 @@
 > WireGuard runtime and peer CLI are implemented, and checked-in config enables the server.
 > Do not use peers until `--apply` completes after host preflight. It creates a missing server key
 > and reuses an existing key to preserve issued profiles.
-> Supply a reachable endpoint for each client profile; it is not stored in host config.
-> Peer operations require Gateway root and a direct, non-recording terminal.
+> Automated onboarding reads endpoint and approval policy from host config. Direct manual
+> `peer generate --endpoint` still requires Gateway root and a direct, non-recording terminal.
 
 ## Approved network contract
 
@@ -23,55 +23,116 @@
 - No external firewall/perimeter change is required by this plan. Host port publication does not
   prove endpoint reachability.
 
-## Peer generation, approval, and key handling
+## Automated host onboarding
+
+Set `client_profiles_path`, `peer_purpose`, `client_endpoint`, `approval_reference`, and
+`expires_at` under `gateway.remote_access.wireguard` in `config/host_config.json`. The endpoint is
+an IPv4 address or DNS name without a port. The script uses the configured UDP `listen_port`.
+External reachability must be confirmed by the network administrator; preflight does not test it.
+
+On the Gateway host, run the script as root with a unique device ID and owner label:
+
+```bash
+sudo ./scripts/gateway/onboard-wireguard-peer.sh \
+  "win-platform-laptop-01" "platform-user-1042"
+```
+
+The script generates and approves the peer in one run. It saves the profile as
+`<client_profiles_path>/peer-<DEVICE_ID>.conf`, with root-only directory mode `0700` and file mode
+`0600`. It prints only the saved path or an error. Transfer the profile to the authorized Windows
+device through an approved protected channel; do not expose it in chat, email, or shared storage.
+
+## Manual CLI generation, approval, and key handling
 
 1. A trusted Gateway administrator verifies Windows user/device identity and records owner,
    purpose, approval reference, and expiry. Do not send private keys or public endpoints in a
    public ticket.
-2. Confirm the operator terminal is direct and is not recorded or multiplexed. Generate the peer
+2. Identify the endpoint with the Gateway or network administrator. It must be an IPv4 address or
+   DNS name reachable from the Windows device's current network. For Internet access, use the
+   approved public DNS name or public IPv4 address that routes to the host or firewall publishing
+   the Gateway's UDP listener. If NAT is in use, the network administrator must confirm UDP
+   forwarding to that listener. In the checked-in configuration, the listener uses UDP `1194`;
+   verify the deployed port with the operator.
+
+   A DNS lookup can confirm that a name resolves, but cannot confirm UDP reachability:
+
+   ```powershell
+   Resolve-DnsName vpn.example.org -Type A
+   ```
+
+   Do not use the WireGuard tunnel address `192.168.10.1` or a container-only address as an
+   Internet endpoint. The endpoint is a host name or IPv4 address only: do not include a scheme,
+   port, or path. The profile adds the configured UDP port. Host preflight does not test external
+   reachability, so have the network administrator verify the UDP path.
+3. Confirm the operator terminal is direct and is not recorded or multiplexed. Generate the peer
    with a foreground interactive TTY. WireGuard clients import a `.conf` profile; this CLI generates
    the client key and profile once, so no separate key-generation script is needed:
 
    ```bash
    podman exec --interactive --tty --user 0 gateway \
      gateway-wireguard peer generate \
-     --id "windows-device-01" \
-     --owner "approved-owner-id" \
+     --id "win-platform-laptop-01" \
+     --owner "platform-user-1042" \
      --purpose "development access" \
-     --endpoint "<APPROVED_REACHABLE_HOST>"
+     --endpoint "vpn.example.org"
    ```
+
+   The generation command requires these arguments:
+
+   - `--id`: Unique peer ID used for approval, audit, and revocation. Use 1-64 ASCII letters,
+     numbers, dots, underscores, or hyphens; start with a letter or number. Prefer lowercase IDs
+     shaped like `<platform>-<team-or-owner>-<device>-<sequence>`, such as
+     `win-platform-laptop-01`. Use one stable ID per device. Do not include passwords, email
+     addresses, or other unnecessary personal data.
+   - `--owner`: Non-empty owner label, up to 128 characters. Use an organization-approved user or
+     device inventory ID, such as `platform-user-1042`; do not use a secret.
+   - `--purpose`: Non-empty access reason, up to 256 characters, such as
+     `development access to staging services`. Keep it concise and do not include secrets.
+   - `--endpoint`: Reachable IPv4 address or DNS name, such as `vpn.example.org`. Prefer a stable,
+     organization-managed DNS name. Do not use a URL or append the UDP port.
+
+   `--endpoint` is not a Gateway server setting. It is supplied for each generated profile. The
+   other three flags are peer metadata. The profile's private key and peer address are generated;
+   its server key, UDP port, resolver, and `AllowedIPs` come from the deployed Gateway configuration.
+   Do not hand-edit these profile values.
 
    Gateway stores pending public metadata, then prints the profile once to `/dev/tty`. The private
    key exists transiently in Gateway memory. It is never stored in inventory or written to logs,
    command arguments, or environment.
-3. If output fails or may have been recorded, do not retry or recover the key. Revoke that pending
+4. If output fails or may have been recorded, do not retry or recover the key. Revoke that pending
    peer using its ID and public fingerprint, then obtain approval for a replacement.
-4. Activate only after approval, with an approved reference and future timezone-aware expiry:
+5. Activate only after approval, with an approved reference and future timezone-aware expiry:
 
    ```bash
    podman exec --user 0 gateway gateway-wireguard peer approve \
-     "windows-device-01" \
-     --approval-reference "approved-change-reference" \
-     --expires-at "YYYY-MM-DDTHH:MM:SS+00:00"
+     "win-platform-laptop-01" \
+     --approval-reference "CHG-12345" \
+     --expires-at "2027-04-30T17:00:00+00:00"
    ```
 
-5. Any Gateway-container administrator can operate peers and reach every configured network,
+   The approval command takes the peer ID created above, a non-empty `--approval-reference` of up
+   to 128 characters, and an `--expires-at` timestamp. Use an approved change or access-request ID
+   for the reference. Expiry must be a future ISO 8601 timestamp with a timezone offset; the sample
+   timestamp only shows the format. Choose the actual expiry under organization policy.
+6. Any Gateway-container administrator can operate peers and reach every configured network,
    including PostgreSQL. Treat each as a trusted network administrator. Service credentials remain
    required.
-6. `peer list` returns public metadata, fingerprints, and audit events only:
+7. `peer list` takes no arguments and returns public metadata, fingerprints, and audit events only:
 
    ```bash
    podman exec --user 0 gateway gateway-wireguard peer list
    ```
 
-7. Revoke only the named peer when access ends or output may have been recorded:
+8. Revoke only the named peer when access ends or output may have been recorded:
 
    ```bash
    podman exec --user 0 gateway gateway-wireguard peer revoke \
-     "windows-device-01" --reason "device access ended"
+     "win-platform-laptop-01" --reason "device retired"
    ```
 
-8. Store the one-time profile in an approved protected Windows location. Keep it out of email, chat,
+   The revoke command takes the exact peer ID and a non-empty `--reason`, such as
+   `device retired` or `access request withdrawn`.
+9. Store the one-time profile in an approved protected Windows location. Keep it out of email, chat,
    clipboard history, cloud sync, screenshots, logs, shared folders, and source control. Deletion
    may not erase backups or snapshots. Service authentication remains required.
 
