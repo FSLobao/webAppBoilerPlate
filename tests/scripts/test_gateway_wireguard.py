@@ -779,7 +779,7 @@ def test_approval_uses_fail_closed_fallback_when_peer_rollback_fails(
         if arguments[:6] == ["ip", "-j", "-4", "route", "show", "exact"]:
             destination = arguments[6]
             return json.dumps(
-                [{"dst": destination, "dev": "wg0", "protocol": "186"}]
+                [{"dst": destination, "dev": "wg0", "protocol": "bgp"}]
                 if destination in routes
                 else []
             )

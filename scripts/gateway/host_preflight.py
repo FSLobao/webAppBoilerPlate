@@ -248,6 +248,16 @@ def _route_matches_managed_network(
             subnet.version == 4 and destination.subnet_of(subnet)
             for subnet in network.subnets
         )
+    ) or (
+        route_type == "broadcast"
+        and route.get("scope") == "link"
+        and table in ("local", 255)
+        and destination.prefixlen == 32
+        and any(
+            subnet.version == 4
+            and destination.network_address == subnet.broadcast_address
+            for subnet in network.subnets
+        )
     )
 
 
@@ -352,7 +362,7 @@ def _validate_remote_access_routes(
                 if (
                     destination == expected_pool
                     and route.get("gateway") == str(expected_gateway)
-                    and route.get("protocol") in (186, "186")
+                    and route.get("protocol") in (186, "186", "bgp")
                     and route.get("type") in (None, "unicast")
                     and route.get("table") in (None, "main", 254)
                     and not route.get("multipath")
@@ -513,8 +523,10 @@ def _validate_wireguard_inputs(
     config: dict[str, Any],
     announce: Callable[[str], None],
     run_command: CommandRunner,
+    *,
+    gateway_listener_active: bool = False,
 ) -> None:
-    """Check kernel support, UDP bind availability, and server-key readiness."""
+    """Check module support and key readiness before probing an unowned UDP port."""
     gateway = config.get("gateway")
     remote_access = gateway.get("remote_access") if isinstance(gateway, dict) else None
     wireguard = (
@@ -530,7 +542,8 @@ def _validate_wireguard_inputs(
     key_path = pathlib.Path(wireguard["server_private_key_path"])
     repository_root = pathlib.Path(__file__).resolve().parents[2]
     _validate_wireguard_server_key_path(key_path, repository_root, announce)
-    _validate_wireguard_udp_listener(wireguard)
+    if not gateway_listener_active:
+        _validate_wireguard_udp_listener(wireguard)
 
 
 def _validate_wireguard_udp_listener(wireguard: dict[str, Any]) -> None:
@@ -559,6 +572,8 @@ def validate_gateway_networks(
     config: dict[str, Any],
     run_command: CommandRunner | None = None,
     announce: Callable[[str], None] = print,
+    *,
+    gateway_listener_active: bool = False,
 ) -> None:
     """Check Gateway networks, remote pools, and DNS readiness from config alone.
 
@@ -566,6 +581,8 @@ def validate_gateway_networks(
         config: Structurally validated host configuration.
         run_command: Subprocess-compatible runner, injectable for tests.
         announce: Receives planned network, DNS, and missing server-key messages.
+        gateway_listener_active: Skip the UDP bind probe when the active,
+            deployment-owned Gateway already reserves its configured port.
 
     Raises:
         RuntimeError: A Podman or route command fails.
@@ -576,8 +593,9 @@ def validate_gateway_networks(
     External commands: ``podman network ls``, ``podman network inspect``, and
     ``ip -j -4 route show table all``.
     A WireGuard check dry-runs modprobe and briefly binds then closes the
-    configured UDP socket without sending packets. The function never inspects
-    application containers or leaves host state changed.
+    configured UDP socket without sending packets. It skips that bind when the
+    caller verified that the active Gateway already owns the listener. The
+    function never inspects application containers or leaves host state changed.
     """
     validate_host_config(config)
     validate_remote_access_config(
@@ -587,7 +605,12 @@ def validate_gateway_networks(
     command_runner = run_command or subprocess.run
     _validate_openvpn_profile_file(config)
     _validate_ssh_tun_keys_file(config)
-    _validate_wireguard_inputs(config, announce, command_runner)
+    _validate_wireguard_inputs(
+        config,
+        announce,
+        command_runner,
+        gateway_listener_active=gateway_listener_active,
+    )
     existing_networks = _inspect_podman_networks(command_runner)
     declared_networks = _validate_declared_networks(
         config,
@@ -737,6 +760,11 @@ def main(argv: list[str] | None = None) -> int:
         help="check Gateway networks and report planned network/DNS readiness",
     )
     gateway_parser.add_argument("config", help="JSON host configuration")
+    gateway_parser.add_argument(
+        "--gateway-listener-active",
+        action="store_true",
+        help="reuse the UDP port held by the active deployment-owned Gateway",
+    )
     args = parser.parse_args(argv)
 
     if args.check == "host-platform":
@@ -751,7 +779,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_host_config(args.config)
         if args.check == "gateway-networks":
-            validate_gateway_networks(config, run_command=subprocess.run)
+            validate_gateway_networks(
+                config,
+                run_command=subprocess.run,
+                gateway_listener_active=args.gateway_listener_active,
+            )
         else:
             validate_podman_state(config, run_command=subprocess.run)
     except (

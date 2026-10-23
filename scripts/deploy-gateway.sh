@@ -197,6 +197,21 @@ generate_input_metadata() {
     chmod 0644 "$output_path"
 }
 
+# Render one owned host route with quiet, exact missing-route cleanup.
+# Arguments: IPv4 pool and deterministic Gateway next hop. Writes Quadlet directives to stdout.
+# Output: ExecStartPost and ExecStopPost lines for protocol 186.
+render_host_return_route() {
+    local pool=$1 route_gateway=$2 cleanup_command
+
+    cleanup_command=$(printf \
+        'output=$(/usr/sbin/ip -4 route del %s via %s proto 186 2>&1); status=$?; if [ "$status" -eq 2 ] && [ "$output" = "RTNETLINK answers: No such process" ]; then exit 0; fi; [ "$status" -eq 0 ] || { printf "%%s\\n" "$output" >&2; exit "$status"; }' \
+        "$pool" "$route_gateway")
+    printf 'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\n' \
+        "$pool" "$route_gateway"
+    printf "ExecStopPost=-/bin/sh -c '%s'\n" "$cleanup_command"
+}
+# ---------------------------------- #
+
 render_quadlet_candidate() {
     local config_path=$1 output_path=$2 preserve_failed_container=${3:-false}
     local authorized_keys_path ssh_bind_address cockpit_bind_address ssh_port cockpit_port
@@ -246,9 +261,7 @@ render_quadlet_candidate() {
         openvpn_volume="Volume=${profile_path}:/run/openvpn/client.ovpn:ro"
         openvpn_runtime=$'AddDevice=/dev/net/tun\nAddCapability=NET_ADMIN'
         if [[ -n "$client_pool" ]]; then
-            openvpn_host_route=$(printf \
-                'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
-                "$client_pool" "$route_gateway" "$client_pool" "$route_gateway")
+            openvpn_host_route=$(render_host_return_route "$client_pool" "$route_gateway")
         fi
     fi
     if [[ "$ssh_tun_enabled" == true ]]; then
@@ -259,9 +272,7 @@ render_quadlet_candidate() {
         if [[ "$openvpn_enabled" == true ]]; then
             ssh_tun_runtime=''
         fi
-        ssh_tun_host_route=$(printf \
-            'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
-            "$ssh_tun_pool" "$route_gateway" "$ssh_tun_pool" "$route_gateway")
+        ssh_tun_host_route=$(render_host_return_route "$ssh_tun_pool" "$route_gateway")
     fi
     if [[ "$wireguard_enabled" == true ]]; then
         wireguard_key_path=$(jq -r '.gateway.remote_access.wireguard.server_private_key_path' "$config_path")
@@ -276,9 +287,7 @@ render_quadlet_candidate() {
         wireguard_module_load='ExecStartPre=/usr/sbin/modprobe --use-blacklist wireguard'
         published_lines+=$(printf '\nPublishPort=%s:%s:%s/udp' \
             "$wireguard_bind_address" "$wireguard_port" "$wireguard_port")
-        wireguard_host_route=$(printf \
-            'ExecStartPost=/usr/sbin/ip -4 route add %s via %s proto 186\nExecStopPost=-/usr/sbin/ip -4 route del %s via %s proto 186' \
-            "$wireguard_pool" "$route_gateway" "$wireguard_pool" "$route_gateway")
+        wireguard_host_route=$(render_host_return_route "$wireguard_pool" "$route_gateway")
     fi
     template=$(<"$UNIT_TEMPLATE")
     template=${template//@@CONFIG_FILE@@/$GENERATED_CONFIG}
@@ -312,7 +321,11 @@ render_gateway_debug_dropin() {
             "$GATEWAY_DEBUG_DROPIN_MARKER"
         while IFS= read -r line; do
             case "$line" in
-                'ExecStopPost=-/usr/sbin/ip -4 route del '*)
+                'ExecStopPost=-/bin/sh -c '*)
+                    [[ "$line" == *'/usr/sbin/ip -4 route del '* &&
+                        "$line" == *'proto 186 2>&1'* &&
+                        "$line" == *'RTNETLINK answers: No such process'* ]] || \
+                        fail "Unexpected Gateway stop hook in debug candidate: $line"
                     printf '%s\n' "$line"
                     ;;
                 ExecStopPost=*)
@@ -555,6 +568,34 @@ test_dns_candidate() {
         fail 'Candidate DNS records failed DNSMasq validation.'
 }
 
+# Require each enabled remote-access transport to establish its configured Gateway interface.
+# Arguments: validated host configuration path. Inspects only the Gateway container.
+# Output: none. Reports missing tunnel readiness to stderr and exits nonzero.
+check_gateway_remote_access_health() {
+    local config_path=$1 openvpn_enabled wireguard_enabled server_address interface_addresses
+
+    openvpn_enabled=$(jq -r '.gateway.remote_access.openvpn.enabled // false' "$config_path")
+    if [[ "$openvpn_enabled" == true ]]; then
+        interface_addresses=$(podman exec "$CONTAINER_NAME" ip -j -4 address show dev tun0 2>/dev/null) || \
+            fail 'OpenVPN tunnel is not ready: tun0 is absent.'
+        jq -e 'any(.[].addr_info[]?; .family == "inet")' \
+            <<< "$interface_addresses" >/dev/null || \
+            fail 'OpenVPN tunnel is not ready: tun0 has no IPv4 address.'
+    fi
+
+    wireguard_enabled=$(jq -r '.gateway.remote_access.wireguard.enabled // false' "$config_path")
+    if [[ "$wireguard_enabled" == true ]]; then
+        server_address=$(jq -r '.gateway.remote_access.wireguard.server_address' "$config_path")
+        interface_addresses=$(podman exec "$CONTAINER_NAME" ip -j -4 address show dev wg0 2>/dev/null) || \
+            fail 'WireGuard server is not ready: wg0 is absent.'
+        jq -e --arg address "$server_address" \
+            'any(.[].addr_info[]?; .family == "inet" and .local == $address)' \
+            <<< "$interface_addresses" >/dev/null || \
+            fail "WireGuard server is not ready: wg0 lacks $server_address."
+    fi
+}
+# ---------------------------------- #
+
 check_gateway_health_once() {
     local config_path=$1 dns_file=$2 ssh_bind_address cockpit_bind_address ssh_port cockpit_port expected_networks attached_networks
     local resolved expected_address dns_name network actual_address
@@ -562,6 +603,7 @@ check_gateway_health_once() {
     systemctl is-active --quiet "$UNIT_NAME" || fail "Gateway unit is not active: $UNIT_NAME"
     [[ "$(podman inspect --format '{{.State.Running}}' "$CONTAINER_NAME")" == true ]] || \
         fail "Gateway container is not running: $CONTAINER_NAME"
+    check_gateway_remote_access_health "$config_path"
 
     expected_networks=$(jq -c '[.networks[].name] | sort' "$config_path")
     attached_networks=$(podman inspect --format '{{json .NetworkSettings.Networks}}' "$CONTAINER_NAME") || \
@@ -820,7 +862,7 @@ remove_managed_remote_access_return_routes() {
             --arg destination "$pool" \
             --arg gateway "$route_gateway" \
             'any(.[]; .dst == $destination and .gateway == $gateway and
-                ((.protocol | tostring) == "186") and
+                ((.protocol | tostring) == "186" or (.protocol | tostring) == "bgp") and
                 (.table == null or .table == "main" or .table == 254) and
                 (.type == null or .type == "unicast") and
                 (.multipath == null or .multipath == false) and

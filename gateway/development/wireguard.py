@@ -909,7 +909,7 @@ def _remove_peer_route(peer: dict[str, Any]) -> None:
         not isinstance(route, dict)
         or route.get("dst") != destination
         or route.get("dev") != INTERFACE
-        or str(route.get("protocol")) != "186"
+        or str(route.get("protocol")) not in ("186", "bgp")
         for route in routes
     ):
         raise WireGuardError("Peer route ownership changed; leaving it untouched.")

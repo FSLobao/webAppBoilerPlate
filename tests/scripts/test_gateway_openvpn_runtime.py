@@ -205,7 +205,7 @@ def test_openvpn_command_suppresses_route_changes_and_profile_logs() -> None:
     ]
     assert "--ifconfig-ipv6-noexec" not in command
     assert "--route-ipv6-noexec" not in command
-    assert "--route-up-restart" in command
+    assert "--route-up-restart" not in command
     assert command[command.index("--client")] == "--client"
     assert command[command.index("--dev") + 1] == "tun0"
     assert command[command.index("--topology") + 1] == "subnet"
@@ -226,7 +226,7 @@ def test_openvpn_command_suppresses_route_changes_and_profile_logs() -> None:
     assert all(character in "0123456789abcdef" for character in runtime_id)
     assert "--auth-nocache" in command
     assert command[command.index("--log") + 1] == "/dev/stderr"
-    assert command[command.index("--verb") + 1] == "0"
+    assert command[command.index("--verb") + 1] == "3"
 
 
 def test_openvpn_assigned_address_is_validated_before_interface_mutation() -> None:
@@ -943,9 +943,70 @@ def test_openvpn_error_output_is_reduced_to_fixed_safe_messages() -> None:
     assert _sanitized_diagnostic("remote peer supplied certificate detail") is None
 
 
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (
+            "Options error: unknown option private-directive in [CMD-LINE]",
+            "OpenVPN rejected a Gateway-generated command-line option.",
+        ),
+        (
+            "Options error: unknown option private-directive in /etc/private/client.ovpn",
+            "OpenVPN rejected a directive in the external client profile.",
+        ),
+        (
+            "RESOLVE: Cannot resolve host address: private.example",
+            "OpenVPN could not resolve its configured remote endpoint.",
+        ),
+        (
+            "TLS Error: private certificate negotiation failed",
+            "OpenVPN TLS or certificate negotiation failed.",
+        ),
+        (
+            "TCP connection refused by private.example",
+            "OpenVPN could not connect to its configured remote endpoint.",
+        ),
+        (
+            "Cannot ioctl TUNSETIFF tun: Operation not permitted",
+            "OpenVPN could not access the TUN device; check /dev/net/tun and NET_ADMIN.",
+        ),
+        (
+            "Initialization Sequence Completed",
+            "OpenVPN tunnel is connected.",
+        ),
+    ],
+)
+def test_openvpn_runtime_errors_are_classified_without_exposing_private_details(
+    line: str, expected: str
+) -> None:
+    """Classify common failures without returning profile or endpoint details."""
+    diagnostic = _sanitized_diagnostic(line)
+
+    assert diagnostic == expected
+    assert "private" not in diagnostic
+
+
+@pytest.mark.parametrize(
+    ("process_status", "stderr_line", "expected_message"),
+    [
+        (
+            0,
+            "Cannot open file /etc/gateway/private/secret.key: private detail",
+            "configured external input",
+        ),
+        (
+            1,
+            "remote peer supplied certificate detail",
+            "OpenVPN exited with status 1",
+        ),
+    ],
+)
 def test_openvpn_supervisor_uses_fake_transport_and_sanitizes_its_output(
-    monkeypatch,
-    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    process_status: int,
+    stderr_line: str,
+    expected_message: str,
 ) -> None:
     """Exercise a synthetic client process without reading its profile."""
     captured: dict[str, object] = {}
@@ -955,16 +1016,15 @@ def test_openvpn_supervisor_uses_fake_transport_and_sanitizes_its_output(
 
         def __init__(self, command, **kwargs):
             captured["command"] = command
+            captured["stdout"] = kwargs["stdout"]
             captured["stderr"] = kwargs["stderr"]
-            self.stderr = io.StringIO(
-                "Cannot open file /etc/gateway/private/secret.key: private detail\n"
-            )
+            self.stdout = io.StringIO(f"{stderr_line}\n")
 
         def poll(self):
-            return 0
+            return process_status
 
         def wait(self):
-            return 0
+            return process_status
 
     monkeypatch.setattr(
         "gateway.development.openvpn_runtime._profile_is_safe",
@@ -999,9 +1059,11 @@ def test_openvpn_supervisor_uses_fake_transport_and_sanitizes_its_output(
     )
 
     output = capsys.readouterr()
-    assert status == 0
+    assert status == process_status
     assert captured["profile"] == Path("/run/openvpn/client.ovpn")
-    assert captured["stderr"] is subprocess.PIPE
+    assert captured["stdout"] is subprocess.PIPE
+    assert captured["stderr"] is subprocess.STDOUT
     assert "/etc/gateway/private/secret.key" not in output.err
     assert "private detail" not in output.err
-    assert "configured external input" in output.err
+    assert expected_message in output.err
+    assert stderr_line not in output.err

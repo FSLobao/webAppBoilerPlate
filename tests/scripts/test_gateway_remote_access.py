@@ -363,7 +363,10 @@ def test_host_preflight_requires_exact_active_session_context() -> None:
         )
 
 
-def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route() -> None:
+@pytest.mark.parametrize("protocol", ["186", "bgp"])
+def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route(
+    protocol: str,
+) -> None:
     """Allow the managed pool route but reject wrong gateway or route tag."""
     openvpn = OPENVPN_CONFIG.copy() | {
         "enabled": True,
@@ -373,7 +376,7 @@ def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route() -> N
         "dst": "172.24.0.0/21",
         "gateway": "192.168.8.2",
         "dev": "podman1",
-        "protocol": "186",
+        "protocol": protocol,
         "table": 254,
     }
 
@@ -391,7 +394,10 @@ def test_preflight_recognizes_only_exact_tagged_openvpn_host_return_route() -> N
         )
 
 
-def test_preflight_recognizes_only_exact_tagged_wireguard_return_route() -> None:
+@pytest.mark.parametrize("protocol", ["186", "bgp"])
+def test_preflight_recognizes_only_exact_tagged_wireguard_return_route(
+    protocol: str,
+) -> None:
     """Allow only the exact WireGuard pool route through its configured gateway."""
     config = _config()
     config["gateway"]["remote_access"]["wireguard"] = _wireguard_config()
@@ -399,7 +405,7 @@ def test_preflight_recognizes_only_exact_tagged_wireguard_return_route() -> None
         "dst": "198.18.1.0/24",
         "gateway": "192.168.8.2",
         "dev": "podman1",
-        "protocol": "186",
+        "protocol": protocol,
         "table": 254,
     }
 

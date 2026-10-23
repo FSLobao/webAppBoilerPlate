@@ -7,7 +7,6 @@ Requires=podman.socket
 [Container]
 ContainerName=gateway
 Image=localhost/gateway:1
-DNS=127.0.0.1
 Volume=/var/lib/gateway/generated:/etc/gateway/generated:ro
 Volume=@@AUTHORIZED_KEYS@@:/run/gateway/authorized_keys:ro
 @@SSH_TUN_VOLUME@@

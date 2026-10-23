@@ -290,12 +290,11 @@ def build_openvpn_command(
         "--route-up",
         "/usr/local/bin/gateway-openvpn-route-up",
         "--up-restart",
-        "--route-up-restart",
         "--auth-nocache",
         "--log",
         "/dev/stderr",
         "--verb",
-        "0",
+        "3",
     ]
 
 
@@ -475,8 +474,22 @@ def _cleanup_runtime_attempt(
 def _sanitized_diagnostic(line: str) -> str | None:
     """Map private OpenVPN output to a fixed, non-sensitive diagnostic."""
     message = line.lower()
-    if "tun/tap" in message and any(
-        phrase in message for phrase in ("cannot open", "failed", "permission")
+    if "initialization sequence completed" in message:
+        return "OpenVPN tunnel is connected."
+    if (
+        "tun/tap" in message
+        and any(
+            phrase in message
+            for phrase in (
+                "cannot open",
+                "failed",
+                "permission",
+                "operation not permitted",
+            )
+        )
+    ) or any(
+        phrase in message
+        for phrase in ("tunsetiff", "cannot ioctl tun", "tun device unavailable")
     ):
         return (
             "OpenVPN could not access the TUN device; check /dev/net/tun and NET_ADMIN."
@@ -494,6 +507,48 @@ def _sanitized_diagnostic(line: str) -> str | None:
         for phrase in ("authentication failed", "auth_failed", "auth failure")
     ):
         return "OpenVPN external authentication failed."
+    if any(
+        phrase in message
+        for phrase in (
+            "options error",
+            "unrecognized option",
+            "unknown option",
+            "missing or extra parameter",
+        )
+    ):
+        if "[cmd-line]" in message or "command line" in message:
+            return "OpenVPN rejected a Gateway-generated command-line option."
+        return "OpenVPN rejected a directive in the external client profile."
+    if any(
+        phrase in message
+        for phrase in (
+            "cannot resolve",
+            "name resolution",
+            "name or service not known",
+            "temporary failure in name resolution",
+        )
+    ):
+        return "OpenVPN could not resolve its configured remote endpoint."
+    if any(
+        phrase in message
+        for phrase in (
+            "tls error",
+            "verify error",
+            "certificate verify failed",
+            "peer certificate",
+        )
+    ):
+        return "OpenVPN TLS or certificate negotiation failed."
+    if any(
+        phrase in message
+        for phrase in (
+            "connection refused",
+            "network is unreachable",
+            "no route to host",
+            "connection timed out",
+        )
+    ):
+        return "OpenVPN could not connect to its configured remote endpoint."
     return None
 
 
@@ -912,7 +967,7 @@ def run_openvpn(
     config_path: str = CONFIG_PATH,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> int:
-    """Validate and supervise OpenVPN; hooks activate scoped forwarding safely."""
+    """Validate and supervise OpenVPN; emit only fixed safe diagnostics."""
     _openvpn_config(config)
     if shutil.which(executable) is None:
         raise RuntimeErrorSafe("The OpenVPN executable is unavailable.")
@@ -942,6 +997,7 @@ def run_openvpn(
             diagnostic = _sanitized_diagnostic(line)
             if diagnostic is not None and diagnostic not in diagnostics:
                 diagnostics.append(diagnostic)
+                print(f"[gateway] {diagnostic}", file=sys.stderr, flush=True)
 
     try:
         for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -951,16 +1007,16 @@ def run_openvpn(
         child = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             close_fds=True,
         )
-        if child.stderr is None:
+        if child.stdout is None:
             raise RuntimeErrorSafe("Could not capture OpenVPN diagnostics safely.")
         diagnostic_thread = threading.Thread(
             target=collect_sanitized_diagnostics,
-            args=(child.stderr,),
+            args=(child.stdout,),
             daemon=True,
         )
         diagnostic_thread.start()
@@ -968,8 +1024,12 @@ def run_openvpn(
             child.send_signal(termination_signals[0])
         status = child.wait()
         diagnostic_thread.join()
-        for diagnostic in diagnostics:
-            print(f"[gateway] {diagnostic}", file=sys.stderr)
+        if status != 0 and not diagnostics:
+            print(
+                f"[gateway] OpenVPN exited with status {status}; "
+                "no safe diagnostic matched its output.",
+                file=sys.stderr,
+            )
         return status
     except OSError as error:
         raise RuntimeErrorSafe("Could not start the OpenVPN client.") from error

@@ -213,7 +213,7 @@ check_gateway_host_preflight() {
     local wireguard_port
     local source_asset
     local debug_dropin
-    local gateway_managed=0 host_private_key="$HOST_KEYS_DIR/ssh_host_ed25519_key"
+    local gateway_listener_active=0 host_private_key="$HOST_KEYS_DIR/ssh_host_ed25519_key"
     local host_public_key="$HOST_KEYS_DIR/ssh_host_ed25519_key.pub" certificate_public_key private_public_key
     local host_key_fingerprint previous_host_key_fingerprint
 
@@ -371,11 +371,15 @@ check_gateway_host_preflight() {
         [[ "$source_path" == "$QUADLET_FILE" ]] || fail "Systemd unit $UNIT_NAME is not generated from $QUADLET_FILE"
     fi
     if podman container exists "$CONTAINER_NAME" >/dev/null 2>&1; then
-        local unit_label
+        local unit_label container_running
         unit_label=$(podman inspect --format '{{ index .Config.Labels "PODMAN_SYSTEMD_UNIT" }}' "$CONTAINER_NAME") || \
             fail "Cannot verify ownership of container $CONTAINER_NAME"
         [[ "$unit_label" == "$UNIT_NAME" ]] || fail "Container name '$CONTAINER_NAME' belongs to another workload."
-        gateway_managed=1
+        container_running=$(podman inspect --format '{{.State.Running}}' "$CONTAINER_NAME") || \
+            fail "Cannot inspect running state of container $CONTAINER_NAME"
+        if [[ "$container_running" == true ]] && systemctl is-active --quiet "$UNIT_NAME"; then
+            gateway_listener_active=1
+        fi
     fi
 
     ssh_bind_address=$(jq -r '.gateway.ssh_bind_address // .gateway.bind_address' "$config_path")
@@ -392,7 +396,7 @@ check_gateway_host_preflight() {
     cockpit_port=$(jq -r '.gateway.cockpit_port' "$config_path")
     for port in "$ssh_port" "$cockpit_port"; do
         listener=$(ss -H -ltn "sport = :$port") || fail "Cannot check whether TCP port $port is available."
-        if [[ -n "$listener" && "$gateway_managed" != 1 ]]; then
+        if [[ -n "$listener" && "$gateway_listener_active" != 1 ]]; then
             fail "TCP port $port is already in use by another service."
         fi
     done
@@ -407,12 +411,16 @@ check_gateway_host_preflight() {
         fi
         listener=$(ss -H -lun "sport = :$wireguard_port") || \
             fail "Cannot check whether UDP port $wireguard_port is available."
-        if [[ -n "$listener" && "$gateway_managed" != 1 ]]; then
+        if [[ -n "$listener" && "$gateway_listener_active" != 1 ]]; then
             fail "UDP port $wireguard_port is already in use by another service."
         fi
     fi
 
-    run_python_module scripts.gateway.host_preflight gateway-networks "$config_path"
+    local gateway_preflight_args=(gateway-networks "$config_path")
+    if (( gateway_listener_active == 1 )); then
+        gateway_preflight_args+=(--gateway-listener-active)
+    fi
+    run_python_module scripts.gateway.host_preflight "${gateway_preflight_args[@]}"
 }
 # ---------------------------------- #
 

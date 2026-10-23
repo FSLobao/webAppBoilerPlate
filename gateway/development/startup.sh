@@ -180,6 +180,7 @@ dnsmasq --test --no-resolv --no-hosts --bind-dynamic --addn-hosts="$DNS_HOSTS" >
     fail 'DNSMasq configuration or generated DNS records are invalid.'
 
 children=()
+child_names=()
 stop_children() {
     local child
     trap - TERM INT HUP
@@ -198,14 +199,18 @@ trap shutdown TERM INT HUP
 
 /usr/sbin/sshd -D -e -f /run/gateway/sshd_config &
 children+=("$!")
+child_names+=("OpenSSH")
 dnsmasq --no-daemon --keep-in-foreground --no-resolv --no-hosts \
     --bind-dynamic --addn-hosts="$DNS_HOSTS" &
 children+=("$!")
+child_names+=("DNSMasq")
 /usr/lib/cockpit/cockpit-ws --port 9090 --address 0.0.0.0 &
 children+=("$!")
+child_names+=("Cockpit")
 if [[ "$openvpn_enabled" == true ]]; then
     python3 /usr/local/lib/gateway/openvpn_runtime.py run "$CONFIG" &
     children+=("$!")
+    child_names+=("OpenVPN")
 fi
 if [[ "$wireguard_enabled" == true ]]; then
     if [[ -e "$WIREGUARD_STATE/critical-failure" || -L "$WIREGUARD_STATE/critical-failure" ]]; then
@@ -217,14 +222,24 @@ if [[ "$wireguard_enabled" == true ]]; then
     else
         python3 /usr/local/lib/gateway/wireguard.py run "$CONFIG" &
         children+=("$!")
+        child_names+=("WireGuard")
     fi
 fi
 
-if wait -n "${children[@]}"; then
+exited_child=''
+if wait -n -p exited_child "${children[@]}"; then
     status=0
 else
     status=$?
 fi
-printf '[gateway] A supervised service exited with status %s.\n' "$status" >&2
+exited_name=unknown
+for child_index in "${!children[@]}"; do
+    if [[ "${children[$child_index]}" == "$exited_child" ]]; then
+        exited_name=${child_names[$child_index]}
+        break
+    fi
+done
+printf '[gateway] Supervised service %s (pid %s) exited with status %s.\n' \
+    "$exited_name" "$exited_child" "$status" >&2
 stop_children
 exit 1

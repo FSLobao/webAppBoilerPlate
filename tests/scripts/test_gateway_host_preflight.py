@@ -127,6 +127,37 @@ def test_wireguard_udp_preflight_rejects_occupied_port(
     probe.__exit__.assert_called_once()
 
 
+def test_wireguard_preflight_reuses_udp_port_of_active_gateway(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Skip the bind probe when the active Gateway already owns its listener."""
+    monkeypatch.setattr(
+        host_preflight, "check_wireguard_kernel_support", lambda **_kwargs: True
+    )
+    monkeypatch.setattr(
+        host_preflight, "_validate_wireguard_server_key_path", lambda *_args: None
+    )
+    listener_probe = Mock(side_effect=AssertionError("unexpected UDP bind probe"))
+    monkeypatch.setattr(
+        host_preflight, "_validate_wireguard_udp_listener", listener_probe
+    )
+    wireguard = {
+        "enabled": True,
+        "host_bind_address": "0.0.0.0",
+        "listen_port": 1194,
+        "server_private_key_path": str(tmp_path / "server.key"),
+    }
+
+    host_preflight._validate_wireguard_inputs(
+        {"gateway": {"remote_access": {"wireguard": wireguard}}},
+        lambda _message: None,
+        lambda *_args, **_kwargs: None,
+        gateway_listener_active=True,
+    )
+
+    listener_probe.assert_not_called()
+
+
 def test_wireguard_module_preflight_is_read_only_and_reports_load_plan(
     tmp_path: Path,
 ) -> None:
@@ -382,7 +413,7 @@ def test_gateway_preflight_ignores_default_route() -> None:
 
 
 def test_gateway_preflight_allows_exact_managed_podman_routes() -> None:
-    """Allow only exact bridge and bridge-local routes from Podman inspection."""
+    """Allow exact connected, local, and broadcast routes from the Podman bridge."""
 
     def run_command(*args, **kwargs):
         command = list(args[0])
@@ -412,6 +443,14 @@ def test_gateway_preflight_allows_exact_managed_podman_routes() -> None:
                     "dev": "podman42",
                     "protocol": "kernel",
                     "scope": "host",
+                    "table": "local",
+                },
+                {
+                    "type": "broadcast",
+                    "dst": "10.89.1.255",
+                    "dev": "podman42",
+                    "protocol": "kernel",
+                    "scope": "link",
                     "table": "local",
                 },
             ],
@@ -450,6 +489,14 @@ def test_gateway_preflight_allows_exact_managed_podman_routes() -> None:
             "protocol": "kernel",
             "scope": "link",
             "table": "100",
+        },
+        {
+            "type": "broadcast",
+            "dst": "10.89.1.254",
+            "dev": "podman42",
+            "protocol": "kernel",
+            "scope": "link",
+            "table": "local",
         },
     ],
 )
@@ -1041,6 +1088,37 @@ def test_gateway_preflight_is_read_only_without_application_targets(
         IP_ROUTE_COMMAND,
     ]
     assert captured.err == ""
+
+
+def test_gateway_networks_cli_accepts_active_gateway_listener(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pass active Gateway ownership through the read-only preflight CLI."""
+    received: dict[str, Any] = {}
+
+    monkeypatch.setattr(host_preflight, "load_host_config", lambda _path: {})
+    monkeypatch.setattr(
+        host_preflight,
+        "validate_gateway_networks",
+        lambda config, run_command, *, gateway_listener_active=False: received.update(
+            config=config,
+            run_command=run_command,
+            gateway_listener_active=gateway_listener_active,
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "gateway-networks",
+                "/tmp/host_config.json",
+                "--gateway-listener-active",
+            ]
+        )
+        == 0
+    )
+    assert received["gateway_listener_active"] is True
+    assert received["run_command"] is subprocess.run
 
 
 @pytest.mark.parametrize(

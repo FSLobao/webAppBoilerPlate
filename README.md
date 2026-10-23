@@ -441,15 +441,17 @@ portas, redes, rotas IPv4 do host, socket rootful e ferramentas exigidas; não i
 de aplicação ou targets DNS. Se OpenVPN estiver habilitado, verifica apenas metadados de propriedade,
 modo e arquivo regular do perfil; não lê seu conteúdo. Se WireGuard estiver habilitado, verifica
 inputs, se `modprobe` consegue resolver o módulo sem carregá-lo, metadados da chave se existente e
-disponibilidade local de bind UDP antes de qualquer mutação. Se o módulo estiver descarregado, informa
-que `--apply` o carregará. Se a chave faltar, informa que `--apply` a criará. Não instala pacotes nem
-altera a política de módulos do host. Não valida o endpoint por peer nem sua alcançabilidade externa.
+disponibilidade local de bind UDP antes de qualquer mutação. Se o Gateway ativo já possuir essa porta,
+reutiliza a listener existente em vez de rejeitar o próprio serviço. Se o módulo estiver descarregado,
+informa que `--apply` o carregará. Se a chave faltar, informa que `--apply` a criará. Não instala
+pacotes nem altera a política de módulos do host. Não valida o endpoint por peer nem sua alcançabilidade externa.
 Após iniciar o unit, `--apply` repete os health checks durante `gateway.startup_readiness.timeout_seconds`
 e aguarda `gateway.startup_readiness.interval_seconds` entre tentativas. Os valores devem estar entre
 1-300 e 1-10 segundos, respectivamente, e o intervalo não pode exceder o timeout. Sem esse objeto,
 os padrões são 60 segundos e 2 segundos. Falhas intermediárias ficam ocultas; ao esgotar o timeout,
 o comando relata a última falha. Se systemd marcar o unit como inativo ou falho, o script interrompe
-as tentativas e consulta Podman e o journal imediatamente.
+as tentativas e consulta Podman e o journal imediatamente. Também exige `tun0` com endereço IPv4 se
+OpenVPN estiver habilitado e `wg0` com o endereço configurado se WireGuard estiver habilitado.
 
 Em falha de ativação ou readiness, o script desativa reinícios automáticos, mantém o container e os
 arquivos Quadlet temporários de diagnóstico, e não executa rollback automático. Use `podman inspect`

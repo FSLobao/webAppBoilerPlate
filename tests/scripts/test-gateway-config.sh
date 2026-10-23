@@ -66,6 +66,9 @@ expected_networks=(
 )
 [[ "${rendered_networks[*]}" == "${expected_networks[*]}" ]] || \
     fail "Gateway Quadlet networks differ from top-level Podman declarations: ${rendered_networks[*]}"
+if grep -q '^DNS=' "$TMP_DIR/rendered.container"; then
+    fail 'Gateway Quadlet must inherit Podman DNS instead of overriding it'
+fi
 printf 'PASS: all declared Podman networks are rendered; HTTP proxy routes are not networks\n'
 if grep -Fxq 'PodmanArgs=--rm=false' "$TMP_DIR/rendered.container"; then
     fail 'Normal Gateway Quadlet unexpectedly disables Podman container removal'
@@ -86,8 +89,10 @@ grep -Fxq 'ExecStop=' "$TMP_DIR/debug-preserve.conf" || \
     fail 'Debug override did not clear generated container cleanup'
 grep -Fxq 'ExecStopPost=' "$TMP_DIR/debug-preserve.conf" || \
     fail 'Debug override did not clear generated post-stop cleanup'
-grep -Fq 'ExecStopPost=-/usr/sbin/ip -4 route del ' "$TMP_DIR/debug-preserve.conf" || \
+grep -Fq 'ExecStopPost=-/bin/sh -c' "$TMP_DIR/debug-preserve.conf" || \
     fail 'Debug override did not retain owned route cleanup hooks'
+grep -Fq 'RTNETLINK answers: No such process' "$TMP_DIR/debug-preserve.conf" || \
+    fail 'Debug override did not suppress expected missing-route cleanup'
 if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
     [[ -x /usr/libexec/podman/quadlet ]]; then
     bash -c 'source "$1"; validate_quadlet_candidate "$2"' \
@@ -191,8 +196,9 @@ grep -Fxq 'AddCapability=NET_ADMIN' "$TMP_DIR/openvpn.container" || \
 grep -Fxq \
     'ExecStartPost=/usr/sbin/ip -4 route add 172.24.0.0/21 via 10.89.1.2 proto 186' \
     "$TMP_DIR/openvpn.container" || fail 'OpenVPN host return route was not rendered'
-grep -Fxq \
-    'ExecStopPost=-/usr/sbin/ip -4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
+grep -Fq 'ExecStopPost=-/bin/sh -c' "$TMP_DIR/openvpn.container" || \
+    fail 'OpenVPN host route cleanup wrapper was not rendered'
+grep -Fq 'ip -4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
     "$TMP_DIR/openvpn.container" || fail 'OpenVPN owned host route cleanup was not rendered'
 if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
     [[ -x /usr/libexec/podman/quadlet ]]; then
@@ -236,8 +242,7 @@ grep -Fxq 'AddCapability=NET_ADMIN' "$TMP_DIR/ssh-tun.container" || \
 grep -Fxq \
     'ExecStartPost=/usr/sbin/ip -4 route add 198.18.0.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/ssh-tun.container" || fail 'SSH TUN host return route was not rendered'
-grep -Fxq \
-    'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.0.0/24 via 10.89.1.2 proto 186' \
+grep -Fq 'ip -4 route del 198.18.0.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/ssh-tun.container" || fail 'SSH TUN owned host route cleanup was not rendered'
 printf 'PASS: SSH TUN opt-in renders read-only keys, minimum capability, and one deterministic host route\n'
 jq '.gateway.remote_access.wireguard = {
@@ -268,8 +273,7 @@ grep -Fxq 'PublishPort=127.0.0.1:54000:54000/udp' "$TMP_DIR/wireguard.container"
 grep -Fxq \
     'ExecStartPost=/usr/sbin/ip -4 route add 198.18.1.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route was not rendered'
-grep -Fxq \
-    'ExecStopPost=-/usr/sbin/ip -4 route del 198.18.1.0/24 via 10.89.1.2 proto 186' \
+grep -Fq 'ip -4 route del 198.18.1.0/24 via 10.89.1.2 proto 186' \
     "$TMP_DIR/wireguard.container" || fail 'WireGuard host return route cleanup was not rendered'
 if [[ -x /usr/lib/systemd/system-generators/podman-system-generator ]] || \
     [[ -x /usr/libexec/podman/quadlet ]]; then
@@ -444,6 +448,37 @@ fi
 [[ "$(grep -c . "$TMP_DIR/deploy-flow.log")" == 2 ]] || \
     fail 'Standalone apply ran unexpected stages'
 printf 'PASS: standalone apply skips preflight and assumes prior --check\n'
+jq '.gateway.remote_access.openvpn.enabled = true |
+    .gateway.remote_access.wireguard.enabled = true' \
+    "$TMP_DIR/valid.json" > "$TMP_DIR/remote-access-health.json"
+REMOTE_ACCESS_HEALTH_LOG="$TMP_DIR/remote-access-health.log" bash -c '
+    source "$1"
+    podman() {
+        printf "%s\n" "$*" >> "$REMOTE_ACCESS_HEALTH_LOG"
+        case "$*" in
+            *"dev tun0") printf "[{\"addr_info\":[{\"family\":\"inet\",\"local\":\"172.24.1.2\"}]}]\n" ;;
+            *"dev wg0") printf "[{\"addr_info\":[{\"family\":\"inet\",\"local\":\"192.168.10.1\"}]}]\n" ;;
+            *) return 97 ;;
+        esac
+    }
+    check_gateway_remote_access_health "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/remote-access-health.json"
+grep -Fq 'dev tun0' "$TMP_DIR/remote-access-health.log" || \
+    fail 'Enabled OpenVPN tunnel readiness was not checked'
+grep -Fq 'dev wg0' "$TMP_DIR/remote-access-health.log" || \
+    fail 'Enabled WireGuard server readiness was not checked'
+if bash -c '
+    source "$1"
+    podman() { printf "[]\n"; }
+    check_gateway_remote_access_health "$2"
+' _ "$DEPLOY_SCRIPT" "$TMP_DIR/remote-access-health.json" \
+    > "$TMP_DIR/missing-tunnel-output.log" 2>&1; then
+    fail 'Remote-access health accepted missing tunnel interfaces'
+fi
+grep -Fq 'OpenVPN tunnel is not ready: tun0 has no IPv4 address.' \
+    "$TMP_DIR/missing-tunnel-output.log" || \
+    fail 'Missing OpenVPN tunnel did not report an actionable health failure'
+printf 'PASS: enabled remote-access tunnels must have ready IPv4 interfaces\n'
 : > "$TMP_DIR/deploy-flow.log"
 jq '.gateway.startup_readiness = {"timeout_seconds":3,"interval_seconds":1}' \
     "$TMP_DIR/valid.json" > "$TMP_DIR/readiness-retry.json"
@@ -674,6 +709,15 @@ PATH="$TMP_DIR/route-bin:$PATH" \
 grep -Fxq -- \
     '-4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
     "$TMP_DIR/route-mutations.log" || fail 'Owned OpenVPN return route was not cleaned'
+PATH="$TMP_DIR/route-bin:$PATH" \
+    OPENVPN_ROUTE_STATE='[{"dst":"172.24.0.0/21","gateway":"10.89.1.2","protocol":"bgp","table":"main"}]' \
+    ROUTE_MUTATION_LOG="$TMP_DIR/bgp-route-mutations.log" \
+    bash -c 'source "$1"; remove_managed_remote_access_return_routes "$2"' \
+    _ "$DEPLOY_SCRIPT" "$TMP_DIR/openvpn-disabled-route.json"
+grep -Fxq -- \
+    '-4 route del 172.24.0.0/21 via 10.89.1.2 proto 186' \
+    "$TMP_DIR/bgp-route-mutations.log" || \
+    fail 'The iproute2 bgp alias for protocol 186 was not cleaned'
 PATH="$TMP_DIR/route-bin:$PATH" \
     OPENVPN_ROUTE_STATE='[{"dst":"172.24.0.0/21","gateway":"10.89.1.2","protocol":"static","table":"main"}]' \
     ROUTE_MUTATION_LOG="$TMP_DIR/foreign-route-mutations.log" \
