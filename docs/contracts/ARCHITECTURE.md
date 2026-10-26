@@ -1,11 +1,56 @@
+<details id="top">
+    <summary>Índice</summary>
+    <ol>
+        <li><a href="#objetivo">Objetivo</a></li>
+        <li><a href="#ambiente-alvo">Ambiente-alvo</a></li>
+        <li><a href="#princípio-fundamental-de-isolamento">Princípio fundamental de isolamento</a></li>
+        <li><a href="#containers-principais">Containers principais</a></li>
+        <li><a href="#gateway">Gateway</a></li>
+        <li><a href="#aplicações">Aplicações</a></li>
+        <li><a href="#postgresql">PostgreSQL</a></li>
+        <li><a href="#http-proxy">HTTP Proxy</a></li>
+        <li><a href="#rede-podman-e-dns-de-desenvolvimento">Rede Podman e DNS de desenvolvimento</a></li>
+        <li><a href="#endereçamento-da-rede-podman">Endereçamento da rede Podman</a></li>
+        <li><a href="#acesso-aos-containers-e-vs-code">Acesso aos containers e VS Code</a></li>
+        <li><a href="#volumes">Volumes</a></li>
+        <li><a href="#configuração-e-secrets">Configuração e secrets</a></li>
+        <li><a href="#deployment">Deployment</a></li>
+        <li><a href="#manutenção">Manutenção</a></li>
+        <li><a href="#diagnóstico">Diagnóstico</a></li>
+        <li><a href="#observabilidade">Observabilidade</a></li>
+        <li><a href="#estrutura-lógica-do-repositório">Estrutura lógica do repositório</a></li>
+        <li><a href="#regras-para-desenvolvimento-no-vs-code">Regras para desenvolvimento no VS Code</a></li>
+        <li><a href="#desenvolvimento-versus-produção">Desenvolvimento versus produção</a></li>
+        <li><a href="#princípios-de-segurança">Princípios de segurança</a></li>
+        <li><a href="#decisões-arquiteturais-já-estabelecidas">Decisões arquiteturais já estabelecidas</a></li>
+        <li><a href="#inputs-e-gates-de-implementação">Inputs e gates de implementação</a></li>
+        <li><a href="#critérios-de-aceitação-arquitetural">Critérios de aceitação arquitetural</a></li>
+        <li><a href="#regra-de-evolução">Regra de evolução</a></li>
+        <li><a href="#visão-final">Visão final</a></li>
+    </ol>
+</details>
+
 # Web Application Boilerplate — Arquitetura Lógica e Contrato de Desenvolvimento
 
 **Status:** Contrato arquitetural aprovado; requisitos de implementação e aceitação registrados abaixo.
 **Objetivo:** Definir o contrato técnico e operacional do boilerplate para desenvolvimento de aplicações web com Python/FastAPI, frontend JavaScript, PostgreSQL e execução integral em containers.
 
+**Revisão do acesso remoto:** Headscale, Headplane e `tailscaled` no Gateway constituem a única
+solução aprovada para conectividade de desenvolvedores. Essa solução está planejada, ainda não
+implementada nem validada no host-alvo. O runtime, o schema, a configuração versionada e os
+procedimentos existentes precisam ser adequados antes de declarar conformidade com este contrato.
+**Revisão da rede de containers:** todos os containers usarão exclusivamente a rede bridge padrão
+`podman`, com Netavark e Aardvark DNS. Não haverá redes por aplicação nem inventário de múltiplas
+redes. Essa topologia e sua integração DNS ainda precisam ser implementadas e validadas; o requisito
+de preservar o IP de origem VPN permanece.
+
+**Revisão da administração:** Portainer será a interface de gestão de containers, em container
+dedicado na rede padrão `podman`, acessível somente por operadores pela VPN. A integração ainda
+precisa ser implementada e validada no alvo RHEL 9.8 / Podman rootful 5.8.2.
+
 ---
 
-## 1. Objetivo
+# 1. Objetivo
 
 Este documento define a arquitetura lógica, responsabilidades, limites e princípios do boilerplate.
 
@@ -16,7 +61,7 @@ O boilerplate deve privilegiar:
 - simplicidade operacional;
 - reprodutibilidade;
 - baixo esforço administrativo;
-- redes app-specific únicas e autenticação de serviço; a rede `shared` oferece conectividade direta aos seus membros;
+- uma única rede Podman padrão para todos os containers, com DNS nativo e autenticação por serviço;
 - desenvolvimento remoto por VS Code;
 - manutenção direta dos containers;
 - deployment reproduzível a partir do host;
@@ -26,6 +71,13 @@ O boilerplate deve privilegiar:
 - utilização preferencial de componentes maduros em vez de software administrativo desenvolvido especificamente para o boilerplate.
 
 ---
+
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
 # 2. Ambiente-alvo
 
@@ -45,14 +97,49 @@ O boilerplate **não deve exigir acesso administrativo permanente dos desenvolve
 Desativar SELinux remove controles obrigatórios de acesso e reduz o isolamento do host. O deployment deve validar que SELinux já está desativado; não deve alterar essa configuração.
 
 O host é responsável principalmente por:
-
 - executar Podman;
 - fornecer armazenamento;
 - executar os containers;
 - aplicar a configuração inicial do ambiente;
 - executar operações excepcionais de infraestrutura.
 
+## 2.2 Cockpit no host
+
+Cockpit será instalado diretamente no host RHEL como interface de administração geral do servidor,
+independente dos containers, do Gateway e do Portainer. A instalação, atualização e configuração
+ficam sob responsabilidade da equipe de infraestrutura, usando pacotes suportados do RHEL e
+ativação por `cockpit.socket`. Essa instalação está planejada; não foi executada por este contrato.
+
+Seu escopo inclui serviços systemd, logs do host, armazenamento, interfaces de rede, atualizações,
+contas e diagnóstico, conforme os módulos e as permissões disponíveis no RHEL. Portainer permanece
+responsável pela interface de gestão dos containers; não instalar `cockpit-podman` como segunda
+interface de gestão nem substituir o deployment declarativo Quadlet por operações manuais.
+
+Cockpit usa autenticação do sistema integrada aos controles corporativos existentes e elevação
+de privilégios autorizada pela política do host. Acesso fica restrito à equipe de infraestrutura,
+com HTTPS e certificado confiável em endereço de gestão do host. A porta padrão é TCP `9090`;
+bind e regras de ingresso devem limitar acesso à rede administrativa corporativa, sem exposição
+pública ou liberação indiscriminada no firewall.
+
+Esse endpoint administrativo do host deve permanecer acessível à infraestrutura quando o Gateway
+ou a VPN de desenvolvimento estiverem indisponíveis. Não usa o proxy NGINX de aplicações nem
+constitui outro canal de acesso remoto para desenvolvedores. Não instalar Cockpit no Gateway
+ou publicar sua porta por Podman; não depende da rede de containers ou de seu DNS.
+
+Mudanças de rede e serviços do host exigem os procedimentos de controle e recuperação da
+infraestrutura. A indisponibilidade do Cockpit não deve interromper containers, VPN ou DNS.
+O deployment do boilerplate não instala pacotes do host nem altera suas políticas de acesso.
+
+Referência: [instalação e execução do Cockpit no RHEL](https://cockpit-project.org/running.html#rhel).
+
 ---
+
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
 # 3. Princípio fundamental de isolamento
 
@@ -61,7 +148,7 @@ A arquitetura separa o perímetro de segurança e três planos funcionais:
 ```text
                   ┌──────────────────────────┐
                   │ Security Perimeter       │
-                  │ VPN / Firewall / ACL /   │
+                  │ Firewall / ACL /         │
                   │ Authentication           │
                   └────────────┬─────────────┘
                                │
@@ -72,50 +159,48 @@ A arquitetura separa o perímetro de segurança e três planos funcionais:
        Developer access                 User access
                │                                │
                ▼                                ▼
-       Development Gateway    Optional NGINX HTTP proxy
+       Development Gateway    NGINX de aplicações
                │                                │
                ▼                                ▼
-          Podman networks                App endpoints
+          Podman network                 App endpoints
 ```
 
 ## 3.1 Security perimeter
 
-O controle de quem pode alcançar o ambiente não pertence ao boilerplate.
+O perímetro externo controla quem pode alcançar os endpoints publicados do ambiente.
 
 Inclui, conforme a infraestrutura disponível:
 
-- VPN corporativa;
 - firewall externo;
 - ACL;
 - autenticação;
 - autorização de acesso ao host/endpoint;
 - controle de portas de entrada.
 
-O Gateway assume que uma conexão que chegou até ele já passou pelos mecanismos externos de autorização.
-Essa premissa descreve o acesso administrativo ao Gateway; não comprova a identidade HTTP apresentada
-à aplicação nem torna confiáveis campos `X-USER` recebidos por um caminho de bypass.
-Para acesso HTTP de usuários, o perímetro autentica o usuário, remove ou substitui campos de identidade
-fornecidos pelo cliente e injeta os campos `X-USER` confiáveis. A aplicação usa esses campos para
-autorizar operações; o NGINX somente encaminha HTTP e não autentica usuários. A lista exata de campos
-`X-USER` e o mecanismo que comprova a proveniência do perímetro permanecem pré-requisitos de
-implementação. Endpoints protegidos rejeitam identidade ausente ou não confiável.
+O perímetro externo garante a autenticação do usuário HTTP e do host, validando sua identidade e não requer qualquer autenticação adicional por parte da aplicação ou verificação posterior.
+
+Necessária que solução proveja a autenticação complementar para acesso de desenvolvedores pela VPN, usando métodos nativos do sistema, assim como acesso SSH e a bancos de dados demandará configuração manual complementar.
 
 ## 3.2 Management Plane
 
+Realizada no pelo Gateway Container e faz parte deste repositório. O Gateway
+
 Responsável por:
 
-- acesso SSH;
-- túneis;
-- túneis, roteamento IP e forwarding;
+- inscrição e autorização de dispositivos pelo Headscale;
+- administração do acesso VPN pelo Headplane;
+- conectividade VPN por clientes Tailscale e roteamento IP pelo Gateway;
 - DNS de desenvolvimento;
 - diagnóstico de rede;
-- Cockpit;
+- Portainer para gestão dos containers pela VPN;
 - gerenciamento Podman;
 - acesso de manutenção aos containers.
 
 ## 3.3 Application Plane
 
-Responsável por executar:
+Utiliza a autenticação fornecida pelo perímetro externo para validar usuários HTTP e credenciais repassadas pelo proxy de autenticação como campos x-user.
+
+Responsável por executar.
 
 - backend;
 - frontend;
@@ -123,121 +208,63 @@ Responsável por executar:
 - banco de dados;
 - outros serviços específicos da aplicação.
 
-## 3.4 Application Access Plane
-
-Responsável por disponibilizar a aplicação aos usuários/consumidores.
-
-O acesso de usuários HTTP pode usar o proxy NGINX compartilhado opcional. Serviços não HTTP são
-publicados diretamente por bind de host, protocolo e porta publicados explicitamente; cada serviço
-mantém sua autenticação e o perímetro controla a exposição. Esse plano é independente do Development
-Gateway, que fornece somente acesso de desenvolvimento aos serviços configurados.
-
 ---
+
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
 # 4. Containers principais
 
-O boilerplate define quatro categorias lógicas de containers.
+O boilerplate define quatro tipos principais de containers. Portainer é um container de gestão
+associado ao Gateway, detalhado na seção 5.2.
 
 ## 4.1 Gateway
 
-Container compartilhado entre todas as aplicações.
+Container compartilhado para acesso remoto, coordenação VPN e diagnóstico de rede.
 
 Responsabilidades:
 
-- SSH;
-- DNS;
-- routing;
-- servidor WireGuard IPv4-only para peers de desenvolvimento;
-- cliente OpenVPN e SSH TUN, mantidos como caminhos separados;
-- forwarding roteado entre túneis ativos e todas as redes Podman configuradas;
-- acesso às redes de desenvolvimento das aplicações;
+- servidor de coordenação Headscale;
+- interface administrativa Headplane;
+- daemon Tailscale (`tailscaled`) como subnet router;
+- encaminhamento entre a VPN e a rede Podman padrão;
 - ferramentas de diagnóstico;
-- Cockpit;
-- cockpit-podman.
 
-O acesso remoto de desenvolvedores preserva o IP IPv4 de origem e não usa NAT. O contrato de túneis,
-destinos roteados, pools, pares de endereços ponto a ponto, rotas de retorno e DNS do Gateway é
-IPv4-only; DNS publica registros A, não AAAA. Isso não desativa IPv6 no host, Gateway, VM ou cliente.
-O runtime não força IPv4 na conexão SSH externa; clientes que precisam dessa família usam `ssh -4`.
-O egress iniciado por containers usa a saída normal do Podman rootful no host e pode usar masquerading.
-
-WireGuard é servidor aditivo no Gateway; não substitui cliente OpenVPN nem SSH TUN. O schema,
-runtime IPv4, CLI root-only de peers, publicação UDP condicional e receitas de split DNS estão
-implementados. A configuração versionada habilita WireGuard e o cliente OpenVPN; SSH TUN permanece
-desativado. WireGuard usa `0.0.0.0:1194/UDP`, pool `192.168.10.0/24`, servidor/resolver
-`192.168.10.1` e chave externa em `/etc/gateway/wireguard/server.key`. O allocator reserva o
-endereço `.1` para o servidor. `--apply` gera a chave somente quando ausente; chave existente é
-reutilizada para preservar perfis de cliente já emitidos. O endpoint acessível pelo cliente não fica no JSON nem no preflight:
-`peer generate --endpoint` o inclui no perfil `.conf`. A aceitação de túnel e forwarding do kernel
-não foi validada no host-alvo.
-O runtime SSH TUN está implementado, mas ativação real e aceitação em host-alvo permanecem
-pendentes. O perfil OpenVPN externo é montado sem leitura pelo Gateway; diretivas IPv6 locais não
-são suportadas pelo runtime.
-O Gateway usa `Restart=always` para recuperar serviços base após falhas. Com marcador crítico
-WireGuard persistente, o startup mantém SSH, DNS e Cockpit, não inicia o runtime WireGuard e tenta
-instalar regras nftables de descarte para `wg0` e a porta UDP; se a instalação falhar, registra
-que o estado do kernel não foi confirmado e não declara o túnel parado.
-
-O Gateway é uma **unidade administrativa única**.
-
-Não deve ser criado um gateway independente por aplicação salvo necessidade arquitetural futura claramente justificada.
+Portainer usa container de gestão separado. A seção 5 define composição, privilégios, acesso e
+recuperação do Gateway.
 
 ---
 
-## 4.2 HTTP proxy opcional
+## 4.2 Application containers
 
-Container NGINX opcional e compartilhado, distinto do Development Gateway. Ele fornece somente
-reverse proxy HTTP; não representa um componente geral de acesso a aplicações.
-
-Responsabilidade:
-
-- encaminhar as rotas HTTP configuradas para serviços de aplicação;
-- receber HTTP do perímetro externo, que fornece TLS, certificados, DNS público e autenticação de usuários;
-- opcionalmente servir downloads/arquivos estáticos somente para leitura, fora da SPA.
-
-NGINX é o único provedor HTTP previsto. Instale-o somente quando `http_proxy` estiver habilitado. Ele
-não implementa login, autenticação ou autorização e não é canal de manutenção de containers.
-
-O perímetro remove ou substitui valores de identidade enviados pelo cliente e injeta os campos
-`X-USER` confiáveis. A aplicação usa esses valores para autorização. A lista exata permitida e o
-mecanismo de proveniência ainda precisam ser definidos e verificados como pré-requisito de
-implementação; um CIDR ou um header bruto não prova identidade. O listener HTTP atualmente vincula
-`0.0.0.0:8080`, e o Development Gateway fornece um caminho de bypass aos containers. Antes de expor
-rotas protegidas, o deployment deve exigir restrição efetiva de ingresso ao perímetro confiável ou
-proveniência perímetro-aplicação verificada. Acesso direto pelo Gateway ou ao listener do host não
-confere confiança aos campos `X-USER`; endpoints protegidos rejeitam identidade ausente ou não
-confiável.
+Aplicações usam containers para backend, frontend e serviços auxiliares. A configuração inicial
+combina frontend e FastAPI em `webApp`; PostgreSQL permanece separado. Detalhes estão na seção 6.
 
 ---
 
-## 4.3 Application containers
+## 4.3 Database
 
-Cada aplicação pode possuir:
+PostgreSQL usa container e volume persistente, sem porta publicada no host. Autenticação e
+autorização são responsabilidade do banco. Detalhes estão na seção 7.
 
-- backend;
-- frontend;
-- worker;
-- scheduler;
-- serviços auxiliares.
+## 4.4 HTTP Proxy
 
-Na configuração inicial, os assets frontend e FastAPI serão servidos pelo mesmo processo no container `webApp`; PostgreSQL permanece em container separado. Serviços auxiliares podem usar containers próprios.
-
-As imagens do Gateway e das aplicações devem usar uma distribuição Linux eficiente e mantida,
-preferencialmente Debian ou Alpine. A distribuição do container é independente do host RHEL.
+NGINX obrigatório fornece um endpoint HTTP compartilhado para as aplicações. Um segundo NGINX,
+exclusivo para desenvolvimento, emula os cabeçalhos de identidade do acesso autenticado. Detalhes
+e limites de ambos estão na seção 8.
 
 ---
 
-## 4.4 Database
-
-PostgreSQL deve ser executado em container.
-
-O banco deve possuir armazenamento persistente através de volume dedicado.
-
-PostgreSQL não recebe porta publicada diretamente no host. Desenvolvedores com acesso roteado ao Gateway podem alcançar a rede do banco; PostgreSQL deve aplicar sua própria autenticação e autorização.
-
-PostgreSQL conecta-se a `webApp` e `shared`. Todos os containers em `shared`, inclusive NGINX e Gateway, têm alcance de rede ao banco. A rede não isola frontend e backend quando ambos compartilham o container `webApp`; o deployment deve limitar credenciais à identidade de processo do FastAPI. A viabilidade desse limite permanece um gate.
-
----
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
 # 5. Gateway
 
@@ -249,201 +276,279 @@ Componentes previstos:
 
 ```text
 Debian
-├── OpenSSH
-├── DNS service
+├── Headscale
+├── Headplane
+├── tailscaled (subnet router)
+├── integração de rede conforme seção 9
 ├── routing / IP forwarding
-├── OpenVPN client
-├── SSH TUN / TCP forwarding
 ├── iproute2
 ├── ss
 ├── tcpdump
 ├── conntrack
-├── ferramentas básicas de diagnóstico
-├── Cockpit
-└── cockpit-podman
+└── ferramentas básicas de diagnóstico
 ```
+
+Portainer não é instalado na imagem do Gateway; usa sua própria imagem e container na rede
+padrão, com acesso remoto roteado pelo Gateway.
 
 Componentes adicionais somente devem ser incluídos quando houver necessidade operacional clara.
 
 ---
 
-## 5.2 Cockpit
+## 5.2 Portainer
 
-Cockpit será a interface administrativa principal.
+Portainer será a interface administrativa dos containers, em container dedicado na rede padrão
+`podman`. Headplane administra o acesso VPN; Portainer não substitui Headplane, Headscale ou
+`tailscaled` e não fornece administração geral do sistema operacional do host.
 
 Funções esperadas:
 
-- visualização do estado do sistema;
-- logs;
-- terminal;
-- diagnóstico;
-- administração de containers;
-- administração Podman;
-- visualização de recursos;
-- acompanhamento das redes.
+- visualização do estado e consumo de recursos dos containers;
+- consulta a logs e diagnóstico de containers;
+- console de containers para operadores autorizados;
+- operações de gestão compatíveis com a API Podman, validadas no host-alvo;
+- inspeção da rede padrão, volumes e imagens.
 
-O Cockpit não participa do caminho dos dados das aplicações.
+Portainer não participa do caminho dos dados das aplicações. Sua indisponibilidade não deve
+interromper containers, conectividade VPN ou DNS.
 
-Ele funciona como **control plane**, não como proxy de aplicação.
+Quadlet e os scripts versionados permanecem donos do deployment declarativo e do ciclo de vida
+persistente. Não criar stacks ou recriar serviços por Portainer em paralelo com Quadlet.
+Alterações estruturais precisam voltar à configuração versionada; operações de parada/reinício
+devem respeitar as unidades systemd e suas políticas de reinício. Validar essas interações antes
+de permitir operações pela interface.
 
----
-
-## 5.3 cockpit-podman
-
-O `cockpit-podman` será utilizado para administração dos containers Podman.
-
-A comunicação com Podman deve preferencialmente utilizar Unix socket/API local.
-
-Não expor o Podman API diretamente por TCP, salvo decisão arquitetural futura explicitamente documentada.
-
-O acesso ao socket deve ser limitado aos privilégios necessários.
+Persistir os dados do Portainer em volume dedicado montado em `/data`, incluindo configuração,
+usuários e credenciais protegidas. O bootstrap administrativo ocorre pelo operador de infraestrutura,
+com token inicial protegido e acesso restrito; não deixar a criação do primeiro administrador aberta.
+O endpoint HTTPS deve usar certificado confiável e autenticação própria, além da autorização VPN.
+Não publicar portas de gestão no host ou expor funcionalidades Edge/Agent sem necessidade aprovada.
 
 ---
 
-# 6. Modelo de privilégios do Gateway
+## 5.3 Integração Portainer e Podman
 
-O gateway necessita de capacidades de rede para:
+Portainer utiliza a API compatível com Docker exposta pelo serviço Podman, não uma integração
+nativa com todos os recursos Podman. O operador habilita o socket rootful local
+`/run/podman/podman.sock`, disponibilizado somente ao container Portainer em
+`/var/run/docker.sock`. Não é necessário Agent para esse ambiente local.
 
-- forwarding;
-- routing;
-- acesso às redes Podman;
-- servidor WireGuard, cliente OpenVPN e SSH TUN.
+O socket concede controle administrativo equivalente a root sobre os containers e potencialmente
+sobre o host. Uma montagem somente leitura não transforma a API em somente leitura. Restrinja
+Portainer a operadores de infraestrutura confiáveis; não conceda esse acesso a todo desenvolvedor.
+Não montar esse socket no Gateway, Headplane ou containers de aplicação, nem expor a API por TCP.
 
-Entretanto, o container não deve receber acesso indiscriminado ao host RHEL.
+A documentação de instalação Portainer para Podman descreve CentOS 9 e Podman 5.x rootful;
+isso não comprova suporte ao alvo RHEL 9.8 / Podman 5.8.2. Fixar edição e versão compatíveis,
+verificar a matriz do fornecedor e validar as operações necessárias no host-alvo. Recursos
+indisponíveis na edição escolhida não podem ser presumidos.
 
-Particularmente, deve-se evitar, sem justificativa:
+O exemplo upstream utiliza `--privileged`; este contrato não autoriza essa opção. A implantação
+deve demonstrar funcionamento com permissões mínimas, sem `--privileged`. Se isso não for possível,
+bloquear a aceitação e solicitar revisão explícita, sem ampliar privilégios silenciosamente.
 
-- montagem do filesystem completo do host;
-- acesso irrestrito a `/proc` do host;
-- acesso irrestrito a `/sys` do host;
-- execução `--privileged` quando capacidades específicas forem suficientes;
-- exposição remota do Podman socket.
+Referências: [Portainer com Podman](https://docs.portainer.io/start/install-ce/server/podman/linux)
+e [requisitos e matriz de versões](https://docs.portainer.io/start/requirements-and-prerequisites).
 
-A configuração final de capabilities será definida durante a implementação e validada em RHEL 9.8 com Podman rootful 5.8.2 e SELinux desativado. Use somente capabilities mínimas, incluindo `NET_ADMIN` apenas se a implementação WireGuard/túnel demonstrar necessidade. Não use `--privileged`. O deployment não altera a configuração de segurança do host.
+## 5.4 Privilégios e firewall
 
----
+O Gateway precisa de capacidades de rede para encaminhar tráfego, mas não deve receber acesso
+indiscriminado ao host. Use capabilities específicas; não use `--privileged`, monte o filesystem
+completo do host nem exponha o socket Podman.
 
-# 7. Firewall
+O Gateway não é o firewall de segurança do ambiente. O perímetro controla endpoints publicados;
+Headscale/Headplane controla acesso VPN. `firewalld` e `nftables` ficam desativados por decisão do
+contrato. Deployment documenta esse requisito sem alterar a configuração do host.
 
-O Gateway **não é concebido como firewall de segurança do ambiente**.
+## 5.5 VPN, roteamento e acesso remoto
 
-O controle de acesso externo ocorre antes da chegada da conexão ao gateway.
+Headscale, Headplane e `tailscaled` compartilham o Gateway. Headscale coordena inscrição, políticas
+e rotas; Headplane administra usuários e dispositivos; `tailscaled` atua como subnet router.
+Clientes Tailscale conectam-se ao Headscale auto-hospedado.
 
-Portanto:
+A VPN é split tunnel IPv4. O Gateway anuncia somente o CIDR efetivo da rede padrão `podman`;
+clientes autorizados aceitam essa rota. Desative SNAT com `--snat-subnet-routes=false` e configure
+retorno pelo endereço estável do Gateway no host. Preserve o IP VPN de origem. Não anuncie rota
+default nem transforme o Gateway em exit node.
 
-- não haverá interface de firewall para autorização de desenvolvedores;
-- regras de segurança do gateway serão mínimas e estáveis;
-- regras estruturais poderão ser configuradas pelo deployment;
-- mudanças operacionais de autorização não serão feitas pelo Cockpit.
+O endpoint HTTPS do Headscale precisa de DNS e conectividade antes da VPN. Headplane e Portainer
+exigem HTTPS, autenticação própria e acesso de operadores pela VPN. O Gateway não oferece bastion,
+listener de shell nem transporte alternativo para desenvolvedores.
 
-O uso de `firewalld` não é requisito da arquitetura.
+Inscrição usa tokens individuais, de uso único e validade curta. Clientes geram e mantêm chaves
+privadas localmente. Expirar um token não revoga dispositivos já inscritos; operadores gerenciam
+expiração e revogação separadamente.
 
-`nftables` ou mecanismo equivalente poderá ser utilizado somente para as funções técnicas necessárias ao funcionamento do gateway, caso sejam necessárias.
+O host instala rota de retorno ao prefixo VPN pelo Gateway. Containers usam egress normal do
+Podman rootful, que pode aplicar masquerading; isso não altera a origem preservada na VPN.
+Não implante estado quando prefixos ou rotas conflitarem. Rotas gerenciadas precisam de ownership,
+reconciliação idempotente e rollback limitado ao estado do deployment.
 
----
-
-# 8. Redes Podman
-
-## 8.1 Princípio
-
-O array top-level `networks` em `config/host_config.json` é o inventário global das redes Podman
-declaradas para aplicações e serviços. Cada aplicação deve possuir uma rede Podman própria com CIDR exclusivo.
-
-Exemplo do formato de registro (o sufixo interno aprovado é `dev.anatel`):
-
-```text
-project-a-net
-project-b-net
-project-c-net
-```
-
-As redes app-specific não roteiam entre si. A topologia inicial também conecta todos os containers de aplicação e PostgreSQL à rede `shared`; essa rede fornece conectividade direta e exige autenticação/autorização em cada serviço.
-
-`networks` descreve somente essas redes Podman de aplicação, não interfaces físicas/do host, redes do host, rotas VPN ou pools de endereços de túneis. A rede Podman `shared` é uma bridge compartilhada por seus membros; ela não é uma interface física do host nem uma interface de host compartilhada com o Gateway.
-
----
-
-## 8.2 Gateway compartilhado
-
-O Gateway compartilhado possui uma interface Podman para cada rede declarada no inventário global top-level `networks` de `config/host_config.json`, incluindo `shared`. Ele não mantém uma lista seletiva de redes por serviço:
-
-```text
-                 Gateway
-                  /        |        \
-                 /         |         \
-        project-a-net project-b-net project-c-net
-```
-
-O Gateway administra todas as redes declaradas sem rotear entre redes app-specific. A rede `shared` é uma exceção explícita: seus membros podem comunicar-se diretamente na mesma rede.
-
-O JSON declara o endereço da interface Podman do Gateway em cada rede. Esse endereço atende DNSMasq para os containers conectados à rede. Não confunda essas interfaces de rede Podman com interfaces físicas/do host ou interfaces de túnel.
-
-A configuração declara `shared` e `webApp` no inventário top-level `networks`, mantendo o Gateway conectado a todas as redes declaradas. Aplicações futuras adicionam cada rede Podman nova somente a esse inventário e reconciliam o Gateway existente.
+Persistir identidade e banco do Headscale, estado de `tailscaled` e dados do Headplane em volumes
+separados. Reinícios não devem exigir reinscrição. Falhas de processos e de saúde devem ser
+explícitas; indisponibilidade do Headplane não interrompe tráfego VPN já autorizado.
 
 ---
 
-## 8.3 Isolamento
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-Por padrão:
+# 6. Aplicações
 
-```text
-project-a-net  ──X── project-b-net
-project-a-net  ──X── project-c-net
-project-b-net  ──X── project-c-net
-```
+Cada aplicação pode usar containers para backend, frontend, workers, schedulers e serviços
+auxiliares. A configuração inicial combina assets frontend e FastAPI no container `webApp`;
+PostgreSQL permanece separado.
 
-Não há roteamento entre redes específicas de aplicações. A rede `shared`, porém, conecta diretamente todos os containers associados a ela. A topologia selecionada inclui `webApp` e PostgreSQL; por isso, esses serviços podem iniciar conexões uns com os outros sem atravessar o Gateway.
+FastAPI fornece API REST/HTTP, lógica de negócio, integrações e acesso ao banco. Ele autoriza
+usuários com base em identidade confiável fornecida pelo perímetro, quando aplicável. O backend
+não assume funções de infraestrutura do Gateway.
 
-O Gateway também conecta-se a todas as redes e pode alcançar todos os containers, inclusive bancos. Nem redes específicas nem `shared` protegem esses serviços de um Gateway comprometido. Mantenha autenticação nos destinos e trate o Gateway como componente administrativo de alto privilégio.
+Vite constrói assets JavaScript estáticos, servidos por FastAPI na aplicação inicial. O caminho
+padrão é `/app/` para a SPA e `/app/api/` para a API, no mesmo listener TCP `8000`. Páginas pequenas
+podem usar HTML/CSS/JavaScript sem build; adote framework somente quando a complexidade justificar.
+Assets do browser nunca recebem credenciais PostgreSQL.
 
-Como frontend e FastAPI compartilham o container `webApp`, a rede não separa os processos. O deployment deve limitar as credenciais PostgreSQL à identidade de processo do FastAPI.
+Frontend e FastAPI compartilham o container e não têm isolamento entre processos. Somente o
+processo FastAPI deve receber credenciais PostgreSQL. Cada container de aplicação conecta-se
+somente à rede padrão `podman`, autentica seus próprios serviços e usa aliases únicos declarados
+no Podman.
+
+Imagens devem usar distribuição mantida e eficiente, preferencialmente Debian ou Alpine. O host
+RHEL não determina a distribuição dos containers.
 
 ---
 
-# 9. DNS de desenvolvimento
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-## 9.1 DNSMasq
+# 7. PostgreSQL
 
-O Gateway deverá executar **DNSMasq** como serviço DNS de desenvolvimento.
+PostgreSQL 18 é o padrão inicial, com versão configurável por instância no JSON. Ele usa um
+container separado, uma interface na rede padrão `podman` e volume persistente. Não publique sua
+porta no host. Desenvolvedores podem alcançar o serviço pela VPN roteada; PostgreSQL aplica
+autenticação e autorização próprias.
 
-O objetivo é fornecer aos desenvolvedores resolução de nomes para os serviços dos containers sem exigir conhecimento ou gerenciamento manual de seus endereços IP.
+Somente o processo FastAPI no container `webApp` recebe credenciais PostgreSQL. Como frontend e
+backend compartilham o container, valide que os assets servidos ao browser nunca exponham essas
+credenciais.
 
-O fluxo esperado é:
+### Backup e recuperação
 
-```text
-Developer
-    │
-    │ DNS query
-    ▼
-Gateway
-    │
-    ▼
-DNSMasq
-    │
-    ▼
-generated DNS configuration
-    │
-    ▼
-current container address on its declared Podman network
-```
+O plano, ainda não implementado, usa pgBackRest dentro do container PostgreSQL como conta
+`postgres`; timers no host acionam operações locais limitadas. O plano propõe full mensal e
+incremental semanal, com volumes separados para `PGDATA`, repositório de trabalho e exportações
+concluídas.
 
-## 9.2 Configuração gerada pelo deployment
+Publique somente gerações completas e verificadas, sem expor transferências parciais. Não sobrescreva
+backups publicados nem apague a origem antes do acknowledgement externo e da retenção necessária.
+Falhas de volume, permissão ou cópia devem falhar sem fallback. Restore é manual e exige restore
+drill; nunca restaure automaticamente durante deployment. Os caminhos e operações ainda não são
+suportados pelo runtime atual.
 
-A configuração do DNSMasq deverá ser gerada ou atualizada pelo mecanismo de deployment.
+---
 
-O deployment deverá conhecer a relação entre:
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-```text
-application
-    └── service
-          ├── current container address and declared network
-          ├── Gateway DNS address on that network
-          └── DNS answer for routed clients
-```
+# 8. HTTP Proxy
 
-e produzir os registros DNS correspondentes.
+O deployment inclui dois containers NGINX distintos na rede padrão `podman`. O primeiro é
+obrigatório e publica um endpoint compartilhado para todas as aplicações HTTP. O segundo é
+exclusivo para desenvolvimento e emula o proxy autenticado de perímetro, como F5 Big-IP.
+Nenhum deles atende Portainer, Headplane ou Cockpit. Este contrato define a topologia desejada;
+não declara que sua implantação ou validação já ocorreu.
 
-Exemplo:
+## 8.1 Proxy compartilhado das aplicações
+
+Este NGINX recebe as chamadas externas na porta `8080` do host, vinculada ao listener TCP `8080`
+do container. É o único endpoint HTTP publicado pelo boilerplate para aplicações e encaminha
+requisições por caminho a todas as aplicações configuradas, por exemplo `/app1` e `/app2`.
+Cada aplicação declara seus prefixos e upstreams. A aplicação inicial usa `/app/` e `/app/api/`,
+ambos encaminhados ao listener FastAPI `webApp:8000`; avalia a rota da API antes do fallback SPA.
+O proxy mantém somente estado de configuração e logs operacionais; não armazena dados de aplicação.
+
+O proxy não armazena dados de aplicação nem autentica usuários. Em produção, o perímetro externo
+fornece DNS, TLS e autenticação e encaminha HTTP à porta publicada `8080`. Ele remove ou substitui
+headers de identidade enviados pelo cliente e fornece identidade confiável. A aplicação autoriza
+esses usuários. A lista de campos `X-USER` e a prova de proveniência permanecem gates obrigatórios.
+Rotas protegidas devem falhar fechadas sem identidade confiável; CIDR ou header bruto não provam
+autenticação.
+
+Não habilite rate limiting por padrão. Limite uploads a 1 GB por padrão no NGINX e no serviço
+TUS. Compartilhamento básico de arquivos é opcional e somente para leitura.
+
+## 8.2 Emulador de proxy autenticado para desenvolvimento
+
+Este segundo NGINX existe exclusivamente para desenvolvimento e testes. Ele escuta TCP `80` no
+container, não publica nem vincula porta no host e recebe chamadas pela rede Podman, inclusive
+pela VPN autorizada. Encaminha as chamadas ao listener TCP `8080` do proxy compartilhado das
+aplicações. Assim, testa-se o mesmo roteamento por caminho sem criar um endpoint de produção
+alternativo.
+
+O emulador substitui o F5 Big-IP somente no ambiente de desenvolvimento: remove valores de
+identidade enviados pelo cliente e injeta os campos configurados `X-User-Email`, `X-User-Name`,
+`X-User-Groups`, `X-User-Department` e `X-User-Job-Title`. Não implementa login nem autentica
+usuários. Esses headers sintéticos não provam identidade e não podem ser usados como autenticação
+de produção.
+
+O acesso externo de usuários continua passando pelo perímetro real. O emulador não deve ser
+publicado no host nem substituir o perímetro em produção.
+
+## 8.3 Outros serviços
+
+Serviços não HTTP destinados a usuários usam publicação direta, com bind, protocolo e portas
+declarados, além de autenticação própria. O acesso de desenvolvimento pela VPN não depende de
+portas de aplicação publicadas no host; o acesso HTTP de desenvolvimento usa o emulador da seção
+8.2.
+
+---
+
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 9. Rede Podman e DNS de desenvolvimento
+
+Todos os containers usam exclusivamente a rede bridge rootful padrão `podman`, com backend
+Netavark. Não criar redes por aplicação nem recriar automaticamente uma rede em uso. O deployment
+inspeciona CIDR, bridge e DNS habilitado antes de usar a rede existente.
+
+Containers podem comunicar-se diretamente; não há isolamento de rede entre aplicações ou banco.
+Cada serviço deve aplicar autenticação e autorização próprias. A rede publica somente endereços
+IPv4 de serviços; isso não exige desativar IPv6 no host.
+
+O Gateway tem uma interface na rede `podman`, com endereço estável para retorno da VPN. Todos os
+outros containers usam a mesma rede. O CIDR e endereços de infraestrutura são definidos por
+inspeção, conforme a seção 10.
+
+## 9.1 DNS nativo do Podman
+
+Netavark e Aardvark DNS mantêm o registro dos nomes e aliases dos containers na rede `podman`
+durante seu ciclo de vida. Containers usam o resolver fornecido pelo Podman, sem arquivos
+manuais de endereços ou banco de registros mantido pelo Gateway.
+
+Não haverá serviço DNS independente para manter registros de containers. O deployment deve
+validar nomes curtos, aliases completos e atualização após recriação na versão-alvo.
+
+## 9.2 Nomes e aliases declarados
+
+O deployment declara nomes e aliases estáveis, únicos em toda a rede padrão, nas definições dos
+containers. Aliases completos de desenvolvimento usam o sufixo interno `dev.anatel`, por exemplo:
 
 ```text
 backend.project-a.dev.anatel
@@ -451,9 +556,12 @@ frontend.project-a.dev.anatel
 backend.project-b.dev.anatel
 ```
 
-A configuração deverá ser regenerável sem intervenção manual dentro do container do gateway.
+Podman registra esses aliases com o endereço atual do container. Não haverá geração de registros
+por IP, inventário paralelo `dns_records` ou watcher customizado. Nomes curtos também devem ser
+únicos; aliases completos distinguem serviços de aplicações diferentes.
 
-Containers e clientes remotos consultam DNSMasq no endereço do Gateway correspondente à sua rede ou túnel. DNSMasq resolve nomes declarados para os endereços atuais dos containers. Clientes remotos precisam de rotas até os CIDRs Podman; o acesso não usa NAT nem portas traduzidas. Consultas de domínios não declarados seguem para os resolvers upstream configurados no host.
+Consultas externas dos containers seguem os upstreams configurados no Podman. Não configure
+encaminhamento circular entre o resolver Podman, o host e o cliente VPN do Gateway.
 
 ## 9.3 Nomes internos e externos
 
@@ -471,7 +579,24 @@ frontend.project-a.dev.anatel
 dev-gateway.dev.anatel
 ```
 
-Esses nomes apontam para endereços atuais das redes Podman. Clientes remotos consultam DNSMasq por WireGuard, OpenVPN ou SSH TUN e precisam de rotas para os CIDRs correspondentes. WireGuard não configura split DNS nativamente; cada sistema operacional precisa de uma regra para `dev.anatel`. ProxyJump sozinho não transporta consultas DNS.
+Esses nomes são aliases registrados no DNS nativo da rede padrão. Headscale distribui split DNS
+de `dev.anatel` para o endereço efetivo do resolver Aardvark na bridge do host, descoberto pela
+inspeção da rede. Esse endereço pertence ao CIDR anunciado pelo Gateway; não confunda o endereço
+do resolver/bridge do host com o endereço do container Gateway.
+
+Clientes Tailscale devem aceitar DNS e rotas. A política VPN e as regras do host devem permitir
+consultas UDP e TCP 53 ao resolver somente pelas origens autorizadas, com retorno ao prefixo VPN.
+Validar consultas remotas a aliases completos e restrições por origem no Aardvark da versão-alvo
+é um gate obrigatório. DNS entre containers não comprova que consultas roteadas funcionarão.
+Se esse gate falhar, bloquear a aceitação e revisar explicitamente a integração; não instalar
+outro DNS nem gerar registros como fallback silencioso.
+
+Outros domínios dos clientes remotos continuam usando seus resolvers locais. Validar essa
+integração em Windows 11, Linux e macOS, sem tornar o DNS Podman um resolver público.
+
+MagicDNS nomeia dispositivos inscritos na VPN; não descobre containers atrás do subnet router.
+Podman mantém os registros dos containers; o deployment apenas declara seus aliases, conforme a
+seção 9.2. Não duplicar esses registros em Headscale.
 
 ### Nomes externos de aplicação
 
@@ -492,7 +617,9 @@ Os namespaces interno e externo não devem ser tratados como equivalentes.
 
 Os endereços IP individuais dos containers não constituem identidade permanente.
 
-Quando um container for recriado, o deployment deverá atualizar o registro DNS para o novo endereço. As rotas cobrem o CIDR da rede e não dependem do endereço individual do container.
+Quando um container for recriado, Podman atualiza os registros de seus nomes e aliases.
+O deployment preserva os mesmos aliases. As rotas cobrem o CIDR da rede padrão e não dependem
+do endereço individual do container; caches DNS devem respeitar os TTLs do resolver.
 
 O desenvolvedor continuará utilizando o mesmo nome lógico.
 
@@ -505,68 +632,77 @@ backend.project-a.dev.anatel
 
 ## 9.5 Escopo
 
-O Gateway deve disponibilizar resolução para todas as aplicações cujas redes estejam conectadas ao gateway.
-
-Registros DNS não criam conectividade; ela depende das interfaces declaradas. Serviços em redes app-specific distintas não têm rota entre si, mas os membros de `shared` comunicam-se diretamente.
+O DNS Podman cobre os containers da única rede padrão. A VPN fornece aos desenvolvedores acesso
+roteado a essa rede e ao seu resolver. Registros DNS não criam conectividade nem concedem acesso.
 
 ## 9.6 Serviços publicados no DNS
 
-Somente serviços declarados em `dns_records` recebem nomes DNS de desenvolvimento. O Gateway e os clientes autorizados têm alcance de rede a todos os serviços configurados, inclusive bancos de dados; cada serviço controla sua própria autenticação e autorização.
+Podman registra nomes de containers e aliases; não haverá lista DNS independente por serviço.
+Os aliases completos declarados definem os nomes de desenvolvimento. O Gateway e os clientes
+autorizados alcançam os serviços configurados, inclusive bancos; cada serviço controla sua
+própria autenticação e autorização.
 
 ---
 
-# 10. Alocação de redes
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-Cada aplicação deve receber um CIDR próprio.
+# 10. Endereçamento da rede Podman
 
-Exemplo:
+O CIDR efetivo da rede padrão `podman` é descoberto no host, não alocado por aplicação.
+O padrão upstream é `10.88.0.0/16`, mas a infraestrutura pode tê-lo alterado; não fixe rotas ou
+endereços do Gateway com base nesse valor sem inspeção.
+
+Headscale atribui endereços de dispositivos a partir de um prefixo IPv4 da VPN, separado do CIDR
+Podman. Esse prefixo e o endereço persistente do Gateway são inputs de deployment; não reutilize
+o CIDR de containers como pool de dispositivos.
+
+Antes de instalar estado, compare prefixo VPN e CIDR Podman com redes e rotas relevantes do host,
+da LAN dos desenvolvedores e do ambiente corporativo. O deployment deve anunciar somente os
+CIDR da rede padrão e instalar rotas de retorno ao prefixo VPN pelo Gateway. O endpoint Headscale
+deve estar alcançável antes de estabelecer a VPN.
+
+Endereços IP individuais de aplicações não são identificadores permanentes. Reserve somente os
+endereços de infraestrutura necessários, sem colidir com a bridge ou o IPAM do Podman.
+
+Referências: [rede padrão e DNS Podman](https://docs.podman.io/en/latest/markdown/podman-network.1.html)
+e [inspeção da rede](https://docs.podman.io/en/latest/markdown/podman-network-inspect.1.html).
+
+---
+
+
+
+---
+
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 11. Acesso aos containers e VS Code
+
+O desenvolvedor estabelece primeiro a VPN com o cliente Tailscale inscrito no Headscale do Gateway.
+Depois utiliza o DNS e as rotas distribuídos para acessar diretamente os serviços dos containers (SSH, SFTP, HTTP, ODBC etc.)
+
+## 11.1 VS Code Remote - SSH
+
+O VS Code conecta-se ao nome DNS do container de destino pela rede VPN, sem salto intermediário
+de autenticação no Gateway e sem publicar a porta do serviço no host.
 
 ```text
-project-a → 10.89.1.0/24
-project-b → 10.89.2.0/24
-project-c → 10.89.3.0/24
-```
-
-Os CIDRs não podem se sobrepor.
-
-Os endereços de desenvolvedores vêm de pools de túnel dedicados, nunca dos CIDRs Podman. O servidor WireGuard terá pool IPv4 ainda não definido; o servidor OpenVPN externo aloca os endereços de seus clientes; o pool SSH TUN é uma entrada de deployment e aloca pares ponto-a-ponto distintos por sessão. `gateway.remote_access.openvpn.client_pool` é opcional: sem ele, o runtime valida o endereço/máscara recebidos contra subnets Podman, mas não pode conferir a alocação externa nem instalar/validar a rota de retorno no host. O preflight avisa que roteamento simétrico de resposta não é garantido. Com pool configurado, os checks de conflito e a rota de retorno host existentes permanecem obrigatórios. Descubra os endereços/rotas ativos e compare-os com redes Podman e rotas relevantes do host, da LAN dos desenvolvedores e corporativas antes de instalar estado.
-
-O perfil OpenVPN permanece externo, privado e exclusivo do Gateway. A infraestrutura externa provisiona rotas para cada CIDR Podman via cliente OpenVPN do Gateway. Este setup novo não mantém compatibilidade de migração de configuração OpenVPN: `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains` e `endpoint` JSON são campos retirados e rejeitados em schema-v1. Isso não torna incompatíveis as demais seções opcionais schema-v1; seus contratos continuam definindo compatibilidade. O Gateway verifica caminho, tipo, propriedade e permissões do perfil antes de montá-lo somente para leitura; não lê seu conteúdo nem exige confirmação separada para ativação. O servidor WireGuard é executado pelo Gateway com bind `0.0.0.0`, UDP `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1` e caminho de chave `/etc/gateway/wireguard/server.key`. O endpoint cliente é fornecido por perfil com `peer generate --endpoint`, fora do JSON e do preflight. Receitas `.conf` implementadas cobrem Windows 11, Linux e macOS; validar cada plataforma antes do uso.
-
-Endereços IP individuais de containers não devem ser tratados como identificadores permanentes.
-
----
-
-
-
----
-
-# 11. Acesso SSH e VS Code
-
-O Gateway será o ponto de entrada para acesso SSH aos containers. ProxyJump encaminha conexões SSH TCP ao destino, onde ocorre a autenticação. SSH TUN (`ssh -w`) fornece conectividade IP roteada completa e também permite consultas DNS do cliente ao Gateway. São caminhos diferentes: ProxyJump não exige nem substitui o túnel.
-
-O objetivo é permitir utilização do:
-
-**VS Code Remote - SSH**
-
-ou mecanismos equivalentes.
-
-## 11.1 Papel do gateway no SSH
-
-Para acesso aos containers das aplicações, o Gateway deverá atuar como **gateway de forwarding**, e não como autoridade de autenticação dos desenvolvedores.
-
-O gateway não deverá validar a identidade do desenvolvedor para os containers de aplicação. A autenticação SSH deverá ocorrer no próprio destino, utilizando as credenciais/chaves configuradas para aquele container.
-
-Conceitualmente:
-
-```text
-Developer
+Developer / VS Code
    │
-   │ SSH connection
+   │ Tailscale VPN
    ▼
-Gateway
+Gateway tailscaled
    │
-   │ forwarding only
+   │ IP forwarding
    ▼
 Application container
    │
@@ -575,320 +711,39 @@ Application container
 Developer identity
 ```
 
-O gateway deverá, portanto, encaminhar a conexão sem substituir a autenticação SSH do destino. O servidor SSH do destino, a conta de desenvolvedor, a chave pública de destino e os pré-requisitos do VS Code Server precisam existir no container/host de destino; o Gateway não os provisiona por ProxyJump.
-
-ProxyJump é um caminho TCP para SSH; não substitui o túnel IP SSH TUN, não fornece DNS do cliente e não altera suas rotas. Os dois caminhos são suportados.
-
-### 11.6 Caminhos do VS Code Remote-SSH
-
-Há dois caminhos documentados, com aliases SSH distintos:
-
-- **Direto por SSH TUN:** depois que `ssh -w` estiver ativo e as rotas split do CIDR Podman estiverem instaladas, o VS Code conecta-se diretamente ao endereço/DNS do container. Esse caminho usa roteamento IP e não depende do host ter portas SSH publicadas.
-- **ProxyJump sem SSH TUN:** o VS Code conecta-se ao Gateway e usa `ProxyJump` para encaminhar TCP/22 ao destino. Isso não fornece conectividade Layer 3, DNS do cliente nem acesso a protocolos/portas arbitrários.
-
-Use identidade privada de Gateway somente no alias Gateway e a chave de destino autorizada no servidor de destino. Mantenha verificação de chave de host habilitada (`StrictHostKeyChecking yes`) e entradas conhecidas separadas por destino/alias; não desative verificação nem reutilize uma identidade de host pública entre destinos diferentes. O servidor SSH e a conta de desenvolvedor do destino, a chave pública correspondente e os requisitos de instalação/execução do VS Code Server são pré-requisitos externos ao Gateway.
-
-## 11.2 Acesso ao próprio Gateway
-
-O próprio container do Gateway constitui uma exceção.
-
-Quando o objetivo for administrar o gateway em si, a conexão será terminada no próprio container e sua autenticação SSH será realizada por ele.
-
-O gateway deverá possuir sua própria identidade/nome DNS de administração, distinta dos nomes dos containers das aplicações.
-
-Exemplo conceitual:
-
-```text
-dev-gateway.dev.anatel
-backend.project-a.dev.anatel
-frontend.project-a.dev.anatel
-```
-
-## 11.3 Chaves individuais
-
-Cada desenvolvedor deverá possuir sua própria chave SSH.
-
-Não serão utilizadas chaves privadas compartilhadas entre desenvolvedores.
-
-A chave privada permanece no equipamento do desenvolvedor. O ambiente recebe apenas a chave pública necessária para autenticação nos destinos correspondentes.
-
-## 11.4 Bootstrap de chaves
-
-O mecanismo de deployment deverá suportar a configuração inicial das chaves públicas necessárias.
-
-O bootstrap poderá receber múltiplas chaves públicas por container em um arquivo root-managed, configurado por destino, e instalá-las em uma conta de destino não-root dedicada. O arquivo fica fora do Git e é montado no container somente para leitura.
-
-O caminho padrão no host é `/etc/gateway/application-keys/<container>/authorized_keys`; o caminho efetivo deve ser configurável no JSON. Use `root:root` e modo `0600`. Monte o arquivo somente para leitura em `/home/<account>/.ssh/authorized_keys` no container habilitado para SSH.
-
-Isso permite que um ambiente novo seja disponibilizado já com o acesso SSH configurado, sem exigir que um administrador entre manualmente no container para configurar o primeiro usuário.
-
-As chaves privadas nunca deverão ser copiadas para o ambiente pelo deployment.
-
-A administração posterior das chaves poderá ser realizada pelo mecanismo de deployment ou por ferramentas administrativas, conforme definido pela infraestrutura.
-
-## 11.5 Cockpit e administração de chaves
-
-Cockpit não será tratado como mecanismo obrigatório para provisionamento inicial das chaves SSH dos desenvolvedores.
-
-Embora o Cockpit possa fornecer funções de administração de usuários/SSH no próprio sistema, o contrato do boilerplate deverá privilegiar o **deployment declarativo** para o bootstrap das chaves.
-
-Isso mantém a configuração:
-
-- reproduzível;
-- auditável;
-- independente de intervenção manual no container.
-
-O conteúdo das chaves públicas poderá ser fornecido externamente ao repositório conforme a política de acesso da organização.
-
-O host RHEL não deve ser requisito para a conexão diária do desenvolvedor.
-
-# 12. Acesso WireGuard, OpenVPN e SSH TUN
-
-O Gateway deverá acrescentar um servidor WireGuard IPv4-only para onboarding de peers de
-desenvolvimento. Ele coexistirá com o cliente OpenVPN existente e SSH TUN (`ssh -w`); não os
-substituirá nem alterará seus perfis, pools ou regras. O servidor WireGuard termina no container
-Gateway. O host publica o listener UDP do container; endpoint e porta permanecem inputs de
-deployment. Nenhum painel ou API administrativa pública será criado.
-
-Todos os peers WireGuard aprovados recebem rotas split para **todos os CIDRs** no array top-level
-`networks`, incluindo `shared`, redes de aplicações e redes de PostgreSQL. A configuração atual
-inclui `192.168.9.0/24` (`shared`) e `192.168.8.0/29` (`webApp`). Esses valores não definem o pool
-WireGuard. O pool `192.168.10.0/24` inclui o endereço do servidor `192.168.10.1`, reservado pelo
-allocator; o resolver usa esse endereço do túnel. Se o resolver não estiver em um CIDR Podman, o
-perfil inclui seu `/32` além dos CIDRs Podman. A configuração define bind/porta e caminho da chave;
-o endpoint IPv4/DNS é obrigatório somente ao gerar cada perfil. Preflight valida pools e rotas do
-host, disponibilidade local do bind UDP e a chave, mas não valida endpoint nem alcançabilidade
-externa. Valide pools contra rotas locais, LAN, Podman e redes corporativas antes da ativação.
-Clientes não recebem rota default pelo túnel. WireGuard não distribui rotas nem DNS: cada perfil
-cliente declara somente os CIDRs IPv4 Podman configurados em `AllowedIPs`; não incluir rota default.
-
-O namespace interno é exatamente `dev.anatel`, interno e não público. DNS gera somente registros A;
-não cria AAAA. Registros declarados ainda estão vazios. Configure `dev.anatel` por split DNS em cada
-sistema operacional, sem substituir o resolver global nem redirecionar DNS externo. WireGuard não
-configura split DNS pelo arquivo nativo do túnel. Consulte as receitas implementadas para
-[Windows 11](../recipes/wireguard-windows-11.md), [Linux](../recipes/wireguard-linux.md) e
-[macOS](../recipes/wireguard-macos.md). O schema aceita nomes `dev.anatel`; `dns_records` segue
-vazio. Validar comportamento e limpeza das receitas em cada sistema operacional antes do uso.
-
-O fluxo de peer usa operações root-only, inventário público auditável e revogação por peer. Qualquer
-pessoa com privilégio administrativo no container Gateway poderá executar essas operações e terá,
-por isso, alcance roteado a todos os serviços, inclusive PostgreSQL. Esses administradores são
-confiáveis para conceder esse acesso. Autenticação e autorização de serviço continuam obrigatórias;
-conectividade VPN não concede credenciais. Não há API/HTTP de administração exposta.
-
-A CLI manual gera o perfil `.conf` dentro do Gateway, entrega-o uma vez somente por `/dev/tty`
-direto em primeiro plano e exige aprovação em comando separado. O fluxo automatizado usa o script
-host-side root-only `scripts/gateway/onboard-wireguard-peer.sh`, que recebe somente `DEVICE_ID` e
-`OWNER` como argumentos e lê de `gateway.remote_access.wireguard` em `config/host_config.json`:
-`peer_purpose`, `client_endpoint`, `approval_reference`, `expires_at` e `client_profiles_path`.
-`client_endpoint` serve apenas para montar o perfil; a porta vem de `listen_port`.
-`client_profiles_path` é um caminho absoluto de diretório no host, fora do Git, configurado por
-padrão como `/var/lib/gateway/wireguard-client-profiles`; fica fora do volume de estado WireGuard e
-não é montado no container.
-
-O script gera e aprova o peer em uma chamada, captura o perfil sem mostrá-lo no terminal e publica
-um arquivo `.conf` somente após aprovação. A opção CLI `--profile-stdout` permite uma única saída
-não interativa somente quando stdout e stderr não são terminais e permanecem separados. O script
-redireciona cada fluxo para arquivos temporários protegidos; diagnósticos nunca incluem chave
-privada ou conteúdo do perfil. Ele cria ou verifica diretório `root:root` modo `0700`, grava arquivo `root:root` modo
-`0600`, publica sem sobrescrever e exibe somente sucesso curto ou erro sanitizado. Aprovação e
-revogação usam o fingerprint esperado para impedir ações sobre outra chave com o mesmo ID. Em
-falha conhecida, o script remove staging e tenta revogar o peer pendente ou aprovado. Se a
-compensação falhar, mantém o staging protegido e informa a falha. Se não receber marcador que
-confirme a geração, informa estado incerto e exige inspeção do inventário antes de nova tentativa.
-A entrega do perfil ao dispositivo continua sendo uma operação separada, por canal aprovado e
-protegido.
-
-O Gateway não persiste chaves privadas de cliente em inventário, logs, argumentos ou ambiente. O
-arquivo `.conf` root-only no host contém a chave privada para permitir importação; mantenha-o fora
-de Git, backup compartilhado e sync. A chave privada do servidor fica em
-`/etc/gateway/wireguard/server.key`, root-owned fora do Git, e é montada somente para leitura no
-Gateway. `--apply` cria essa chave somente se o caminho configurado estiver ausente; redeployments
-reutilizam a chave existente e mantêm válidos os perfis de cliente já emitidos.
-
-WireGuard, OpenVPN e SSH TUN usam IPv4 para este contrato; isso não desativa IPv6 no host nem nos
-clientes. Não haverá NAT, DNAT/SNAT ou forwarding entre redes de aplicações. Peers podem alcançar
-qualquer serviço nos CIDRs configurados; cada serviço mantém sua autenticação. SSH TUN mantém seus
-próprios usuários, pool, sessões e lifecycle. O servidor OpenVPN externo continua gerenciado
-externamente e aloca endereços ao cliente OpenVPN do Gateway. Opções de domínio pertencem ao
-servidor/perfil OpenVPN externo e não serão reaproveitadas como domínio WireGuard. Protocolo, porta
-e topologia também pertencem ao servidor/perfil; `client_to_client` é configuração do servidor. O
-JSON do Gateway mantém caminho opaco do perfil e `client_pool` opcional; não
-mantém endpoint OpenVPN. O schema permanece na versão 1 e rejeita os campos OpenVPN retirados
-listados acima, sem compatibilidade de migração. Sem `client_pool`, não há
-checagem de prefixo contra alocação, rota de retorno gerenciada nem garantia de resposta simétrica.
-Os parâmetros fixos de segurança do cliente continuam definidos no runtime; a ativação não exige
-uma confirmação de revisão separada.
-
-Pools configurados, CIDRs Podman e rotas relevantes do host, LAN dos desenvolvedores e rede
-corporativa não podem se sobrepor. Prefixo de cliente ambíguo entre transportes falha fechado; não
-selecionar automaticamente multihoming. Reconnect OpenVPN revalida rotas/endereço candidatos antes
-de ativá-los. Endpoint WireGuard é um input por perfil, não uma rota de host. Autorização
-administrativa é root-only por CLI; a entrega de chave usa TTY direto com os limites acima.
-Aceitação de kernel, rede e sistema operacional cliente segue pendente.
-
-
----
-
-# 13. Roteamento, egress e forwarding
-
-O acesso remoto de desenvolvedores usa roteamento IP entre peers WireGuard, o cliente OpenVPN do Gateway ou sessões SSH TUN e todos os CIDRs Podman declarados no JSON. É split tunnel: somente destinos Podman configurados recebem rotas pelo túnel; a rota default, o egress normal do cliente/container e o IP de origem do desenvolvedor são preservados. O acesso permite qualquer protocolo e porta, sem DNAT ou SNAT e sem aprovação de forwarding por serviço. Autenticação/autorização pertencem a cada container/serviço.
-
-Direção de rotas:
-
-1. Peers WireGuard recebem `AllowedIPs` com cada CIDR Podman configurado e um `/32` para o resolver quando ele não pertence a esses CIDRs. O servidor OpenVPN externo aloca endereços de cliente e o dono externo direciona cada CIDR Podman ao cliente OpenVPN do Gateway. Clientes SSH TUN recebem rotas da própria sessão.
-2. O Gateway alcança cada CIDR Podman pelas rotas conectadas às interfaces Podman já anexadas. Não instale rota de CIDR de aplicação de volta por um túnel de desenvolvedor.
-3. No Gateway, cada prefixo de cliente remoto retorna pelo túnel que o possui. Cada sessão SSH TUN possui interface e par de endereços únicos, com rotas alocadas e removidas por lifecycle hook daquela sessão.
-4. Containers enviam replies pela rota Podman normal ao host. O host instala um próximo salto determinístico do Gateway por prefixo de cliente remoto, não cópias concorrentes do mesmo prefixo por cada rede Podman. Se testes mostrarem que tabelas de policy routing são necessárias, elas devem ser explícitas e ter propriedade/reconciliação definida.
-
-Antes de alterar estado, validar pools configurados, bind/porta UDP WireGuard, rotas candidatas, CIDRs Podman e rotas relevantes do host/LAN/corporativas. Endpoint WireGuard é fornecido por perfil e não entra no preflight. OpenVPN não tem endpoint JSON. Sem `client_pool`, o runtime verifica endereço/máscara atribuídos contra subnets Podman, mas não valida a alocação externa nem gerencia rota host de retorno; roteamento simétrico não é garantido. Permitir rotas gerenciadas exatas e redes conectadas Podman/túnel necessárias; não rejeitar em bloco rotas default ou ranges conectados necessários. Rotas e regras têm proprietário identificável, reconciliação idempotente e rollback limitado ao estado candidato possuído pelo Gateway/sessão. Candidato inválido não altera rotas, forwarding, DNS ou serviços. Reconnect OpenVPN revalida alterações de rotas pushed antes da ativação. Não há watcher genérico; hooks de sessão são separados e limitados ao ciclo de vida de protocolo.
-
-Containers podem iniciar conexões para qualquer destino externo alcançável pela rota padrão do host. O egress usa o caminho normal do Podman rootful e pode usar masquerading; serviços externos verão o endereço de saída do host. Esse comportamento é separado do acesso remoto de desenvolvedores, que preserva o IP de origem.
-
-O Gateway encaminha tráfego entre túneis ativos e CIDRs Podman e tráfego de resposta relacionado, mas nunca entre redes de aplicações. Sua interface em cada rede permite alcançar todos os serviços, inclusive PostgreSQL; cada serviço deve controlar sua própria autenticação e autorização.
-
----
-
-# 14. HTTP reverse proxy e publicação de serviços
-
-O Development Gateway é exclusivamente para acesso de desenvolvedores aos serviços e portas de
-containers configurados. Esse acesso roteado não depende de portas publicadas no host. NGINX é
-apenas um proxy HTTP opcional, não um componente geral de acesso a aplicações.
-
-Exemplo:
-
-```text
-Internet / Corporate users
-          │
-          ▼
-Optional NGINX HTTP reverse proxy
-          │
-          ├── Application A
-          ├── Application B
-          └── Application C
-```
-
-Pode utilizar:
-
-- HTTP;
-- virtual hosts;
-- reverse proxy.
-
-O acesso de desenvolvimento não depende do proxy HTTP.
-
-Use NGINX como proxy HTTP opcional somente quando `http_proxy` estiver habilitado. O container escuta
-TCP 80; o endereço de bind e a porta publicada no host ficam no JSON. O bind selecionado permanece
-`0.0.0.0:8080`; não o altere silenciosamente. O perímetro externo fornece DNS público, certificados,
-TLS e autenticação, e encaminha HTTP ao host. Na aplicação inicial `webApp`, FastAPI no único
-listener `webApp:8000` serve a SPA em `/app/` e a API em `/app/api/`; NGINX encaminha ambas ao mesmo
-listener e avalia a rota da API antes do fallback SPA. Não há portas separadas de frontend e API
-nessa aplicação inicial. Outras aplicações HTTP podem declarar seus próprios upstreams e portas;
-`webApp:8000` não é uma restrição global do proxy.
-
-O perímetro autentica usuários e injeta campos de identidade `X-USER` confiáveis após remover ou
-substituir valores fornecidos pelo cliente. A aplicação usa esses campos para autorização. NGINX
-somente faz proxy; não há engine de login/autenticação. A lista exata dos campos `X-USER` e o
-mecanismo de proveniência confiável permanecem pré-requisitos de implementação, não decisões abertas.
-Como o listener está em `0.0.0.0:8080` e o Gateway permite bypass direto, a implantação de rotas
-protegidas exige um gate: restringir efetivamente o ingresso ao perímetro confiável ou verificar a
-proveniência de identidade até a aplicação. CIDR ou header bruto não provam autenticação. Acesso
-direto pelo Gateway ou ao listener do host não torna confiáveis os campos `X-USER`; endpoints
-protegidos devem rejeitar identidade ausente ou não confiável.
-
-Serviços não HTTP destinados a usuários são publicados diretamente com bind de host, protocolo e
-portas publicados declarados explicitamente. Cada serviço aplica sua própria autenticação e depende
-dos controles de perímetro. O Development Gateway alcança todos os serviços/portas configurados sem
-publicar essas portas de serviço no host; o listener UDP WireGuard é uma publicação separada.
-Não configure rate limiting NGINX por padrão. Limite
-uploads a 1 GB por padrão no NGINX e no serviço TUS. O compartilhamento básico de arquivos por NGINX
-é opcional, somente para leitura e fora da SPA.
-
----
-
-# 15. Backend
-
-O backend será implementado em:
-
-- Python;
-- FastAPI;
-- ambiente Python versionado;
-- processo no container combinado `webApp`.
-
-Responsabilidades:
-
-- API REST/HTTP;
-- lógica de negócio;
-- acesso ao PostgreSQL;
-- integração com serviços externos;
-- autorização da aplicação com base na identidade `X-USER` autenticada pelo perímetro, quando aplicável.
-
-O backend não deve assumir responsabilidades de infraestrutura do gateway.
-
----
-
-# 16. Frontend
-
-O frontend será composto por componentes JavaScript.
-
-O boilerplate deve permitir evolução futura do framework sem alterar a arquitetura de infraestrutura.
-
-Na aplicação inicial, os assets Vite são construídos como arquivos estáticos no container `webApp`.
-FastAPI serve a SPA em `/app/` e a API em `/app/api/*` pelo mesmo listener interno TCP `8000`; NGINX,
-quando habilitado, faz proxy de ambas as rotas para esse único listener. Não há processo frontend
-nem listener separado nesse stack inicial. Outras aplicações HTTP podem usar upstreams e portas
-próprios configurados no proxy.
-
-Use Vite com módulos JavaScript sem framework, gerados como arquivos estáticos. Para aplicações muito pequenas, HTML/CSS/JavaScript sem build também é válido; adote Vue, Svelte ou React somente quando complexidade de estado, componentes reutilizáveis ou padrão da equipe justificar. Configure o asset base como `/app/`.
-
-O contrato selecionado usa a mesma origem e prefixo por aplicação: `/app/` serve a SPA e
-`/app/api/<route>` encaminha ao FastAPI. Não há hostname nem listener separado para a API.
-
----
-
-# 17. PostgreSQL
-
-PostgreSQL 18 será o padrão inicial do boilerplate; a versão permanece configurável por instância no JSON.
-
-Características:
-
-- container independente;
-- volume persistente;
-- interfaces nas redes `webApp` e `shared`;
-- autenticação própria do PostgreSQL; `shared` permite alcance de rede por NGINX, Gateway e demais containers conectados;
-- credenciais fora do código-fonte;
-- backup tratado como preocupação de infraestrutura.
-
-Topologia recomendada:
-
-```text
-shared:  NGINX, Gateway, webApp, PostgreSQL
-webApp:  webApp, PostgreSQL
-```
-
-Frontend JavaScript executado no browser não recebe credenciais PostgreSQL; FastAPI em `webApp:8000` possui essas credenciais. O processo FastAPI serve também os assets estáticos, então não há isolamento de processo entre frontend server e backend.
-
-
-### Backup e recuperação (planejado; não implementado)
-
-O plano primário usa pgBackRest, instalado em versão fixada na imagem PostgreSQL e executado dentro do container como conta de sistema `postgres`, com acesso local aos arquivos do banco e autenticação/roles PostgreSQL compatíveis. O operador e os timers ficam no host; uma entrada local, limitada e gerenciada invoca `podman exec`. Não exponha o socket/API rootful do Podman a um servidor ou coletor remoto.
-
-Separe três responsabilidades de armazenamento: volume ativo `PGDATA`; volume gravável de repositório de trabalho pgBackRest, distinto de `PGDATA` e do volume de exportação; e volume de exportação concluída montado no host. PostgreSQL/operador escreve no repositório de trabalho e no mount de exportação concluída. Não use mount somente leitura nem fallback local. A configuração que expressaria esses caminhos ainda não é aceita pelo validador atual; não adicione campos de runtime nem alegue suporte implementado.
-
-Schedules propostos: full mensal e incremental semanal, serializados para impedir concorrência e execução duplicada; se coincidirem, executa-se apenas o full. São pontos de recuperação semanais condicionados ao sucesso/publicação, não PITR. Inclua em cada exportação WAL e metadados necessários à consistência do backup selecionado; exportação contínua de WAL/PITR é opcional e exige decisão explícita.
-
-O repositório pgBackRest é estado mutável com dependências entre backups, metadados e WAL. Não edite, pode, copie enquanto houver escritores ativos, ou renomeie subdiretórios. Antes da publicação, exija um snapshot de geração consistente por mecanismo suportado, excluindo escritores concorrentes e contendo o backup bem-sucedido, cadeia de pais, manifests/metadados e WAL de consistência necessário. A estratégia inicial proposta é exportar uma geração completa, não reconstruir seletivamente arquivos individuais. Isso simplifica a preservação de dependências, mas pode consumir alto armazenamento/tráfego e não promete transferências incrementais.
-
-O volume do repositório de trabalho (inclusive staging de snapshot) é distinto do volume de exportações concluídas. Somente após sucesso do backup, copie a geração para um diretório transitório de publicação, oculto e separado, no filesystem de exportação concluída; esse staging de transferência não é o repositório de trabalho. Verifique a geração e a cópia; faça flush quando suportado e publique sob identidade única por rename atômico dentro do filesystem de destino ou marcador de conclusão escrito por último. Rename entre volumes não é atômico. Bytes incompletos podem existir temporariamente no staging oculto de destino, mas o namespace concluído nunca os expõe. Gerações publicadas são imutáveis, nunca sobrescritas/editadas; coletores aceitam exclusivamente gerações finais/marcadores válidos, nunca diretórios parciais nem estabilidade de tamanho. Falhas preservam publicações anteriores e a cadeia de origem; limpeza limita-se ao staging da execução. Não apague origem até acknowledgement externo e retenção que compreenda dependências.
-
-Ausência/montagem incorreta, permissões insuficientes, timeout ou volume cheio causam falha, sem fallback. Defina coletor, caminho, credenciais de escopo mínimo, transporte/armazenamento cifrado, acknowledgement, retenção, locks e alertas. Dados e credenciais de banco são sensíveis; checksums não comprovam capacidade de restore. Restore é manual, privado e feito com pgBackRest compatível; valide cada geração por restore drill em destino descartável, incluindo recuperação da cadeia incremental. `pg_dumpall` pode continuar como exportação lógica opcional para portabilidade, não como mecanismo primário incremental/restauração. Nunca restaure automaticamente durante deployment.
-
----
-
-# 18. Volumes
+## 11.2 Administração do Gateway
+
+Headplane e Portainer administram o Gateway conforme a seção 5.5. O endpoint de bootstrap do
+Headscale precisa estar alcançável antes da VPN. Nomes e acesso seguem a seção 9. Recuperação
+fora da VPN é responsabilidade da equipe de infraestrutura pelo host.
+
+## 11.3 Credenciais dos destinos
+
+Cada desenvolvedor possui chaves SSH individuais para os containers que exigirem esse protocolo.
+Chaves privadas permanecem no equipamento do desenvolvedor e não são compartilhadas.
+O deployment recebe somente chaves públicas, em arquivos externos ao Git, root-managed, montados
+somente para leitura no destino e configurados por conta não-root.
+
+O caminho padrão no host é `/etc/gateway/application-keys/<container>/authorized_keys`; o caminho
+efetivo deve ser configurável no JSON. Use `root:root` e modo `0600`, com montagem somente leitura
+em `/home/<account>/.ssh/authorized_keys`. O bootstrap deve validar que a conta consegue ler o
+arquivo sem ampliar permissões indevidamente. A autenticação do serviço permanece independente
+da autenticação VPN.
+
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 12. Volumes
 
 Volumes persistentes devem ser utilizados para:
 
 - PostgreSQL;
+- banco e identidade do Headscale, estado do `tailscaled` e dados/sessões do Headplane;
+- dados do Portainer em volume dedicado montado em `/data`;
 - dados que precisem sobreviver à recriação do container;
 - configurações persistentes, quando necessário.
 
@@ -900,23 +755,30 @@ O boilerplate deve documentar claramente quais volumes são obrigatórios.
 
 ---
 
-# 19. Configuração e secrets
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 13. Configuração e secrets
 
 Não armazenar secrets diretamente no Git.
 
 A configuração deve distinguir:
 
-### Versionada
+## Versionada
 
 - nomes dos serviços;
-- redes;
+- vínculo à rede padrão e nomes dos containers conforme a seção 9;
 - portas;
 - configuração estrutural;
 - templates;
 - deployment scripts;
 - definição dos caminhos esperados para secrets no host.
 
-### Externa
+## Externa
 
 - senhas;
 - tokens;
@@ -925,7 +787,7 @@ A configuração deve distinguir:
 - credenciais de produção;
 - arquivos `.env` contendo secrets.
 
-## 19.1 Armazenamento dos secrets
+## 13.1 Armazenamento dos secrets
 
 A primeira implementação utilizará arquivos de secrets mantidos no host RHEL, fora do repositório Git.
 
@@ -947,7 +809,7 @@ Exemplo conceitual:
 
 A estrutura concreta poderá variar, mas deverá ser padronizada pelo boilerplate.
 
-## 19.2 Mapeamento para containers
+## 13.2 Mapeamento para containers
 
 Cada secret deverá ser disponibilizado somente aos containers que efetivamente necessitem dele.
 
@@ -966,7 +828,7 @@ Host
 
 Um secret necessário apenas pelo PostgreSQL não deverá ser montado no frontend ou em outros containers.
 
-## 19.3 Deployment de secrets
+## 13.3 Deployment de secrets
 
 As ferramentas de deployment deverão:
 
@@ -980,29 +842,37 @@ As ferramentas de deployment deverão:
 
 O conteúdo dos secrets não deverá ser gerado automaticamente pelo Git ou armazenado no repositório.
 
-## 19.4 Evolução futura
+## 13.4 Evolução futura
 
 A arquitetura deverá permitir que o armazenamento local em arquivos seja posteriormente substituído por um Secret Manager ou integração corporativa.
 
 Essa integração não faz parte do boilerplate inicial.
 
-# 20. Deployment
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 14. Deployment
 
 O repositório deve conter scripts para:
 
-1. validar pré-requisitos do host e todas as redes declaradas em `config/host_config.json`;
+1. validar pré-requisitos do host e a rede padrão `podman`; adequar `config/host_config.json` ao contrato de rede única;
 2. executar verificações e configurações específicas somente para os serviços declarados/ativados no arquivo;
 3. criar a estrutura de diretórios, volumes e secrets sem sobrescrever dados existentes;
-4. criar ou validar redes Podman e CIDRs;
+4. validar a rede padrão conforme os requisitos da seção 9, sem recriar rede em uso;
 5. construir/atualizar containers através de Quadlet;
-6. conectar o Gateway compartilhado a todas as redes do inventário global `networks`, com uma interface por rede;
-7. gerar DNSMasq com endereços atuais dos containers e endereços DNS do Gateway por rede;
-8. descobrir rotas e endereços ativos dos túneis e instalar rotas simétricas sem NAT para acesso remoto;
-9. configurar rotas HTTP do NGINX opcional, com host TCP/8080 para container TCP/80;
-10. carregar chaves públicas SSH dos arquivos seguros no host;
+6. conectar todos os containers somente à rede padrão, reservando o endereço estável do Gateway;
+7. declarar nomes e aliases conforme a seção 9;
+8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente o CIDR padrão e instalar rotas simétricas sem NAT para a VPN;
+9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080, e o emulador de desenvolvimento sem bind no host;
+10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados;
 11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
 12. apresentar estado, logs, recursos alterados e instruções de recuperação;
 13. agendar no host full mensal e incremental semanal por PostgreSQL; executar pgBackRest no container como `postgres`, publicar somente gerações completas verificadas em volume host separado e fornecer restore manual validado.
+14. implantar Portainer na rede padrão com volume persistente, socket Podman local exclusivo, HTTPS restrito à VPN e bootstrap administrativo protegido; validar compatibilidade sem `--privileged` e sem disputar o ciclo de vida Quadlet.
 
 O preflight deve confirmar SELinux desativado sem alterar essa configuração. O egress dos containers usa o caminho padrão do Podman no host e pode usar masquerading.
 
@@ -1012,28 +882,37 @@ Executar o deployment novamente não deve destruir dados persistentes ou secrets
 
 O deployment deverá ser capaz de reproduzir a configuração estrutural do ambiente sem exigir acesso manual aos containers.
 
-## 20.1 Bootstrap de acesso
+## 14.1 Bootstrap de acesso
 
-A configuração inicial deverá poder incluir as chaves públicas SSH dos desenvolvedores autorizados.
+A configuração inicial provisiona identidade e estado persistente do Headscale, inscrição do
+subnet router, credenciais administrativas do Headplane e política de acesso. O operador de
+infraestrutura cria o primeiro acesso administrativo localmente; a interface de gestão permanece
+restrita à VPN após o bootstrap. Não armazene tokens no JSON versionado nem os exponha em logs.
 
-O mecanismo de bootstrap deverá permitir distinguir:
-
-- chaves para acesso aos containers de aplicação;
-- chaves para acesso administrativo ao próprio Gateway.
-
-As chaves privadas nunca deverão ser copiadas para o ambiente pelo deployment.
+As chaves de inscrição de dispositivos são gerenciadas pelo Headscale/Headplane e não substituem
+credenciais dos serviços. O bootstrap também pode receber chaves públicas SSH para os containers
+de aplicação habilitados. Chaves privadas dos desenvolvedores nunca são copiadas pelo deployment.
 
 As chaves públicas serão lidas de arquivos fora do Git, com propriedade e permissões restritas no host. A auditoria do host registra alterações nos arquivos; PAM e logs de sessão dos operadores são controles externos e não fazem parte do deployment do boilerplate.
 
-# 21. Manutenção
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-A manutenção normal deve ser possível sem acesso ao host RHEL.
+# 15. Manutenção
+
+A manutenção normal das aplicações deve ser possível sem acesso ao host RHEL. A equipe de
+infraestrutura administra o servidor pelo Cockpit instalado no host, conforme a seção 2.2,
+independentemente dos componentes containerizados.
 
 Ferramentas principais:
 
-- Cockpit;
-- cockpit-podman;
-- SSH;
+- Portainer para inspeção, logs e operações de containers compatíveis com Quadlet;
+- Headplane para administração da VPN;
+- SSH aos containers de aplicação pela VPN;
 - VS Code;
 - logs dos containers;
 - ferramentas de diagnóstico de rede.
@@ -1049,7 +928,14 @@ Acesso direto ao host deve ficar reservado a:
 
 ---
 
-# 22. Diagnóstico
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 16. Diagnóstico
 
 O Gateway deve incluir ferramentas suficientes para investigar rapidamente problemas de conectividade.
 
@@ -1083,15 +969,24 @@ O objetivo é permitir responder rapidamente:
 
 ---
 
-# 23. Observabilidade
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 17. Observabilidade
 
 O boilerplate deve permitir pelo menos:
 
 - estado dos containers;
 - logs;
 - consumo básico de CPU/memória;
-- estado das redes;
-- estado do gateway.
+- estado da rede padrão e do DNS Podman;
+- estado do gateway;
+- saúde do Headscale, Headplane e `tailscaled`, dispositivos inscritos e rotas anunciadas/aprovadas;
+- eventos de inscrição, expiração e revogação, sem tokens nem chaves privadas.
 
 Observabilidade avançada não faz parte da primeira versão.
 
@@ -1105,7 +1000,14 @@ Integrações futuras podem incluir:
 
 ---
 
-# 24. Estrutura lógica do repositório
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 18. Estrutura lógica do repositório
 
 A estrutura final deverá separar claramente:
 
@@ -1128,7 +1030,14 @@ A estrutura exata poderá ser ajustada durante a implementação, mas as respons
 
 ---
 
-# 25. Regras para desenvolvimento no VS Code
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 19. Regras para desenvolvimento no VS Code
 
 O repositório deve ser adequado para desenvolvimento utilizando VS Code.
 
@@ -1147,7 +1056,14 @@ O desenvolvedor não deve precisar reproduzir manualmente a infraestrutura de pr
 
 ---
 
-# 26. Desenvolvimento versus produção
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 20. Desenvolvimento versus produção
 
 A arquitetura deve ser a mesma conceitualmente em ambos os ambientes.
 
@@ -1164,14 +1080,21 @@ Podem variar:
 Não devem variar:
 
 - responsabilidades dos componentes;
-- separação entre Development Gateway e proxy HTTP opcional;
-- isolamento das redes;
+- separação entre Development Gateway, proxy compartilhado obrigatório e emulador NGINX de desenvolvimento;
+- rede Podman padrão única, DNS nativo e autenticação por serviço;
 - mecanismo geral de deployment;
 - modelo de acesso aos containers.
 
 ---
 
-# 27. Princípios de segurança
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 21. Princípios de segurança
 
 Mesmo com o controle de acesso externo, devem ser mantidos os seguintes princípios:
 
@@ -1183,21 +1106,27 @@ Mesmo com o controle de acesso externo, devem ser mantidos os seguintes princíp
 6. containers com filesystem mínimo;
 7. evitar `--privileged`;
 8. capabilities específicas quando possível;
-9. redes app-specific sem roteamento entre si; a rede `shared` fornece conectividade direta intencional e exige autenticação nos serviços;
+9. conectividade direta intencional entre todos os containers na rede padrão; autenticação e autorização obrigatórias nos serviços, sem alegar isolamento por aplicação;
 10. PostgreSQL não exposto externamente;
 11. Gateway não utilizado para servir tráfego de usuários;
 12. Proxy HTTP não utilizado como canal administrativo;
-13. autenticação SSH individual, sem chaves privadas compartilhadas;
-14. chaves privadas nunca persistidas nem registradas no Gateway; a chave privada de peer WireGuard
-    será gerada dentro do Gateway, permanecerá transitoriamente em memória e será entregue uma única
-    vez por canal autenticado ainda a desenhar;
+13. autenticação VPN por dispositivo e autenticação individual nos serviços de destino;
+14. chaves privadas dos dispositivos geradas e mantidas localmente pelo cliente; tokens de inscrição
+    de uso único e curta validade, sem logs; credenciais e estado do Gateway persistidos com proteção;
 15. secrets de aplicação fora do Git;
 16. secrets montados somente onde necessários e em modo somente leitura;
 17. imagens versionadas e atualizadas.
 
 ---
 
-# 28. Decisões arquiteturais já estabelecidas
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 22. Decisões arquiteturais já estabelecidas
 
 As seguintes decisões são consideradas parte do contrato:
 
@@ -1215,112 +1144,143 @@ As seguintes decisões são consideradas parte do contrato:
 | Stack inicial da aplicação | `webApp` combina assets SPA e FastAPI em um listener TCP `8000`; PostgreSQL permanece separado |
 | Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
-| Cockpit | Dentro do Gateway |
-| cockpit-podman | Dentro do Gateway |
-| Proxy HTTP | NGINX compartilhado opcional; reverse proxy HTTP, distinto do Development Gateway |
-| Configuração mínima | Host e Development Gateway; serviços de aplicação são opcionais |
-| Porta HTTP no host | Bind selecionado `0.0.0.0:8080`, mapeado ao TCP 80 do NGINX; não presumir que o bind restringe o perímetro |
-| Identidade HTTP | Perímetro autentica e injeta campos `X-USER`; aplicação autoriza; NGINX somente faz proxy |
+| Gestão de containers | Portainer em container dedicado na rede padrão, restrito a operadores pela VPN; implementação pendente |
+| Integração Portainer | API compatível com Docker pelo socket Unix rootful local, montado somente no Portainer; sem Agent no ambiente local |
+| Estado Portainer | Volume persistente em `/data`, backup protegido e bootstrap administrativo restrito |
+| Fonte de deployment | Quadlet e scripts versionados; Portainer não cria stacks concorrentes nem substitui a gestão do host |
+| Gestão geral do host | Cockpit instalado diretamente no RHEL pela infraestrutura; serviço independente dos containers |
+| Acesso ao Cockpit | HTTPS no endereço administrativo do host, TCP `9090` por padrão, restrito à infraestrutura e aos controles corporativos; independente da VPN de desenvolvimento |
+| Limite do Cockpit | Gestão do servidor, sem `cockpit-podman`; Portainer permanece a interface de containers e Quadlet a autoridade de deployment |
+| Headscale | Servidor de coordenação auto-hospedado dentro do Gateway; implementação pendente |
+| Headplane | Interface administrativa VPN dentro do Gateway, restrita a operadores |
+| Daemon VPN | `tailscaled` no Gateway em modo kernel, atuando como subnet router |
+| Proxy HTTP | Dois containers obrigatórios: NGINX compartilhado de aplicações e NGINX emulador exclusivo para desenvolvimento |
+| Configuração mínima | Host, Development Gateway, Portainer e os dois containers NGINX; aplicações são opcionais |
+| Porta do proxy de aplicações | Bind selecionado `0.0.0.0:8080`, mapeado ao TCP 8080 do container NGINX compartilhado |
+| Emulador de autenticação | Container NGINX exclusivo para desenvolvimento, listener TCP 80 sem bind no host, encaminhando ao proxy compartilhado em TCP 8080 |
+| Identidade HTTP | Perímetro real autentica em produção; emulador injeta headers sintéticos somente para desenvolvimento; aplicação autoriza; proxy compartilhado não autentica |
 | Autorização HTTP | Gate de deployment exige restrição efetiva ao perímetro confiável ou proveniência verificada; lista exata de campos e mecanismo permanecem pré-requisitos |
-| TLS, DNS público e perímetro | Fornecidos externamente e assumidos por este host |
-| Rede por aplicação | Sim |
-| Gateway compartilhado entre redes | Sim; uma interface Podman para cada rede no inventário global `networks` |
-| Acesso do Gateway | A todas as redes e serviços Podman, sem aprovação individual por serviço; componente administrativo confiável |
-| Inventário de redes | `config/host_config.json` declara todas as redes; blocos opcionais configuram serviços do host |
-| Redes iniciais | `shared` `192.168.9.0/24`; `webApp` `192.168.8.0/29`; cada app futuro recebe CIDR único |
-| DNS de desenvolvimento | DNSMasq no Gateway |
-| Configuração DNS | Gerada/atualizada pelo deployment |
-| Nomes internos | DNSMasq resolve nomes para endereços atuais de containers; clientes usam rotas aos CIDRs Podman |
-| Nomes externos | Namespace/endpoints externos separados |
-| Acesso remoto | WireGuard server aditivo no Gateway, OpenVPN client externo e SSH TUN; split tunnel Layer 3 a todos CIDRs Podman; IPv4-only, sem NAT; origem e default route do cliente preservadas |
+| DNS e nomes | Requisitos internos e externos, incluindo split DNS, definidos na seção 9 |
+| Rede de containers | Somente a bridge padrão rootful `podman`, usada por todos os containers |
+| Interface Podman do Gateway | Uma interface na rede padrão, com endereço estável para retorno da VPN |
+| Acesso do Gateway | A todos os serviços na rede padrão; componente administrativo confiável |
+| Configuração de rede | Adequar `config/host_config.json` à rede padrão única, sem inventário por aplicação |
+| CIDR de containers | Descoberto por inspeção da rede padrão; `10.88.0.0/16` é padrão upstream, não valor garantido |
+| Acesso remoto | Somente clientes Tailscale inscritos no Headscale; split tunnel Layer 3 IPv4 ao CIDR padrão; sem NAT; origem VPN e default route do cliente preservadas |
+| Inscrição | Headplane gerencia usuários/dispositivos e tokens de uso único; chaves privadas geradas nos clientes; OIDC corporativo opcional |
+| Retorno da VPN | `--snat-subnet-routes=false` e rota host determinística ao prefixo VPN pelo Gateway |
 | Egress de containers | Saída normal do Podman rootful pelo host, com masquerading quando necessário |
-| SSH | ProxyJump e múltiplas sessões SSH TUN (`ssh -w`) via Gateway |
-| SSH para aplicações | ProxyJump encaminha somente TCP; TUN fornece rede IP roteada; autenticação ocorre no destino |
-| SSH para gateway | Autenticação no próprio Gateway |
-| Bind de gestão | SSH em `0.0.0.0` sob ACL do perímetro; Cockpit em `127.0.0.1` |
-| SSH keys | Individuais por desenvolvedor |
-| SSH shared keys | Não |
-| SSH Certificate Authority | Fora do boilerplate inicial |
-| WireGuard | Servidor IPv4-only aditivo no Gateway; peers aprovados alcançam todos CIDRs Podman; `dev.anatel` interno-only; perfis `.conf` e chaves de peer gerados no Gateway e entregues uma vez por `/dev/tty` |
-| OpenVPN | Servidor externo existente aloca endereços ao cliente OpenVPN do Gateway; protocolo, porta, topologia e opções de domínio pertencem ao servidor/perfil; `client_to_client` é configuração do servidor; o cliente e WireGuard permanecem separados |
-| SSH TUN | Múltiplas sessões simultâneas usam pool próprio; runtime OpenSSH TUN é mantido |
-| Firewall de usuários | Fora do gateway |
-| Podman API | Preferencialmente Unix socket |
+| SSH para aplicações | Conexão direta ao destino pela VPN para VS Code; autenticação no container, sem bastion |
+| Administração do Gateway | Headplane para VPN e Portainer para gestão do container pela VPN; sem listener de shell para desenvolvedores |
+| Bind de gestão | Headplane atrás de frontend HTTPS no Gateway; Portainer HTTPS no container dedicado, sem publicação no host; ingresso restrito à VPN e a operadores |
+| Chaves SSH dos destinos | Individuais por desenvolvedor, privadas somente no cliente, públicas provisionadas por destino |
+| Controle de acesso | Perímetro externo mais inscrição e política Headscale; autenticação de serviço independente |
+| Podman API | Socket Unix local exclusivo do Portainer; acesso de alto privilégio, sem exposição TCP |
 | Acesso diário ao host | Não |
 | Deployment | Scripts versionados e Quadlet; preflight comum e verificações específicas por serviço |
 | SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo |
 | Backup PostgreSQL | pgBackRest versionado na imagem; full mensal/incremental semanal por timers host; repositório de trabalho e exportações concluídas em volumes distintos; publicação de geração completa verificada; restore manual com drill; plano, não implementado |
 | TUS e file sharing | Serviços opcionais; limite de arquivo de 1 GB por padrão; file sharing NGINX somente leitura |
 | Serviços não HTTP para usuários | Publicação direta por bind de host, protocolo e portas explicitamente declarados; autenticação do serviço e perímetro próprios |
-| Acesso developer aos containers | Gateway alcança todos os serviços/portas configurados sem publicar portas de serviço; listener UDP WireGuard é publicado separadamente |
+| Acesso developer aos containers | Gateway alcança serviços/portas sem publicação de portas de aplicação; endpoints VPN têm publicação própria |
 | NGINX rate limit | Desativado por padrão |
 | Limite de body NGINX | 1 GB por padrão; configurável |
-| Configuração | `schema_version: 1` obrigatória; seções de recursos opcionais e retrocompatíveis |
+| Configuração | `schema_version: 1` atual; preservar seções não relacionadas e adequar explicitamente rede única, DNS nativo e acesso remoto |
 | Application secrets | Fora do Git |
 | Secret storage inicial | Arquivos no host |
 | Secret mapping | Somente leitura e apenas para containers necessários |
 | Secret Manager | Integração futura, fora do boilerplate inicial |
-| Bootstrap offline | Gateway base valida e inicia sem containers de aplicação, perfil OpenVPN, sessão SSH TUN ou segredo WireGuard; runtime checks são exigidos antes da ativação de cada transporte |
+| Bootstrap sem aplicações | Gateway pode iniciar sem containers de aplicação; VPN exige identidade/estado, configuração válida e endpoints alcançáveis; primeiro acesso administrativo provisionado localmente |
 
-# 29. Inputs e gates de implementação
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-As decisões de topologia confirmadas estão registradas na seção 34. Os valores operacionais e testes abaixo permanecem como inputs de deployment:
+# 23. Inputs e gates de implementação
 
-1. Validar endereços estáticos do Gateway nas redes Podman e detectar conflitos com pools e rotas relevantes do host, LAN/corporativo e túneis.
-2. Provisionar o perfil OpenVPN privado, os endereços client pool alocados pelo servidor e rotas externas que direcionam CIDRs Podman via Gateway VPN client. O deployment não instala nem configura o servidor OpenVPN externo.
-3. Fornecer o pool SSH TUN real, a conta restrita e a política `PermitTunnel`; implementar alocação única por sessão, detecção de colisão e cleanup isolado.
-4. Validar a rota determinística de retorno pelo host e determinar por teste se policy tables explícitas são necessárias. Revalidar mudanças de rotas pushed ao reconectar OpenVPN.
+As decisões de topologia confirmadas estão registradas na seção 28. Os valores operacionais e testes abaixo permanecem como inputs de deployment:
+
+1. Inspecionar CIDR, bridge e IPAM da rede padrão conforme a seção 9; validar endereço estável do Gateway e conflitos com prefixo VPN e rotas relevantes do host, LAN e ambiente corporativo.
+2. Definir URL HTTPS, DNS de bootstrap, certificados, binds e portas do Headscale, conectividade direta e infraestrutura DERP/STUN autorizada.
+3. Fixar versões compatíveis de Headscale, Headplane e Tailscale; validar runtime Headplane, supervisão conjunta, `/dev/net/tun`, capabilities e volumes persistentes no Gateway.
+4. Desativar SNAT do subnet router, validar retorno determinístico pelo host e determinar por teste se policy routing adicional é necessário.
 5. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
 6. Definir operadores autorizados de produção, UIDs/GIDs e identidades de processo; validar os três locais de PostgreSQL (`PGDATA`, repositório pgBackRest de trabalho e mount de exportação concluída), capacidade/permissões, snapshot consistente, staging de publicação e restore drill.
 7. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
 8. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
-9. O schema aceita `dev.anatel` e receitas de split DNS existem para Windows 11, Linux e macOS. Validar DNS, rotas preservadas e cleanup em cada sistema operacional; `dns_records` está vazio.
-10. A configuração fixa bind `0.0.0.0`, UDP `1194`, pool `192.168.10.0/24`, servidor/resolver `192.168.10.1`; o allocator reserva o endereço do servidor. Read-only preflight informa quando a chave está ausente; `--apply` a gera somente depois das verificações e reutiliza a chave existente. Mantenha a chave configurada para preservar perfis de cliente já emitidos. Fornecer endpoint alcançável a cada `peer generate --endpoint`. Validar host routes, key e bind UDP antes de ativar; endpoint reachability fica sob responsabilidade da rede externa.
-11. A CLI root-only, aprovação auditável e entrega única por `/dev/tty` estão implementadas. Usar terminal confiável não gravado; testar segredos ausentes de armazenamento/logs/erros e falhas de saída. Revogar peer pendente se a entrega falhar; não recuperar nem reimprimir chave.
+9. Implementar e validar os requisitos DNS e os testes de clientes descritos na seção 9.
+10. Definir prefixo IPv4 da VPN, política de acesso, aprovação de rotas e restrição dos endpoints Headplane/Portainer a operadores. Validar inscrição pelo endpoint HTTPS antes da VPN.
+11. Implementar bootstrap administrativo e fluxo Headplane de tokens de uso único, expiração/revogação por dispositivo, auditoria sem segredos, backup e recuperação sem reinscrição. OIDC exige decisão e configuração separadas.
 12. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
+13. Adequar schema, runtime, configuração, testes e documentação operacional aos contratos de acesso único, rede padrão única e DNS Podman nativo, sem preservar inventário de redes por aplicação ou transportes alternativos. Não presumir suporte aos novos campos no validador atual; manter compatibilidade das seções não relacionadas e definir validação explícita das entradas substituídas.
+14. Selecionar edição/versão Portainer compatível, validar RHEL 9.8 / Podman 5.8.2 pela API compatível com Docker e comprovar acesso local ao socket sem `--privileged`. Testar HTTPS, restrição de ingresso pela VPN e pela bridge, bootstrap, backup/restore de `/data` e operações sem conflito com Quadlet. Falha de compatibilidade bloqueia aceitação.
+15. A infraestrutura deve instalar e habilitar Cockpit no host RHEL, definir endereço/bind e certificado HTTPS, autenticação corporativa e autorização de privilégios. Validar restrição de ingresso, gestão de serviços/logs/armazenamento e acesso administrativo com o Gateway parado, sem depender da VPN de desenvolvimento nem instalar `cockpit-podman`.
 
 SELinux desativado é uma decisão de segurança explícita. O deployment valida o estado, mas não altera a política do host.
 
-# 30. Critérios de aceitação arquitetural
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 24. Critérios de aceitação arquitetural
 
 Uma implementação do boilerplate será considerada aderente quando:
 
 - uma aplicação puder ser implantada sem alterar manualmente o host na operação normal;
-- cada aplicação possuir rede Podman independente;
-- containers de aplicação e PostgreSQL também poderem compartilhar `shared`; essa conectividade direta é intencional e protegida por autenticação de serviço, não por roteamento;
-- o inventário completo de redes e as opções de serviço estiverem declarados em `config/host_config.json`;
-- o Gateway puder acessar múltiplas redes;
-- o Gateway compartilhado possuir uma interface em cada rede configurada;
-- o Gateway alcançar serviços em todas as redes sem transformá-las em uma única rede;
+- todos os containers usarem somente a rede padrão `podman`, com uma interface Podman por container;
+- conectividade direta entre containers ser intencional e protegida por autenticação de serviço, sem alegar isolamento por aplicação;
+- configuração de serviços e aliases estiver declarada, sem inventário de redes por aplicação;
+- Gateway possuir endereço estável na única rede padrão e anunciar somente seu CIDR efetivo;
+- deployment e testes de DNS cumprirem integralmente a seção 9, sem recriar rede em uso;
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
-- desenvolvedores puderem acessar containers por SSH/VS Code através do gateway;
+- desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale;
 - o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
-- rotas NGINX forem opcionais e declaradas no JSON, com o bind selecionado `0.0.0.0:8080` mapeado ao container TCP/80;
+- NGINX compartilhado receber todas as aplicações por um endpoint host `0.0.0.0:8080`, mapeado ao TCP/8080 do container;
+- cada aplicação HTTP puder ser encaminhada por um prefixo de caminho, como `/app1` ou `/app2`, sem exigir outra porta publicada;
+- o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080;
 - NGINX encaminhar, para a aplicação inicial, `/app/` e `/app/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
 - FastAPI servir, na aplicação inicial, a SPA em `/app/` e a API em `/app/api/` no único listener TCP `8000`;
 - o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
 - rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
 - serviços não HTTP de usuário usarem publicação direta explicitamente configurada, sem confundir isso com o acesso de desenvolvimento via Gateway;
-- WireGuard server aditivo, OpenVPN client e múltiplos clientes SSH TUN simultâneos permitirem tráfego Layer 3 IPv4 split-tunnel para todos os CIDRs Podman, incluindo PostgreSQL, sem NAT, preservando a origem e as rotas default dos clientes;
-- peers WireGuard usarem split DNS para `dev.anatel` em Windows 11, Linux e macOS, sem alterar o resolver global, sem registros AAAA e sem tornar o domínio público;
-- onboarding de peer exigir aprovação e auditoria; chaves privadas de peer serem geradas dentro do Gateway, entregues uma vez por canal autenticado e nunca persistidas/logadas;
-- pools de túnel não se sobreporem a CIDRs Podman nem rotas relevantes de host/LAN/corporativas; endpoint do cliente ser fornecido por perfil, sem configuração ou preflight no servidor; alocações SSH por sessão serem únicas, com cleanup isolado;
-- rotas externas direcionarem CIDRs Podman ao cliente OpenVPN do Gateway e o Gateway alcançar aplicações por interfaces Podman conectadas, com rotas de retorno determinísticas ao túnel proprietário;
-- reconnect OpenVPN revalidar rotas pushed, candidato inválido não mutar estado e rotas/regras terem ownership, reconciliação idempotente e rollback definidos;
-- não haver forwarding entre redes de aplicação, DHCP, bridging Ethernet, TAP, deployment do servidor OpenVPN externo, nem watcher genérico;
+- Headscale, Headplane e `tailscaled` executarem no Gateway como única solução de acesso remoto de desenvolvedores;
+- clientes inscritos alcançarem o CIDR padrão autorizado, inclusive PostgreSQL, por split tunnel Layer 3 IPv4 sem NAT, preservando endereço VPN de origem e rota default local;
+- `--snat-subnet-routes=false` e rotas de retorno determinísticas pelo host permitirem respostas aos dispositivos VPN;
+- inscrição via Headplane usar tokens individuais de uso único e curta validade, sem distribuição de chaves privadas de dispositivos;
+- expirar token não ser tratado como revogação de dispositivo; testar expiração/revogação do dispositivo, auditoria e bloqueio de novos acessos;
+- prefixo VPN não se sobrepor ao CIDR Podman nem às redes/rotas relevantes do host, LAN e ambiente corporativo;
+- anúncio, aprovação e aceitação de rotas funcionarem sem anunciar rota default nem aceitar rotas Podman de outro router no próprio Gateway;
+- endpoint Headscale ser alcançável antes da VPN e conectividade direta/relay funcionar conforme política de infraestrutura;
+- endpoints administrativos dos containers exigirem autenticação e acesso de operador pela VPN, sem API administrativa pública nem socket Podman no Headplane; Cockpit do host usar o acesso corporativo independente da seção 2.2;
+- reinícios preservarem identidades e inscrições; falhas dos processos serem explícitas, com comportamento de reconexão e recuperação validado;
+- candidatos inválidos não mutarem estado e rotas/regras terem ownership, reconciliação idempotente e rollback definidos;
+- não haver DHCP para clientes VPN, extensão Ethernet da rede de containers aos clientes ou TAP;
 - egress de containers alcançar destinos externos pela saída normal do Podman no host, usando masquerading quando necessário;
 - deployment usar Quadlet e passar aceitação em RHEL 9.8 / Podman rootful 5.8.2 com SELinux desativado;
 - chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment;
 - chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente; PAM permanece responsabilidade externa;
-- o próprio gateway possuir autenticação SSH independente;
-- Cockpit permitir administrar os containers;
+- o Gateway não oferecer listener de shell ou transporte alternativo para acesso remoto de desenvolvedores;
+- Portainer permitir as operações de containers aprovadas, via API compatível com Docker e socket local, no alvo RHEL 9.8 / Podman 5.8.2, sem `--privileged`;
+- somente Portainer receber o socket Podman, com acesso restrito a operadores confiáveis e sem exposição TCP da API;
+- Portainer não substituir Quadlet nem criar stacks ou configuração estrutural concorrente; validar efeitos das operações na política de reinício systemd;
+- dados em `/data` sobreviverem à recriação do Portainer, com backup/restore e bootstrap administrativo protegido;
+- indisponibilidade do Portainer não interromper aplicações, VPN ou DNS, e sua interface HTTPS não permitir ingresso não autorizado pela VPN ou bridge;
+- Cockpit executar diretamente no host, com HTTPS, autenticação e privilégios corporativos, restrito à infraestrutura e sem dependência dos containers, do Gateway ou da VPN de desenvolvimento;
+- acesso administrativo ao Cockpit permanecer funcional com o Gateway parado, sem expor sua porta publicamente nem disponibilizar outro canal de desenvolvedores;
+- Cockpit não instalar gestão concorrente de containers, não substituir Quadlet e sua indisponibilidade não interromper aplicações, VPN ou DNS;
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
 - PostgreSQL 18 possuir armazenamento persistente e plano de backup pgBackRest com full mensal/incremental semanal, volumes de trabalho/exportação distintos, publicação íntegra e restore manual testado; esses campos e operações ainda não são suportados pelo runtime;
 - somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
-- seções opcionais do JSON permanecerem compatíveis com `schema_version: 1`;
-- NGINX funcionar como proxy HTTP opcional, não como gateway geral de aplicações;
+- seções não relacionadas do JSON permanecerem compatíveis com `schema_version: 1`; rede, DNS e acesso remoto seguem validação definida nas seções 5.5 e 9;
+- os dois NGINX funcionarem como proxies HTTP distintos: o compartilhado obrigatório para aplicações e o emulador exclusivo para desenvolvimento; nenhum deles servir tráfego administrativo;
 - o acesso externo continuar controlado pela infraestrutura de segurança existente;
 - deployment puder ser repetido sem destruir dados;
 - diagnóstico básico de rede puder ser realizado sem acesso ao host RHEL;
@@ -1330,7 +1290,14 @@ Uma implementação do boilerplate será considerada aderente quando:
 
 ---
 
-# 31. Regra de evolução
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
+
+# 25. Regra de evolução
 
 O boilerplate deve permanecer deliberadamente simples.
 
@@ -1363,72 +1330,10 @@ software customizado
 
 ---
 
-# 32. Visão final
+<div>
+  <a href="#top" title="De volta ao topo da página"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+  </picture></a><br><br>
+</div>
 
-A arquitetura lógica desejada é:
-
-```text
-External security perimeter provides TLS, DNS, VPN, firewall, and ACL
-                      │
-           ┌──────────┴──────────┐
-           │                     │
-           ▼                     ▼
-Development access          User HTTP access
-           │                     │
-           ▼                     ▼
-       Development Gateway     NGINX :8080 -> :80
-           │                     │
-           └─────────┬───────────┘
-                     │
-shared 192.168.9.0/24: Gateway, NGINX, webApp, PostgreSQL
-                     │
-webApp 192.168.8.0/29: webApp, PostgreSQL
-```
-
-The `webApp` container runs frontend and FastAPI. PostgreSQL is separate. All four services join `shared`, so they have direct network reach to each other. Future app networks use unique, non-overlapping CIDRs and attach their app services to the existing Gateway.
-
-A característica central continua sendo um Gateway compartilhado. As redes app-specific não roteiam entre si, mas os containers ligados a `shared` têm conectividade direta e dependem de autenticação por serviço.
-
-Isso proporciona um único ponto de manutenção para os desenvolvedores sem transformar as aplicações em uma única rede ou exigir um gateway dedicado por aplicação.
-
----
-
-# 33. Próxima etapa
-
-Use os planos de implementação abaixo para decompor o contrato sem misturar acesso administrativo, tráfego de usuários e ciclo de vida das aplicações:
-
-1. [HTTP Proxy](../plans/http-proxy-plan.md): reverse proxy HTTP opcional, roteamento, pressupostos de TLS/perímetro e requisitos de identidade.
-2. [Application stack](../plans/application-stack-plan.md): frontend, backend FastAPI e PostgreSQL.
-3. [Application deployment and operations](../plans/application-deployment-plan.md): configuração declarativa, secrets, volumes, atualização, recuperação e handoff de DNS.
-
-Resolva os inputs restantes da seção 29 antes da implementação. Valide Podman, Quadlet, roteamento, DNS, egress e SELinux desativado no host descartável autorizado RHEL 9.8 com Podman rootful 5.8.2. Testes locais de containers não substituem a aceitação do host.
-
-# 34. Topologia selecionada e inputs operacionais
-
-`config/host_config.json` declara a topologia selecionada:
-
-| Rede Podman | CIDR | IP do Gateway | Membros declarados |
-|---|---|---|---|
-| `shared` | `192.168.9.0/24` | `192.168.9.2` | Gateway, NGINX, `webApp` e `postgres` |
-| `webApp` | `192.168.8.0/29` | `192.168.8.2` | `webApp` e `postgres` |
-
-O Gateway está conectado a todas as redes declaradas. `webApp` é um único container que reúne frontend e FastAPI; PostgreSQL permanece separado. Ambos possuem interfaces em `shared` e `webApp`. NGINX e Gateway usam `shared`. O solicitante aceita a conectividade direta entre membros de `shared` e confia na autenticação/autorização de cada serviço. Não há roteamento entre redes específicas de aplicações, mas isso não isola serviços que compartilham `shared`. Os IPs estáticos `192.168.9.2` e `192.168.8.2` foram aprovados para as duas interfaces do Gateway.
-
-`shared` é uma bridge Podman compartilhada, não uma interface física/do host nem uma rota ou pool VPN. `gateway.remote_access` é área separada para configuração de túneis; rotas externas e pools de endereços não são redes Podman e não entram em `networks`. Schema e runtime WireGuard estão implementados e habilitados na configuração versionada. O bind/porta são `0.0.0.0:1194/UDP`; o pool `192.168.10.0/24` reserva `192.168.10.1` para servidor e resolver. `--apply` gera a chave root-owned em `/etc/gateway/wireguard/server.key` somente quando ausente e preserva uma chave existente. Cada perfil recebe seu endpoint via `peer generate --endpoint`; ele não pertence ao JSON nem ao preflight. A aceitação do túnel aguarda preflight no host e testes no alvo.
-
-`192.168.9.0/24` foi selecionado como a primeira rede /24 acima do conflito conhecido, usando o inventário versionado `shared`/`webApp` e a rota host `192.168.7.0/24` observada em `eth0`. Essa escolha não prova disponibilidade contra outras redes ou rotas. Gateway `--check` valida redes Podman, mas não verifica a tabela de rotas do host; a aceitação exige revisão no host-alvo de todas as redes e rotas relevantes.
-
-`192.168.8.0/29` fica reservado à rede `webApp`. Ele fornece seis endereços utilizáveis; quatro ficam reservados ao bridge, Gateway, `webApp` e PostgreSQL. Cada aplicação futura deverá receber um CIDR exclusivo e não sobreposto. O deploy da aplicação cria sua rede, atualiza somente o inventário top-level `networks` e reconcilia o Gateway existente. Não deve criar outro Gateway nem manter um inventário seletivo de redes no bloco `gateway`.
-
-O solicitante aprovou estender `schema_version: 1` para rotas NGINX e endereços estáticos do Gateway. O validador aceita `gateway_address` e a seção `http_proxy`; o deployment de NGINX ainda não foi implementado. Essa declaração representa configuração desejada, não autenticação ou sucesso de runtime.
-
-Inputs operacionais e gates de implementação restantes:
-
-1. Validar no host-alvo a atribuição Quadlet dos IPs aprovados `192.168.9.2` e `192.168.8.2`.
-2. NGINX usa `0.0.0.0:8080`, mapeado ao TCP `80` do container. A rede externa encaminha tráfego para o IP DHCP atual do host.
-3. `/app` e `/app/api/` apontam ao mesmo `webApp:8000`; FastAPI serve os assets Vite e a API.
-4. Decisão confirmada: FastAPI serve assets e API no mesmo processo `webApp:8000` e mantém credenciais PostgreSQL. Browser assets não são processos do container; teste que build output e respostas HTTP nunca exponham essas credenciais.
-5. Implementar deployment NGINX e atualização idempotente do Gateway quando novas redes forem adicionadas.
-6. Verificar pools de túnel e CIDRs Podman contra redes/rotas do host, LAN de desenvolvedores e ambiente corporativo antes de deployment. Verificar bind/porta UDP local; não inferir endpoint público nem testar sua alcançabilidade no preflight. Preservar rotas default e conectadas necessárias.
-7. SSH do Gateway usa bind `0.0.0.0` para forwarding externo sob controle do perímetro; Cockpit permanece em `127.0.0.1`.
-8. Confirmar em teste o próximo salto determinístico para retorno dos containers; não instalar rotas conflitantes de um mesmo prefixo por todas as redes Podman.
