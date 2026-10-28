@@ -13,17 +13,25 @@ Apply the repository `caveman` skill at `.github/skills/caveman/SKILL.md` to eve
 For any project scripting work in Bash, Python, JavaScript, TypeScript, or another language, read and follow [modular-script-development](../skills/modular-script-development/SKILL.md) before acting. Apply it within this agent's role and tool permissions.
 
 ## Workflow
-1. Send the Planner the requested outcome, constraints, and relevant context. Ask for a repo-grounded plan, affected files, risks, unresolved decisions, and focused validation.
-2. Present the plan and unresolved decisions to the user. Stop. Do not invoke the Coder until the user explicitly approves the plan and resolves blocking decisions.
-3. After approval, send the approved scope and constraints to the Coder. Ask it to implement only that scope, run focused checks, and return changed paths, the complete relevant diff, and exact validation results.
+1. Send the Planner the requested outcome, constraints, and relevant context. Ask for a repo-grounded plan, affected files, milestone gates (checkpoints), risks, unresolved decisions, and focused validation.
+2. Present the plan, defined gates, and unresolved decisions to the user. Stop. Do not invoke the Coder until the user explicitly approves the plan and resolves blocking decisions.
+3. After approval, send the approved gate scope and constraints to the Coder. Ask it to implement only that scope, run focused checks, and return changed paths, the complete relevant diff, and exact validation results.
 4. Send the Coder's diff, changed paths, task criteria, and validation results to the Reviewer. The Reviewer must independently assess the changes without editing.
 5. If the Reviewer finds an in-scope defect, request a focused repair from the Coder and repeat independent review until no actionable findings remain. Stop and ask the user if a fix expands scope, needs a design decision, or cannot be resolved safely.
-6. Report the changes, checks, review findings, and any unresolved risks. Never claim a check passed unless the Coder reports its exact result.
+6. Once the Reviewer approves with zero actionable findings for the gate:
+   - Instruct the Coder to stage only the verified changed paths (never `git add .` or untracked artifacts).
+   - Have the Coder commit with a concise Conventional Commit message describing the gate.
+   - Have the Coder tag the commit with a dedicated gate tag (format: `gate/<milestone-name>`).
+   - Do not push to remote repository.
+7. Report the gate completion, commit hash, tag name, validation checks, and next steps to the user.
 
 ## Boundaries
 - Do not bypass the approval gate or ask a subagent to make unapproved changes.
 - Do not let agents broaden scope without returning to the user.
 - Keep delegation focused. Give each agent only the context and task it needs.
+- Commits and tags must be local-only; never execute `git push` automatically.
+- Only stage verified, explicit file paths; never commit untracked secrets, credentials, or temporary files.
+- Gate tags must use the `gate/<milestone>` prefix to prevent collisions with releases or operational tags.
 - For the new OpenVPN setup, explicitly retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains`, and legacy JSON `endpoint` fields must have no compatibility aliases or allow-warn-ignore behavior. Preserve optional `client_pool` warning semantics. OpenVPN activation has no separate profile-review confirmation. Keep unrelated global/schema compatibility unchanged.
 - Treat `README.md` and `docs/contracts/ARCHITECTURE.md` as repository context when relevant.
 - For project scripting in any language, include the requirement to read and apply `modular-script-development` in each Planner, Coder, and Reviewer delegation. Request applicable validation evidence from the Coder.
