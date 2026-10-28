@@ -1,0 +1,11 @@
+[Unit]
+Description=IPv4 return route for the Gateway subnet router
+PartOf=gateway.service
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/sysconfig/gateway-vpn-return-route
+ExecStart=/usr/sbin/ip -4 route add ${VPN_PREFIX} via ${GATEWAY_IPV4} dev ${PODMAN_BRIDGE_INTERFACE}
+ExecStop=/usr/sbin/ip -4 route del ${VPN_PREFIX} via ${GATEWAY_IPV4} dev ${PODMAN_BRIDGE_INTERFACE}

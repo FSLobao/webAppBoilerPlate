@@ -1,0 +1,125 @@
+ARG DEBIAN_SNAPSHOT=20261020T213255Z
+ARG DEBIAN_TRIXIE_INRELEASE_SHA256=0584fba32e13e0ab8285fb16c27adea1ec03a73669c18702821094fd6ca86675
+ARG DEBIAN_TRIXIE_UPDATES_INRELEASE_SHA256=9ebd44ce8aaef0af6a6d184d0f4750610f652472df536645843c9f1ef43e9af6
+ARG DEBIAN_TRIXIE_SECURITY_INRELEASE_SHA256=4ac49185ca56f0a08333aec9d484e56a8d73a0d64b002f494a83a7bdfb7f4e4a
+ARG HEADSCALE_VERSION=0.29.6
+ARG HEADSCALE_AMD64_SHA256=7477c374949eea6fb7cf3cbff14dbef49e4d118d9a33557d6764a77ece617e53
+ARG HEADSCALE_ARM64_SHA256=7b3c792ebe10e1a81a0c8d9674aee8eb540e7dbb7ccb80a98b71024da4c72a48
+
+FROM docker.io/tailscale/tailscale:v1.104.2@sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d AS tailscale
+FROM ghcr.io/tale/headplane:0.8.2@sha256:b053a0a6699d0a67be3f0d9bae8e7dbe35ed67ae8448412adcbad7ea49866faa AS headplane
+
+FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS gateway-runtime
+
+ARG DEBIAN_SNAPSHOT
+ARG DEBIAN_TRIXIE_INRELEASE_SHA256
+ARG DEBIAN_TRIXIE_UPDATES_INRELEASE_SHA256
+ARG DEBIAN_TRIXIE_SECURITY_INRELEASE_SHA256
+
+COPY --from=tailscale /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+RUN sed -i \
+        -e "s|^URIs: http://deb.debian.org/debian$|URIs: https://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/|" \
+        -e "s|^URIs: http://deb.debian.org/debian-security$|URIs: https://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}/|" \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get \
+        -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt \
+        -o Acquire::https::Verify-Peer=true \
+        -o Acquire::https::Verify-Host=true \
+        -o Acquire::Check-Valid-Until=false update \
+    && printf '%s  %s\n' \
+        "${DEBIAN_TRIXIE_INRELEASE_SHA256}" \
+        "/var/lib/apt/lists/snapshot.debian.org_archive_debian_${DEBIAN_SNAPSHOT}_dists_trixie_InRelease" \
+        "${DEBIAN_TRIXIE_UPDATES_INRELEASE_SHA256}" \
+        "/var/lib/apt/lists/snapshot.debian.org_archive_debian_${DEBIAN_SNAPSHOT}_dists_trixie-updates_InRelease" \
+        "${DEBIAN_TRIXIE_SECURITY_INRELEASE_SHA256}" \
+        "/var/lib/apt/lists/snapshot.debian.org_archive_debian-security_${DEBIAN_SNAPSHOT}_dists_trixie-security_InRelease" \
+        | sha256sum --check --status \
+    && apt-get \
+        -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt \
+        -o Acquire::https::Verify-Peer=true \
+        -o Acquire::https::Verify-Host=true \
+        install -y --no-install-recommends \
+        ca-certificates \
+        bash \
+        coreutils \
+        conntrack \
+        iproute2 \
+        iptables \
+        libstdc++6 \
+        nginx-light \
+        passwd \
+        tcpdump \
+        util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 20001 headscale \
+    && useradd --uid 20001 --gid headscale --no-create-home \
+        --home-dir /var/lib/headscale --shell /usr/sbin/nologin headscale \
+    && groupadd --gid 20002 headplane \
+    && useradd --uid 20002 --gid headplane --no-create-home \
+        --home-dir /var/lib/headplane --shell /usr/sbin/nologin headplane \
+    && install -d -o headscale -g headscale -m 0750 /var/lib/headscale \
+    && install -d -o headplane -g headplane -m 0750 /var/lib/headplane \
+    && install -d -m 0755 /etc/headscale /etc/headplane \
+        /etc/gateway-vpn/tls /run/tailscale-auth /run/secrets
+
+FROM gateway-runtime AS headscale-build
+
+ARG HEADSCALE_VERSION
+ARG TARGETARCH
+ARG HEADSCALE_AMD64_SHA256
+ARG HEADSCALE_ARM64_SHA256
+ARG DEBIAN_SNAPSHOT
+ARG DEBIAN_TRIXIE_INRELEASE_SHA256
+ARG DEBIAN_TRIXIE_UPDATES_INRELEASE_SHA256
+ARG DEBIAN_TRIXIE_SECURITY_INRELEASE_SHA256
+
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
+    && printf '%s  %s\n' \
+        "${DEBIAN_TRIXIE_INRELEASE_SHA256}" \
+        "/var/lib/apt/lists/snapshot.debian.org_archive_debian_${DEBIAN_SNAPSHOT}_dists_trixie_InRelease" \
+        "${DEBIAN_TRIXIE_UPDATES_INRELEASE_SHA256}" \
+        "/var/lib/apt/lists/snapshot.debian.org_archive_debian_${DEBIAN_SNAPSHOT}_dists_trixie-updates_InRelease" \
+        "${DEBIAN_TRIXIE_SECURITY_INRELEASE_SHA256}" \
+        "/var/lib/apt/lists/snapshot.debian.org_archive_debian-security_${DEBIAN_SNAPSHOT}_dists_trixie-security_InRelease" \
+        | sha256sum --check --status \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) expected_sha256="${HEADSCALE_AMD64_SHA256}" ;; \
+        arm64) expected_sha256="${HEADSCALE_ARM64_SHA256}" ;; \
+        *) printf 'Unsupported target architecture: %s\n' "${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    artifact="headscale_${HEADSCALE_VERSION}_linux_${TARGETARCH}"; \
+    release_url="https://github.com/juanfont/headscale/releases/download/v${HEADSCALE_VERSION}"; \
+    curl -fsSLo "/tmp/${artifact}" "${release_url}/${artifact}"; \
+    printf '%s  %s\n' "${expected_sha256}" "/tmp/${artifact}" | sha256sum --check --status; \
+    install -m 0755 "/tmp/${artifact}" /usr/local/bin/headscale; \
+    rm -f "/tmp/${artifact}"
+
+FROM gateway-runtime AS gateway
+
+COPY --from=headscale-build /usr/local/bin/headscale /usr/local/bin/headscale
+COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale
+COPY --from=tailscale /usr/local/bin/tailscaled /usr/local/bin/tailscaled
+COPY --from=headplane /nodejs /nodejs
+COPY --from=headplane /app/build /app/build
+COPY --from=headplane /app/drizzle /app/drizzle
+COPY --from=headplane /usr/libexec/headplane /usr/libexec/headplane
+COPY --from=headplane /var/lib/headplane /var/lib/headplane
+COPY --from=headplane /bin/hp_healthcheck /usr/local/bin/hp_healthcheck
+COPY config/headscale.yaml /etc/headscale/config.yaml
+COPY config/headplane.yaml /etc/headplane/config.yaml
+COPY config/nginx.conf /etc/nginx/nginx.conf
+COPY --chmod=0755 entrypoint.sh /usr/local/sbin/gateway-entrypoint
+COPY --chmod=0755 healthcheck.sh /usr/local/sbin/gateway-healthcheck
+
+RUN chown -R headplane:headplane /var/lib/headplane
+
+ENV HEADPLANE_LISTEN_FILE=/tmp/headplane-listen
+
+WORKDIR /app
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/sbin/gateway-entrypoint"]

@@ -1,0 +1,23 @@
+server:
+  host: "127.0.0.1"
+  port: 3000
+  base_url: "https://dev-gateway.dev.anatel"
+  cookie_secret_path: "/run/secrets/headplane-cookie-secret"
+  cookie_secure: true
+  data_path: "/var/lib/headplane"
+
+headscale:
+  url: "http://127.0.0.1:8080"
+  public_url: "https://headscale.example.invalid"
+  config_path: "/etc/headscale/config.yaml"
+
+integration:
+  agent:
+    enabled: false
+  docker:
+    enabled: false
+  kubernetes:
+    enabled: false
+    pod_name: "gateway"
+  proc:
+    enabled: false
