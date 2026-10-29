@@ -62,6 +62,7 @@ Podman, publicação de porta 53, alterações de firewall ou alterações de SE
 | [deploy/scripts/prepare-headplane-candidate.sh](deploy/scripts/prepare-headplane-candidate.sh) | Preparação de diretório de staging para configuração e segredo de 32 hex do Headplane |
 | [deploy/scripts/validate-headplane-config.sh](deploy/scripts/validate-headplane-config.sh) | Validação isolada da configuração do Headplane via container descartável e healthcheck |
 | [deploy/scripts/enroll-gateway.sh](deploy/scripts/enroll-gateway.sh) | Descoberta e validação de CIDR IPv4 Podman único, inscrição Tailscale sem SNAT e descarte seguro de chave |
+| [docs/recipes/gateway-cockpit-tls.md](docs/recipes/gateway-cockpit-tls.md) | Geração de certificado TLS de servidor unificado para Cockpit e Gateway |
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
@@ -130,14 +131,42 @@ Localize a chave `"dns_enabled": false` e altere o valor para `true`, salvando o
    iniciará automaticamente o processo `aardvark-dns` escutando na interface bridge do host (`podman0`)
    assim que o primeiro container for conectado à rede.
 
-Confirme com a infraestrutura que a política de rede do host permite tráfego TCP `443` externo
-alcançar o host (endpoint pré-VPN do Headscale), além de encaminhamento entre a VPN e a bridge Podman.
+### 3.1 Conectividade e resolução de nomes externos (pré-VPN)
 
-Antes da VPN, o DNS externo de `<HEADSCALE_FQDN>` deve resolver para o endpoint HTTPS alcançável do
-host. Disponha de um certificado confiável cujo SAN inclua `<HEADSCALE_FQDN>` e
-`dev-gateway.dev.anatel`. O segundo nome será resolvido após a conexão pelo alias Aardvark.
-Confirme também a saída HTTPS necessária para atualizar o mapa DERP oficial e a conectividade de
-relay permitida pela infraestrutura. Esta receita não altera regras de saída do host.
+Antes do estabelecimento da VPN, o acesso dos clientes ao Headscale depende da conectividade externa do host:
+
+- **Resolução DNS externa**: o FQDN público `<HEADSCALE_FQDN>` deve resolver no DNS externo (ou corporativo)
+  para o endereço IP externo alcançável do host.
+- **Porta HTTPS**: a infraestrutura de firewall e rede deve permitir o tráfego TCP `443` de entrada no host
+  para alcançar o endpoint do Headscale.
+- **Conectividade de saída**: o host deve possuir acesso de saída HTTPS para atualizar o mapa DERP oficial e
+  acessar servidores de relay homologados, conforme a política corporativa.
+
+### 3.2 Resolução de nomes internos (dentro da VPN)
+
+Após o cliente autenticar e conectar-se à VPN Tailscale:
+
+- **Split DNS**: o Headscale distribui a configuração de split DNS para o domínio interno `dev.anatel`,
+  apontando as consultas para o endereço do resolver Aardvark na bridge do host (`podman0`).
+- **Resolução de serviços**: o Aardvark resolve internamente o alias `dev-gateway.dev.anatel` para o IP estático
+  do Gateway e os aliases dos containers de aplicação (ex.: `backend.project-a.dev.anatel`).
+- **Encaminhamento de tráfego**: o roteamento entre a interface VPN e a bridge Podman deve estar habilitado no host.
+- **Consultas DNS**: as consultas UDP/TCP `53` trafegam estritamente dentro do túnel criptografado VPN até a
+  bridge interna; não há exposição nem publicação da porta `53` nas interfaces externas do host.
+
+### 3.3 Certificado TLS do servidor (HTTPS)
+
+O NGINX integrado no Gateway provê terminação TLS na porta TCP `443` para dois serviços distintos:
+1. O endpoint público do Headscale (`https://<HEADSCALE_FQDN>/`).
+2. A interface administrativa do Headplane (`https://dev-gateway.dev.anatel/admin`), acessível apenas via VPN.
+
+O servidor necessita de um certificado TLS confiável cujo SAN (*Subject Alternative Name*) inclua ambos os nomes:
+`<HEADSCALE_FQDN>` e `dev-gateway.dev.anatel`.
+
+É possível e recomendado utilizar o **mesmo certificado de servidor TLS** para o Cockpit do host (porta 9090)
+e para o Gateway VPN. Para o procedimento completo de geração da chave, inclusão dos SANs unificados,
+assinatura e instalação/replicação dos arquivos para o Cockpit e o Gateway, consulte a receita
+[docs/recipes/gateway-cockpit-tls.md](docs/recipes/gateway-cockpit-tls.md).
 
 Não inicie a seção 4 até confirmar todos esses requisitos no host-alvo autorizado. Se algum estado
 for inválido, ausente ou desconhecido, pare sem executar comandos que alterem o host. Não use a
@@ -233,7 +262,10 @@ Edite somente as cópias em `/etc/gateway-vpn`, exceto `headplane.yaml`, que já
 - Mantenha `dev-gateway.dev.anatel` como alias Quadlet. A rede padrão registra esse nome no
   Aardvark; não crie registros DNS duplicados.
 
-Instale o certificado fornecido pela infraestrutura (não versione arquivos de chave privada):
+Instale o certificado fornecido pela infraestrutura (não versione arquivos de chave privada).
+Caso tenha gerado o certificado unificado para o servidor seguindo a receita
+[docs/recipes/gateway-cockpit-tls.md](docs/recipes/gateway-cockpit-tls.md), utilize os caminhos
+dos arquivos gerados no host (por exemplo, `/etc/gateway/tls/gateway.cert` e `/etc/gateway/tls/gateway.key`):
 
 ```bash
 deploy/scripts/install-file.sh "<CAMINHO_CERTIFICADO_PEM>" /etc/gateway-vpn/tls/fullchain.pem 0644 root root
