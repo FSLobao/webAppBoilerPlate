@@ -1,0 +1,41 @@
+server_url: "https://headscale.example.invalid"
+listen_addr: "127.0.0.1:8080"
+metrics_listen_addr: "127.0.0.1:9090"
+grpc_listen_addr: "127.0.0.1:50443"
+grpc_allow_insecure: true
+trusted_proxies:
+  - "127.0.0.1/32"
+  - "127.0.0.1/32"
+
+noise:
+  private_key_path: "/var/lib/headscale/noise_private.key"
+
+prefixes:
+  v4: "100.64.0.0/10"
+  v6: "fd7a:115c:a1e0::/48"
+  allocation: sequential
+
+derp:
+  server:
+    enabled: false
+  urls:
+    - "https://controlplane.tailscale.com/derpmap/default"
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 3h
+
+database:
+  type: sqlite
+  sqlite:
+    path: "/var/lib/headscale/db.sqlite"
+    write_ahead_log: true
+
+dns:
+  magic_dns: true
+  base_domain: "tailnet.example.invalid"
+  override_local_dns: false
+  nameservers:
+    global: []
+    split:
+      dev.anatel:
+        - "192.0.2.53"

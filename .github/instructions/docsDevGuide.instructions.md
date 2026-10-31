@@ -26,6 +26,7 @@ change that expresses the approved behavior; do not add compatibility aliases or
 ## Page Content and Implementation Status
 
 - State the page's purpose and intended audience. Include prerequisites, ordered steps, examples, expected results, and troubleshooting where relevant; omit sections that do not apply.
+- Write affirmatively and objectively, focusing strictly on actions that must or can be performed. Avoid describing, disproving, or extensively discussing extraneous checks, non-applicable tasks, or steps that have no purpose in the intended workflow.
 - Keep overview, procedural, and reference content distinct. Link to authoritative details rather than duplicating information that can drift.
 - Clearly distinguish implemented, planned, experimental, and unverified behavior. Never present proposed commands as tested; state relevant platform and version limitations.
 
@@ -39,6 +40,7 @@ change that expresses the approved behavior; do not add compatibility aliases or
 
 - Specify the operating system, shell, working directory, required permissions, dependencies, and input files before presenting commands.
 - Use language-tagged code fences. Clearly identify placeholders and their replacements; keep expected output separate from executable commands.
+- Keep code blocks in documentation and recipes concise (single-liners or short 2-3 line commands). Extract multi-step, complex, or loop logic into modular scripts in `deploy/scripts/` or appropriate script directories. Link documentation to the scripts, displaying how to call them, their arguments, prerequisites, and expected outputs.
 - Describe the expected outcome and how to verify success. Include actionable troubleshooting for relevant failures.
 - Before potentially destructive commands, explain affected data, service interruptions, required backups, and rollback steps. State explicitly when an operation cannot be reversed.
 - Keep secrets and private key material out of documentation and examples. Use approved external secret references, and avoid commands that expose secrets in logs or shell history.
