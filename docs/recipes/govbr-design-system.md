@@ -113,9 +113,40 @@ A tela de usuários segue as referências de
 [input](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/componentes/input/input.md),
 [table](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/componentes/table/table.md) e
 [modal](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/componentes/modal/modal.md).
-O menu e os diálogos usam `<dialog>` nativo e código local para foco e `Escape`,
-em vez do JavaScript interativo do Core. Esse desvio mantém a arquitetura sem build
-e evita inicialização duplicada. O rodapé exibe os logotipos da Anatel e do gov.br, com uso
+No desktop, a navegação aberta usa `<aside>` como landmark complementar não modal;
+ela não usa `<dialog>`. Em viewports de até 767,98 px, o mesmo `.menu-container`
+é transferido para um `<dialog>` modal. Há uma única lista de links nos dois modos.
+O corte de 767,98 px é uma decisão local do app, alinhada ao ponto em que a tabela
+passa ao modo de cartões; não é um breakpoint oficial do Design System.
+O CSS local substitui o `display: none` inicial de `.br-menu .menu-container`
+do Core 3.7.0, sem editar o arquivo distribuído. O dialog usa a classe local
+`.is-modal`, sem `.active` do Core, que fixa o container e posiciona o scrim.
+
+No desktop, o painel inicia fechado. Ao abrir, começa expandido e pode ser recolhido
+pelo botão **Modo compacto**.
+Os rótulos ficam visualmente ocultos nesse modo, mas continuam disponíveis a leitores
+de tela. O controle mantém o nome acessível **Modo compacto**, com `aria-pressed` e
+tooltip que indica ativar ou desativar o modo. No desktop, o hamburger é idempotente:
+fechado abre, recolhido expande e aberto permanece aberto em cliques repetidos; ele não
+fecha o painel. O botão **Fechar** fecha. No estreito, o hamburger abre a navegação modal
+com scrim e o botão de recolher fica oculto.
+Os destinos continuam links dentro de landmarks `<nav>` com nomes distintos, e o
+hamburger mantém o nome acessível **Navegação**. `aria-expanded` e `aria-controls`
+acompanham o wrapper ativo. Escape fecha o painel desktop apenas quando o evento vem
+do painel e restaura foco ao hamburger. No estreito, Escape, o scrim ou **Fechar**
+fecham somente a navegação e retornam foco ao hamburger quando não há outro diálogo
+aberto.
+
+Política local de redimensionamento: ao passar de desktop para estreito com a navegação
+aberta, foco fora do menu fecha a navegação sem mover foco; foco dentro do menu converte
+a navegação em modal e preserva o item focado. A navegação modal não abre sobre um modal
+CRUD já aberto; a navegação fecha sem focar o hamburger e o CRUD permanece aberto.
+Ao passar de estreito para desktop com a navegação modal aberta, foco disponível fora
+do menu permanece no alvo anterior. Se o alvo era `body`, nulo ou deixou de ser focável,
+o hamburger recebe foco; a aplicação não chama `focus()` em `body`. Um modal CRUD aberto
+e seu foco permanecem.
+
+O rodapé exibe os logotipos da Anatel e do gov.br, com uso
 interno autorizado pelo responsável do projeto. Os arquivos estão em
 webapp/frontend/assets/brand/ e a origem está em [LICENSES.md](../../LICENSES.md).
 
@@ -163,10 +194,14 @@ Os links abaixo identificam as fontes dos recursos e alternativas para consulta.
 | [Logotipo da Anatel](../../webapp/frontend/assets/brand/Anatel_Logo.svg) | Origem: [docs/images/Anatel_Logo.svg](../../docs/images/Anatel_Logo.svg); uso interno autorizado pelo responsável do projeto; [LICENSES.md](../../LICENSES.md) |
 | [Logotipo gov.br](../../webapp/frontend/assets/brand/Gov.br_logo.svg) | Origem: [docs/images/Gov.br_logo.svg](../../docs/images/Gov.br_logo.svg); uso interno autorizado pelo responsável do projeto; [LICENSES.md](../../LICENSES.md) |
 
-Os ícones Font Awesome Free são de Dave Gandy e colaboradores. Os SVGs são cópias
-sem alterações; o CSS da aplicação altera a cor de apresentação de alguns ícones.
-A atribuição obrigatória dos ícones Font Awesome Free sob CC BY 4.0 está em
-[LICENSES.md](../../LICENSES.md), acessível pelo link **Termos** no rodapé e no menu.
+Os ícones Font Awesome Free são de Dave Gandy e colaboradores. `chevron-left.svg` e
+`chevron-right.svg` foram comparados aos arquivos da Font Awesome Free 5.11.2; a única
+diferença observada foi o newline final. Os demais SVGs locais, sem hash verificado, são
+`bars.svg`, `file-alt.svg`, `handshake.svg`, `pen.svg`, `plus.svg`,
+`question-circle.svg`, `times.svg`, `trash-alt.svg` e `users.svg`.
+O CSS local ajusta a cor de apresentação de alguns ícones. A atribuição obrigatória sob
+CC BY 4.0 está em [LICENSES.md](../../LICENSES.md), acessível pelo link **Termos** no
+rodapé e no menu.
 Fontes, CSS, ícones e ilustrações são servidos localmente; o navegador não precisa
 acessar CDN para executar a interface.
 
@@ -308,10 +343,15 @@ Core 3.7.0, CSS/JS versionados, CSS Rawline e CSS Font Awesome 5.11.2 respondera
 - O guia Core desaconselha o CDN antigo do DS; o guia WBC recomenda jsDelivr. São serviços distintos.
 - O texto “WCAG 2.1” da diretriz de cores aponta a WCAG 2.0; use o endereço W3C 2.1 vinculado acima.
 - A página Secom foi consultada; seu PDF, arquivos de marca e permissões específicas não foram auditados.
-- A interface CRUD foi verificada no Chromium/Electron com API simulada, sem alterar o banco real.
-  Foram exercitados menu, teclado, foco, upload, falhas e as larguras 320, 375, 575, 576,
-  991, 992, 1279, 1280, 1599 e 1600 px. Oito combinações de texto medidas apresentaram
-  contraste entre 4,60:1 e 16,65:1; isso não abrange todos os estados da interface.
+- Em 3 de novembro de 2026, os testes de interface usaram DOM e API simulados;
+  nenhuma validação em Chromium/Electron ou renderização real foi executada.
+  Esses testes não comprovam larguras, estilos computados, teclado, foco, upload,
+  falhas ou medições de contraste no navegador.
+- A validação automatizada do frontend foi executada em Linux, Bash 5.1.8
+  (shell com expansão de glob) e Node.js v24.21.0. Essa é uma versão testada,
+  não uma versão mínima declarada. Os comandos explícitos, sem glob, estão na
+  [receita CRUD](./webapp-crud.md#desenvolver).
+- A validação visual em navegador e dos estilos computados ainda está pendente.
 - As verificações não incluem auditoria completa com leitor de tela nem certificação de acessibilidade.
 
 <div>

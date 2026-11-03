@@ -39,8 +39,13 @@ Titular do projeto: `<TITULAR DO PROJETO>`.
 | govbr-core CSS | 3.7.0 | Estilos e componentes da interface | MIT | [MIT](https://gitlab.com/govbr-ds/bibliotecas/javascript/govbr-ds-core/-/raw/v3.7.0/LICENSE) | SERPRO; [release oficial npm](https://registry.npmjs.org/@govbr-ds/core/-/core-3.7.0.tgz). |
 | Flatpickr | ^4.6.9 (faixa declarada) | Estilização do calendário via `core.min.css` | MIT | [LICENSE oficial](https://github.com/flatpickr/flatpickr/blob/master/LICENSE.md) | Declarado como ^4.6.9 no package.json do pacote @govbr-ds/core 3.7.0 (npm). Copyright (c) 2017 Gregory Petrosyan. |
 | Rawline | Não declarada no pacote | Fontes da interface, pesos 400, 600 e 700 | SIL OFL 1.1 | [SIL OFL 1.1](https://openfontlicense.org/open-font-license-official-text/) | [Pacote oficial SERPRO](https://serprodrive.serpro.gov.br/s/dLZJm9soLLiPzzg/download). Copyright (c) 2016, Henrique Ibaldo (hi@ibaldo.co), with Reserved Font Name RAWLINE. Copyright (c) 2010 - 2013, Matt McInerney, Pablo Impallari e Rodrigo Fuenzalida, with Reserved Font Name RALEWAY. |
-| Font Awesome Free | 5.11.2 | Ícones SVG da interface | SVG: CC BY 4.0. Fontes e código do pacote não são distribuídos. | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode) | Ícones Font Awesome Free 5.11.2, de Dave Gandy e colaboradores, sob CC BY 4.0; cores de apresentação ajustadas. [Font Awesome](https://fontawesome.com/); [release npm 5.11.2](https://registry.npmjs.org/@fortawesome/fontawesome-free/-/fontawesome-free-5.11.2.tgz). |
+| Font Awesome Free | 5.11.2 | Ícones SVG da interface | SVG: CC BY 4.0. Fontes e código do pacote não são distribuídos. | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode) | Ícones Font Awesome Free 5.11.2, de Dave Gandy e colaboradores, sob CC BY 4.0; CSS local ajusta a cor de apresentação de alguns ícones. [Font Awesome](https://fontawesome.com/); [release npm 5.11.2](https://registry.npmjs.org/@fortawesome/fontawesome-free/-/fontawesome-free-5.11.2.tgz). |
 | Ilustrações GOV.BR | 1.0.0 | Estado vazio | CC0 1.0 | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode) | Somente `webapp/frontend/assets/govbr/illustrations/empty-space/png/1x/00.png` é usada; [repositório oficial de assets GOV.BR](https://gitlab.com/govbr-ds/bibliotecas/govbr-ds-assets-de-design). |
+
+A comparação de `chevron-left.svg` e `chevron-right.svg` com os arquivos correspondentes
+da Font Awesome Free 5.11.2 identificou diferença apenas no newline final. Os demais
+SVGs locais, sem hash verificado, são `bars.svg`, `file-alt.svg`, `handshake.svg`,
+`pen.svg`, `plus.svg`, `question-circle.svg`, `times.svg`, `trash-alt.svg` e `users.svg`.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

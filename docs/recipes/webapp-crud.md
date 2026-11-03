@@ -116,8 +116,14 @@ deploy/scripts/smoke-test-webapp.sh http://<host>:8080/webapp
 
 Depois, abra `http://localhost:8080/webapp/index.html` no navegador.
 Crie, edite e exclua um usuário pelos botões Editar e Excluir de cada linha (à direita da tabela acima de 767,98 px e no rodapé de cada cartão até 767,98 px).
-O botão de ícone **Abrir menu**
-abre a navegação. O botão não tem texto visível; o nome acessível é 'Abrir menu'.
+O corte de 767,98 px é uma decisão local do app, compartilhada com a passagem da tabela
+para cartões; não é um breakpoint oficial do Design System.
+No desktop, a navegação inicia fechada. O botão de ícone **Navegação** abre o menu;
+seu nome acessível é **Navegação**. No desktop, o hamburger é idempotente e nunca fecha:
+fechado abre, recolhido expande e aberto permanece aberto em cliques repetidos.
+Use **Fechar** para fechar o menu. Escape fecha o painel desktop somente quando o evento
+vem dele e devolve o foco ao hamburger. No estreito, o hamburger abre o menu modal,
+o controle de recolher fica oculto e Escape fecha somente a navegação.
 Use **Ir para o conteúdo principal** para pular a navegação.
 Em telas com largura de até 767,98 px, cada linha vira um cartão com Email e Localização rotulados e
 ações Editar e Excluir visíveis. Textos longos quebram sem rolagem horizontal.
@@ -174,12 +180,17 @@ uv run pytest
 
 Os testes unitários usam um repositório falso e não precisam de banco.
 O frontend em `webapp/frontend/` não tem etapa de build. Os testes de navegação,
-mensagens e foco usam o `node:test` integrado; foram executados com Node.js 24.
-Na raiz do repositório:
+mensagens e foco usam o `node:test` integrado. O ambiente testado é Linux, Bash 5.1.8
+(shell com expansão de glob) e Node.js v24.21.0, verificado por `node --version`.
+Essa é uma versão testada, não uma versão mínima declarada. Na raiz do repositório:
 
 ```bash
-node --test webapp/frontend/tests/*.test.mjs
-node --check webapp/frontend/app.js
+node --test webapp/frontend/tests/dialog-accessibility.test.mjs webapp/frontend/tests/navigation.test.mjs
+node --check webapp/frontend/app.js &&
+  node --check webapp/frontend/navigation.mjs &&
+  node --check webapp/frontend/dialog-accessibility.mjs &&
+  node --check webapp/frontend/tests/dialog-accessibility.test.mjs &&
+  node --check webapp/frontend/tests/navigation.test.mjs
 ```
 
 O CSS Core 3.7.0, Rawline, ícones e a ilustração são locais. As origens, licenças e

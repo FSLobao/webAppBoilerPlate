@@ -20,7 +20,7 @@
                 <div class="header-menu">
                     <div class="header-menu-trigger">
                         <button class="br-button circle menu-trigger" id="navigation-toggle" type="button"
-                            aria-label="Abrir menu" aria-expanded="false" aria-controls="navigation-dialog">
+                            aria-label="Navegação" aria-expanded="false" aria-controls="navigation-panel">
                             <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/bars.svg" alt="">
                         </button>
                     </div>
@@ -33,103 +33,149 @@
         </div>
     </header>
 
-    <dialog class="br-menu navigation-dialog" id="navigation-dialog" aria-labelledby="navigation-title">
-        <div class="menu-container">
-            <div class="menu-panel">
-                <div class="menu-header">
-                    <div class="menu-title"><span id="navigation-title">Navegação</span></div>
-                    <button class="br-button menu-close" type="button" data-menu-close>Fechar</button>
-                </div>
-                <nav class="menu-body" aria-label="Navegação principal">
-                    <ul>
-                        <li><a class="menu-item current-page" href="index.html" aria-current="page"><span
-                                    class="content">Usuários</span></a></li>
-                    </ul>
-                </nav>
-                <nav class="menu-links" aria-label="Links do menu">
-                    <ul>
-                        <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md" target="_blank"
-                                rel="noopener noreferrer">Termos</a></li>
-                        <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md" target="_blank"
-                                rel="noopener noreferrer">Ajuda</a></li>
-                        <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md"
-                                target="_blank" rel="noopener noreferrer">Colabore</a></li>
-                    </ul>
-                </nav>
-            </div>
-            <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
-        </div>
-    </dialog>
-
-    <main class="container-lg page-shell" id="conteudo-principal" tabindex="-1">
-        <div class="page-header">
-            <div>
-                <p class="eyebrow">Cadastro</p>
-                <h1>Usuários</h1>
-                <p class="page-description">Consulte e gerencie os usuários cadastrados.</p>
-            </div>
-            <button class="br-button primary action-button" id="new-user-button" type="button">
-                <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/plus.svg" alt="">
-                <span>Novo usuário</span>
-            </button>
-        </div>
-
-        <p class="status-region" id="status-region" role="status" aria-live="polite"></p>
-
-        <section class="br-table table-card" aria-labelledby="users-table-title">
-            <div class="table-header">
-                <div class="top-bar">
-                    <h2 class="table-title" id="users-table-title">Usuários cadastrados</h2>
-                </div>
-            </div>
-            <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários">
-                <!-- Explicit roles retain table semantics when responsive CSS changes display values. -->
-                <table role="table">
-                    <caption>Usuários cadastrados</caption>
-                    <thead class="table-head-hidden-in-cards" role="rowgroup">
-                        <tr role="row">
-                            <th role="columnheader" scope="col">Foto</th>
-                            <th role="columnheader" scope="col">Nome</th>
-                            <th role="columnheader" scope="col">Email</th>
-                            <th role="columnheader" scope="col">Localização</th>
-                            <th class="actions-cell" role="columnheader" scope="col">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody id="users-table-body" role="rowgroup">
-                        <tr class="table-message-row" role="row">
-                            <td role="cell" colspan="5">Carregando usuários...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-
-    <footer class="br-footer">
-        <div class="container-lg">
-            <div class="footer-layout">
-                <div class="footer-brand footer-anatel">
-                    <img class="footer-logo" src="assets/brand/Anatel_Logo.svg" alt="Logotipo da Anatel">
-                </div>
-                <div class="footer-brand footer-govbr">
-                    <img class="footer-logo" src="assets/brand/Gov.br_logo.svg" alt="Logotipo gov.br">
-                </div>
-                <div class="footer-content">
-                    <div class="info">&lt;NOME DA APLICAÇÃO&gt;</div>
-                    <nav class="footer-links" aria-label="Links do rodapé">
+    <div class="app-layout">
+        <aside class="br-menu navigation-surface navigation-panel" id="navigation-panel"
+            aria-labelledby="navigation-title">
+            <div class="menu-container">
+                <div class="menu-panel">
+                    <div class="menu-header">
+                        <div class="menu-title"><span id="navigation-title">Navegação</span></div>
+                        <button class="br-button menu-close" type="button" data-menu-close title="Fechar"
+                            aria-label="Fechar">
+                            <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/times.svg" alt="">
+                        </button>
+                    </div>
+                    <nav class="menu-body" aria-label="Navegação principal">
                         <ul>
-                            <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md"
-                                    target="_blank" rel="noopener noreferrer">Termos</a></li>
-                            <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md"
-                                    target="_blank" rel="noopener noreferrer">Ajuda</a></li>
-                            <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md"
-                                    target="_blank" rel="noopener noreferrer">Colabore</a></li>
+                            <li>
+                                <a class="menu-item current-page" href="index.html" aria-current="page"
+                                    title="Usuários">
+                                    <img class="icon menu-icon"
+                                        src="assets/vendor/fontawesome-5.11.2/solid/users.svg" alt="">
+                                    <span class="content">Usuários</span>
+                                </a>
+                            </li>
                         </ul>
                     </nav>
+                    <nav class="menu-links" aria-label="Links do menu">
+                        <ul>
+                            <li>
+                                <a class="menu-item menu-link"
+                                    href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md"
+                                    target="_blank" rel="noopener noreferrer" title="Termos">
+                                    <img class="icon menu-icon"
+                                        src="assets/vendor/fontawesome-5.11.2/solid/file-alt.svg" alt="">
+                                    <span class="content">Termos</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a class="menu-item menu-link"
+                                    href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md"
+                                    target="_blank" rel="noopener noreferrer" title="Ajuda">
+                                    <img class="icon menu-icon"
+                                        src="assets/vendor/fontawesome-5.11.2/solid/question-circle.svg" alt="">
+                                    <span class="content">Ajuda</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a class="menu-item menu-link"
+                                    href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md"
+                                    target="_blank" rel="noopener noreferrer" title="Colabore">
+                                    <img class="icon menu-icon"
+                                        src="assets/vendor/fontawesome-5.11.2/solid/handshake.svg" alt="">
+                                    <span class="content">Colabore</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                    <div class="menu-footer">
+                        <button class="br-button menu-collapse" type="button" data-menu-collapse
+                            aria-label="Modo compacto" aria-pressed="false" aria-controls="navigation-panel"
+                            title="Ativar modo compacto">
+                            <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg"
+                                data-menu-collapse-icon alt="">
+                            <span data-menu-collapse-label>Modo compacto</span>
+                        </button>
+                    </div>
                 </div>
+                <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
             </div>
+        </aside>
+        <dialog class="br-menu navigation-surface navigation-dialog" id="navigation-dialog"
+            aria-labelledby="navigation-title"></dialog>
+
+        <div class="app-content">
+            <main class="container-lg page-shell" id="conteudo-principal" tabindex="-1">
+                <div class="page-header">
+                    <div>
+                        <p class="eyebrow">Cadastro</p>
+                        <h1>Usuários</h1>
+                        <p class="page-description">Consulte e gerencie os usuários cadastrados.</p>
+                    </div>
+                    <button class="br-button primary action-button" id="new-user-button" type="button">
+                        <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/plus.svg" alt="">
+                        <span>Novo usuário</span>
+                    </button>
+                </div>
+
+                <p class="status-region" id="status-region" role="status" aria-live="polite"></p>
+
+                <section class="br-table table-card" aria-labelledby="users-table-title">
+                    <div class="table-header">
+                        <div class="top-bar">
+                            <h2 class="table-title" id="users-table-title">Usuários cadastrados</h2>
+                        </div>
+                    </div>
+                    <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários">
+                        <!-- Explicit roles retain table semantics when responsive CSS changes display values. -->
+                        <table role="table">
+                            <caption>Usuários cadastrados</caption>
+                            <thead class="table-head-hidden-in-cards" role="rowgroup">
+                                <tr role="row">
+                                    <th role="columnheader" scope="col">Foto</th>
+                                    <th role="columnheader" scope="col">Nome</th>
+                                    <th role="columnheader" scope="col">Email</th>
+                                    <th role="columnheader" scope="col">Localização</th>
+                                    <th class="actions-cell" role="columnheader" scope="col">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body" role="rowgroup">
+                                <tr class="table-message-row" role="row">
+                                    <td role="cell" colspan="5">Carregando usuários...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+
+            <footer class="br-footer">
+                <div class="container-lg">
+                    <div class="footer-layout">
+                        <div class="footer-brand footer-anatel">
+                            <img class="footer-logo" src="assets/brand/Anatel_Logo.svg" alt="Logotipo da Anatel">
+                        </div>
+                        <div class="footer-brand footer-govbr">
+                            <img class="footer-logo" src="assets/brand/Gov.br_logo.svg" alt="Logotipo gov.br">
+                        </div>
+                        <div class="footer-content">
+                            <div class="info">&lt;NOME DA APLICAÇÃO&gt;</div>
+                            <nav class="footer-links" aria-label="Links do rodapé">
+                                <ul>
+                                    <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md"
+                                            target="_blank" rel="noopener noreferrer">Termos</a></li>
+                                    <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md"
+                                            target="_blank" rel="noopener noreferrer">Ajuda</a></li>
+                                    <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md"
+                                            target="_blank" rel="noopener noreferrer">Colabore</a></li>
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </footer>
         </div>
-    </footer>
+    </div>
 
     <dialog class="dialog-card" id="user-dialog" aria-labelledby="user-dialog-title">
         <form class="br-modal medium dialog-form" id="user-form" tabindex="-1">

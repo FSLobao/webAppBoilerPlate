@@ -95,45 +95,256 @@ dialog:not([open]) {
   display: none;
 }
 
-.navigation-dialog {
-  position: fixed;
-  inset: 0;
+.app-layout {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.app-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.app-layout.navigation-open {
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+}
+
+.app-layout.navigation-open.navigation-collapsed {
+  grid-template-columns: var(--spacing-scale-10x) minmax(0, 1fr);
+}
+
+.navigation-panel {
+  display: none;
+  min-width: 0;
+  color: var(--gray-80);
+  background: transparent;
+}
+
+.app-layout.navigation-open .navigation-panel {
+  display: block;
+}
+
+.app-layout.navigation-open .navigation-panel[hidden] {
+  display: none;
+}
+
+.navigation-surface .menu-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.navigation-surface .menu-panel {
+  display: flex;
   width: 100%;
   max-width: none;
-  height: 100%;
-  max-height: none;
-  overflow: visible;
-  margin: 0;
-  border: 0;
-  padding: 0;
-  background: transparent;
+  height: auto;
+  min-height: 100%;
+  flex: 0 0 auto;
+  flex-direction: column;
+  overflow-y: auto;
+  border-right: 1px solid var(--gray-20);
+  background: var(--pure-0);
+  box-shadow: var(--surface-shadow-sm);
 }
 
-.navigation-dialog::backdrop {
-  background: transparent;
+.navigation-surface .menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-scale-base);
+  border-bottom: 1px solid var(--gray-20);
+  padding: var(--spacing-scale-2x);
 }
 
-.br-menu.active .menu-panel {
-  flex: 0 0 min(320px, 85vw);
-  max-width: 100%;
-}
-
-.navigation-dialog .menu-title {
+.navigation-surface .menu-title {
   font-weight: var(--font-weight-bold);
 }
 
-.navigation-dialog .menu-close:focus-visible {
+.navigation-surface .menu-close .button-icon,
+.navigation-surface .menu-collapse .button-icon {
+  margin-right: 0;
+}
+
+.navigation-surface .menu-close:focus-visible {
   outline-offset: -3px;
 }
 
-.navigation-dialog .menu-scrim {
+.navigation-surface .menu-scrim {
+  display: none;
   cursor: pointer;
 }
 
-.navigation-dialog .current-page {
+.navigation-surface .menu-body {
+  flex: 1;
+  padding: var(--spacing-scale-base);
+}
+
+.navigation-surface .menu-body ul,
+.navigation-surface .menu-links ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navigation-surface .menu-icon {
+  width: var(--spacing-scale-2x);
+  height: var(--spacing-scale-2x);
+  flex: 0 0 auto;
+  margin-right: var(--spacing-scale-base);
+  object-fit: contain;
+}
+
+.navigation-surface .menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-scale-base);
+}
+
+.navigation-surface .menu-item .menu-icon {
+  margin-right: 0;
+}
+
+.navigation-surface .menu-item .content {
+  min-width: 0;
+}
+
+.navigation-surface .current-page {
   border-left: 4px solid var(--blue-warm-vivid-70);
   background: var(--blue-warm-vivid-5);
   font-weight: var(--font-weight-bold);
+}
+
+.navigation-surface .menu-links {
+  border-top: 1px solid var(--gray-20);
+  padding: var(--spacing-scale-2x);
+  color: var(--gray-80);
+  background: var(--pure-0);
+}
+
+.navigation-surface .menu-links ul {
+  display: grid;
+  gap: var(--spacing-scale-base);
+}
+
+.navigation-surface .menu-links a {
+  display: flex;
+  align-items: center;
+  color: var(--blue-warm-vivid-70);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.navigation-surface .menu-footer {
+  border-top: 1px solid var(--gray-20);
+  padding: var(--spacing-scale-base);
+}
+
+.navigation-surface .menu-collapse {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.app-layout.navigation-collapsed .navigation-panel .menu-header {
+  justify-content: center;
+  padding-right: var(--spacing-scale-base);
+  padding-left: var(--spacing-scale-base);
+}
+
+.app-layout.navigation-collapsed .navigation-panel .menu-title span,
+.app-layout.navigation-collapsed .navigation-panel .menu-collapse [data-menu-collapse-label],
+.app-layout.navigation-collapsed .navigation-panel .menu-item .content {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.app-layout.navigation-collapsed .navigation-panel .menu-item {
+  justify-content: center;
+  padding-right: var(--spacing-scale-base);
+  padding-left: var(--spacing-scale-base);
+}
+
+.app-layout.navigation-collapsed .navigation-panel .menu-item .menu-icon {
+  margin-right: 0;
+}
+
+.app-layout.navigation-collapsed .navigation-panel .menu-collapse {
+  justify-content: center;
+}
+
+.app-layout.navigation-collapsed .navigation-panel .menu-footer {
+  padding-right: var(--spacing-scale-base);
+  padding-left: var(--spacing-scale-base);
+}
+
+@media (max-width: 767.98px) {
+  .app-layout,
+  .app-layout.navigation-open,
+  .app-layout.navigation-open.navigation-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .navigation-dialog.is-modal {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    margin: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .navigation-dialog.is-modal::backdrop {
+    background: var(--surface-overlay-scrim);
+  }
+
+  .navigation-dialog.is-modal .menu-container {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: stretch;
+  }
+
+  .navigation-dialog.is-modal .menu-panel {
+    position: relative;
+    z-index: 1;
+    width: min(320px, 85vw);
+    max-width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex: 0 0 min(320px, 85vw);
+  }
+
+  .navigation-dialog.is-modal .menu-scrim {
+    position: relative;
+    display: block;
+    z-index: 1;
+    flex: 1;
+    background: transparent;
+  }
+
+  .navigation-dialog .menu-collapse {
+    display: none;
+  }
+
+  .navigation-dialog .menu-footer {
+    display: none;
+  }
 }
 
 .page-shell {
@@ -304,7 +515,8 @@ h1 {
 .br-footer .footer-brand {
   display: grid;
   min-width: 0;
-  place-items: center;
+  align-self: stretch;
+  place-items: end center;
   padding: var(--spacing-scale-half);
 }
 
@@ -312,8 +524,15 @@ h1 {
   display: block;
   width: auto;
   max-width: 100%;
-  height: 56px;
   object-fit: contain;
+}
+
+.br-footer .footer-anatel .footer-logo {
+  height: 3em;
+}
+
+.br-footer .footer-govbr .footer-logo {
+  height: 1em;
 }
 
 .br-footer .footer-content {
@@ -336,23 +555,8 @@ h1 {
   list-style: none;
 }
 
-.navigation-dialog .menu-links {
-  border-top: 1px solid var(--gray-20);
-  padding: var(--spacing-scale-2x);
-  color: var(--gray-80);
-  background: var(--pure-0);
-}
-
-.navigation-dialog .menu-links ul {
-  display: grid;
-  gap: var(--spacing-scale-base);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 .br-footer a,
-.navigation-dialog .menu-links a {
+.navigation-surface .menu-links a {
   color: var(--blue-warm-vivid-70);
   text-decoration: underline;
   overflow-wrap: anywhere;

@@ -792,8 +792,10 @@ elements.deleteDialog.addEventListener("keydown", onDialogKeyDown);
 elements.deleteDialogCancel.addEventListener("click", onDeleteDialogCancelClick);
 elements.deleteConfirmButton.addEventListener("click", onDeleteConfirmClick);
 
+initialize();
 initializeNavigation(
   document.querySelector("#navigation-toggle"),
-  document.querySelector("#navigation-dialog")
+  document.querySelector("#navigation-panel"),
+  document.querySelector("#navigation-dialog"),
+  window.matchMedia("(max-width: 767.98px)")
 );
-initialize();
