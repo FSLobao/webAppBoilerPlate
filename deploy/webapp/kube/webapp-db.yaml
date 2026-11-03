@@ -1,0 +1,53 @@
+# PostgreSQL 18 for the webapp. Run by Quadlet unit webapp-db.kube on network podman.
+# DNS name on the network: webapp-db. No host port is published.
+# The official image runs /docker-entrypoint-initdb.d scripts only on an empty volume.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp-db
+  labels:
+    app: webapp
+spec:
+  containers:
+    - name: postgres
+      image: docker.io/library/postgres:18-trixie
+      env:
+        - name: POSTGRES_DB
+          value: db_webapp
+        - name: POSTGRES_USER
+          value: webapp_owner
+        - name: POSTGRES_PASSWORD_FILE
+          value: /run/secrets/postgres-password
+      livenessProbe:
+        exec:
+          command: ["pg_isready", "-U", "webapp_owner", "-d", "db_webapp", "-h", "127.0.0.1"]
+        periodSeconds: 30
+        timeoutSeconds: 5
+      volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql
+        - name: init
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+        - name: postgres-password
+          mountPath: /run/secrets/postgres-password
+          readOnly: true
+        - name: api-db-password
+          mountPath: /run/secrets/api-db-password
+          readOnly: true
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: webapp-db-data
+    - name: init
+      hostPath:
+        path: /etc/webapp/db-init
+        type: Directory
+    - name: postgres-password
+      hostPath:
+        path: /etc/webapp/secrets/postgres-password
+        type: File
+    - name: api-db-password
+      hostPath:
+        path: /etc/webapp/secrets/db-init-api-password
+        type: File

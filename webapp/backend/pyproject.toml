@@ -1,0 +1,17 @@
+[project]
+name = "webapp-api"
+version = "0.1.0"
+description = "FastAPI service for the webapp user registry: CRUD API and SPA assets."
+requires-python = ">=3.13"
+dependencies = [
+    "email-validator>=2.3.0",
+    "fastapi>=0.162.0",
+    "psycopg-pool>=3.3.3",
+    "psycopg[binary]>=3.3.6",
+    "python-multipart>=0.0.33",
+    "uvicorn>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.10"]
+build-backend = "uv_build"

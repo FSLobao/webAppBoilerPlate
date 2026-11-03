@@ -1,0 +1,15 @@
+[Unit]
+Description=webapp PostgreSQL pod
+Wants=network-online.target
+After=network-online.target
+
+[Kube]
+Yaml=/etc/webapp/kube/webapp-db.yaml
+Network=podman
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

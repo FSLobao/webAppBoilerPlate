@@ -1,0 +1,49 @@
+# webapp: FastAPI API and SPA on TCP 8000. Run by Quadlet unit webapp.kube.
+# DNS name on network podman: webapp. Reached only through the app-proxy pod.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp
+  labels:
+    app: webapp
+spec:
+  containers:
+    - name: api
+      image: localhost/webapp:0.1.0
+      env:
+        - name: WEBAPP_DB_HOST
+          value: webapp-db
+        - name: WEBAPP_DB_NAME
+          value: db_webapp
+        - name: WEBAPP_DB_USER
+          value: webapp_api
+        - name: WEBAPP_DB_PASSWORD_FILE
+          value: /run/secrets/api-db-password
+        - name: WEBAPP_IMAGES_DIR
+          value: /data/images
+        - name: WEBAPP_FILES_URL_PREFIX
+          value: /webapp/files
+      # Liveness checks the process only (static index); a database outage must
+      # not restart the API. /webapp/api/health reports database reachability.
+      livenessProbe:
+        exec:
+          command:
+            - python
+            - -c
+            - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/webapp/index.html', timeout=3)"
+        periodSeconds: 30
+        timeoutSeconds: 5
+      volumeMounts:
+        - name: images
+          mountPath: /data/images
+        - name: api-db-password
+          mountPath: /run/secrets/api-db-password
+          readOnly: true
+  volumes:
+    - name: images
+      persistentVolumeClaim:
+        claimName: webapp-images
+    - name: api-db-password
+      hostPath:
+        path: /etc/webapp/secrets/api-db-password
+        type: File
