@@ -285,18 +285,93 @@ h1 {
 
 .br-footer {
   padding: var(--spacing-scale-3x) 0;
+  color: var(--gray-80);
+  background: var(--pure-0);
 }
 
-.credits {
-  margin: var(--spacing-scale-base) 0 0;
-  color: var(--pure-0);
-  font-size: var(--font-size-scale-down-01);
+.br-footer .footer-layout {
+  display: grid;
+  grid-template-areas:
+    "anatel"
+    "govbr"
+    "content";
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  justify-items: center;
+  gap: var(--spacing-scale-2x);
+}
+
+.br-footer .footer-anatel {
+  grid-area: anatel;
+}
+
+.br-footer .footer-govbr {
+  grid-area: govbr;
+}
+
+.br-footer .footer-brand {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  padding: var(--spacing-scale-half);
+}
+
+.br-footer .footer-logo {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: 56px;
+  object-fit: contain;
+}
+
+.br-footer .footer-content {
+  grid-area: content;
+  min-width: 0;
   text-align: center;
 }
 
-.credits a {
-  color: inherit;
+.br-footer .info {
+  margin-bottom: var(--spacing-scale-base);
+}
+
+.br-footer .footer-links ul {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-scale-base) var(--spacing-scale-2x);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navigation-dialog .menu-links {
+  border-top: 1px solid var(--gray-20);
+  padding: var(--spacing-scale-2x);
+  color: var(--gray-80);
+  background: var(--pure-0);
+}
+
+.navigation-dialog .menu-links ul {
+  display: grid;
+  gap: var(--spacing-scale-base);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.br-footer a,
+.navigation-dialog .menu-links a {
+  color: var(--blue-warm-vivid-70);
   text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 576px) {
+  .br-footer .footer-layout {
+    grid-template-areas: "anatel content govbr";
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+    column-gap: 0;
+  }
 }
 
 .dialog-card {

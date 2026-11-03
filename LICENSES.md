@@ -3,6 +3,7 @@
     <ol>
         <li><a href="#código-do-projeto">Código do projeto</a></li>
         <li><a href="#frontend">Frontend</a></li>
+        <li><a href="#marcas">Marcas</a></li>
         <li><a href="#dependências-de-execução-do-backend">Dependências de execução do backend</a></li>
         <li><a href="#dependências-diretas-de-desenvolvimento">Dependências diretas de desenvolvimento</a></li>
         <li><a href="#imagens-de-contêiner-e-gateway">Imagens de contêiner e gateway</a></li>
@@ -40,6 +41,23 @@ Titular do projeto: `<TITULAR DO PROJETO>`.
 | Rawline | Não declarada no pacote | Fontes da interface, pesos 400, 600 e 700 | SIL OFL 1.1 | [SIL OFL 1.1](https://openfontlicense.org/open-font-license-official-text/) | [Pacote oficial SERPRO](https://serprodrive.serpro.gov.br/s/dLZJm9soLLiPzzg/download). Copyright (c) 2016, Henrique Ibaldo (hi@ibaldo.co), with Reserved Font Name RAWLINE. Copyright (c) 2010 - 2013, Matt McInerney, Pablo Impallari e Rodrigo Fuenzalida, with Reserved Font Name RALEWAY. |
 | Font Awesome Free | 5.11.2 | Ícones SVG da interface | SVG: CC BY 4.0. Fontes e código do pacote não são distribuídos. | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/legalcode) | Ícones Font Awesome Free 5.11.2, de Dave Gandy e colaboradores, sob CC BY 4.0; cores de apresentação ajustadas. [Font Awesome](https://fontawesome.com/); [release npm 5.11.2](https://registry.npmjs.org/@fortawesome/fontawesome-free/-/fontawesome-free-5.11.2.tgz). |
 | Ilustrações GOV.BR | 1.0.0 | Estado vazio | CC0 1.0 | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode) | Somente `webapp/frontend/assets/govbr/illustrations/empty-space/png/1x/00.png` é usada; [repositório oficial de assets GOV.BR](https://gitlab.com/govbr-ds/bibliotecas/govbr-ds-assets-de-design). |
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="./docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
+## Marcas
+
+| Componente | Versão | Uso no projeto | Licença | Texto da licença (hyperlink) | Observação |
+| --- | --- | --- | --- | --- | --- |
+| Logotipo da Anatel | — | Identidade visual no rodapé | Marca; não é licença de software | Não se aplica | Uso interno autorizado pelo responsável do projeto; arquivo `webapp/frontend/assets/brand/Anatel_Logo.svg` (origem: `docs/images/Anatel_Logo.svg`). |
+| Logotipo gov.br | — | Identidade visual no rodapé | Marca; não é licença de software | Não se aplica | Uso interno autorizado pelo responsável do projeto; arquivo `webapp/frontend/assets/brand/Gov.br_logo.svg` (origem: `docs/images/Gov.br_logo.svg`). Consulte o manual da marca gov.br vigente. |
 
 <div>
   <a href="#top" title="De volta ao topo da página">
