@@ -289,7 +289,9 @@ function createMessageRow(message, isEmpty = false) {
   const row = document.createElement("tr");
   const cell = document.createElement("td");
 
+  row.setAttribute("role", "row");
   row.className = "table-message-row";
+  cell.setAttribute("role", "cell");
   cell.colSpan = 5;
 
   if (isEmpty) {
@@ -320,13 +322,22 @@ function createUserRow(user) {
   const actionsCell = document.createElement("td");
   const actions = document.createElement("div");
 
+  row.setAttribute("role", "row");
   photoCell.className = "photo-cell";
+  photoCell.setAttribute("role", "cell");
   photoCell.append(createAvatar(user));
   nameCell.className = "name-cell";
+  nameCell.setAttribute("role", "cell");
   nameCell.textContent = user.name;
+  emailCell.setAttribute("role", "cell");
+  emailCell.dataset.label = "Email";
   emailCell.textContent = user.email;
+  locationCell.setAttribute("role", "cell");
+  locationCell.dataset.label = "Localização";
   locationCell.textContent = user.location ?? "—";
   actionsCell.className = "actions-cell";
+  actionsCell.setAttribute("role", "cell");
+  actions.setAttribute("role", "group");
   actions.setAttribute("aria-label", `Ações para ${user.name}`);
   actions.className = "row-actions";
   actions.append(

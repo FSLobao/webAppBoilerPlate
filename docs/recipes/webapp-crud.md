@@ -115,11 +115,12 @@ deploy/scripts/smoke-test-webapp.sh http://<host>:8080/webapp
 ```
 
 Depois, abra `http://localhost:8080/webapp/index.html` no navegador.
-Crie, edite e exclua um usuário pelos botões à direita da tabela.
+Crie, edite e exclua um usuário pelos botões Editar e Excluir de cada linha (à direita da tabela acima de 767,98 px e no rodapé de cada cartão até 767,98 px).
 O botão de ícone **Abrir menu**
 abre a navegação. O botão não tem texto visível; o nome acessível é 'Abrir menu'.
 Use **Ir para o conteúdo principal** para pular a navegação.
-Em telas estreitas, a região da tabela recebe foco e permite rolagem horizontal.
+Em telas com largura de até 767,98 px, cada linha vira um cartão com Email e Localização rotulados e
+ações Editar e Excluir visíveis. Textos longos quebram sem rolagem horizontal.
 Não há atalhos globais adicionais.
 
 <div>

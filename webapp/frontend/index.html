@@ -75,22 +75,22 @@
             <h2 class="table-title" id="users-table-title">Usuários cadastrados</h2>
           </div>
         </div>
-        <p class="table-hint">Se necessário, role a tabela horizontalmente para ver todas as colunas.</p>
-        <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários" tabindex="0">
-          <table>
+        <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários">
+          <!-- Explicit roles retain table semantics when responsive CSS changes display values. -->
+          <table role="table">
             <caption>Usuários cadastrados</caption>
-            <thead>
-              <tr>
-                <th scope="col">Foto</th>
-                <th scope="col">Nome</th>
-                <th scope="col">Email</th>
-                <th scope="col">Localização</th>
-                <th class="actions-cell" scope="col">Ações</th>
+            <thead class="table-head-hidden-in-cards" role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">Foto</th>
+                <th role="columnheader" scope="col">Nome</th>
+                <th role="columnheader" scope="col">Email</th>
+                <th role="columnheader" scope="col">Localização</th>
+                <th class="actions-cell" role="columnheader" scope="col">Ações</th>
               </tr>
             </thead>
-            <tbody id="users-table-body">
-              <tr class="table-message-row">
-                <td colspan="5">Carregando usuários...</td>
+            <tbody id="users-table-body" role="rowgroup">
+              <tr class="table-message-row" role="row">
+                <td role="cell" colspan="5">Carregando usuários...</td>
               </tr>
             </tbody>
           </table>

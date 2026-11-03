@@ -201,21 +201,13 @@ h1 {
   margin: 0;
 }
 
-.table-hint {
-  display: none;
-  margin: 0;
-  padding: 0 var(--spacing-scale-2x) var(--spacing-scale-base);
-  color: var(--gray-70);
-  font-size: var(--font-size-scale-down-01);
-}
-
 .table-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
 }
 
 .table-scroll table {
-  min-width: 760px;
+  width: 100%;
 }
 
 .table-scroll td {
@@ -517,9 +509,105 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 991.98px) {
-  .table-hint {
+/* The table overflows its container between 768 and 793.98 px; reduce horizontal cell padding in that range. */
+@media (min-width: 768px) and (max-width: 793.98px) {
+  .table-card .table-scroll table th,
+  .table-card .table-scroll table td {
+    padding-right: var(--spacing-scale-2x);
+    padding-left: var(--spacing-scale-2x);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .table-scroll table,
+  .table-scroll tbody {
     display: block;
+    width: 100%;
+  }
+
+  /* Keep hidden headers available to assistive technology in card mode. */
+  .table-scroll thead.table-head-hidden-in-cards {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+
+  .table-scroll tbody tr:not(.table-message-row) {
+    position: relative;
+    display: block;
+    margin-bottom: var(--spacing-scale-2x);
+    border: 1px solid var(--gray-20);
+    padding: var(--spacing-scale-2x);
+    background: var(--pure-0);
+  }
+
+  .table-scroll tbody tr:not(.table-message-row):last-child {
+    margin-bottom: 0;
+  }
+
+  .table-scroll tbody td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .table-scroll .photo-cell {
+    position: absolute;
+    top: var(--spacing-scale-2x);
+    left: var(--spacing-scale-2x);
+    width: 40px;
+  }
+
+  .table-scroll .name-cell {
+    display: flex;
+    min-width: 0;
+    min-height: 40px;
+    align-items: center;
+    margin-bottom: var(--spacing-scale-2x);
+    padding-left: calc(40px + var(--spacing-scale-2x));
+  }
+
+  .table-scroll tbody td[data-label] {
+    margin-top: var(--spacing-scale-2x);
+  }
+
+  .table-scroll tbody td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--spacing-scale-half);
+    font-weight: var(--font-weight-bold);
+  }
+
+  .table-scroll .actions-cell {
+    min-width: 0;
+    margin-top: var(--spacing-scale-2x);
+    border-top: 1px solid var(--gray-20);
+    padding-top: var(--spacing-scale-2x);
+  }
+
+  .table-scroll .row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .table-scroll .table-action {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .table-scroll tbody .table-message-row,
+  .table-scroll tbody .table-message-row td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-scroll tbody .table-message-row td {
+    padding: var(--spacing-scale-4x);
   }
 }
 
