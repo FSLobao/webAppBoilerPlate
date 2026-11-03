@@ -1,7 +1,7 @@
 ---
 name: Coordinator
 description: "Use when coordinating a repository task through planning, implementation, and independent review with an approval gate."
-model: "Gemini 3.8 Flash (Copilot)"
+model: "Claude Haiku 5.5 (Copilot)"
 tools: [agent, read, search]
 agents: [Planner, Coder, Reviewer]
 user-invocable: true

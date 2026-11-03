@@ -1,0 +1,16 @@
+[Unit]
+Description=Shared application NGINX on host TCP 8080
+# Wants, not Requires: the shared proxy must stay up when one application is down.
+Wants=webapp.service network-online.target
+After=webapp.service network-online.target
+
+[Kube]
+Yaml=/etc/webapp/kube/app-proxy.yaml
+Network=podman
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

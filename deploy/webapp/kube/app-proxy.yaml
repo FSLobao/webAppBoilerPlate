@@ -1,0 +1,43 @@
+# Shared application NGINX (contract section 8.1). Run by Quadlet unit app-proxy.kube.
+# Publishes host TCP 8080. Each application adds its locations in /etc/app-proxy/apps.d.
+# The stock image renders /etc/nginx/templates/*.template into conf.d and, with
+# NGINX_ENTRYPOINT_LOCAL_RESOLVERS, exposes the Podman DNS server as NGINX_LOCAL_RESOLVERS.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-proxy
+  labels:
+    app: app-proxy
+spec:
+  containers:
+    - name: nginx
+      image: docker.io/library/nginx:1.28-alpine
+      env:
+        - name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS
+          value: "1"
+      ports:
+        - containerPort: 8080
+          hostPort: 8080
+          protocol: TCP
+      volumeMounts:
+        - name: templates
+          mountPath: /etc/nginx/templates
+          readOnly: true
+        - name: apps
+          mountPath: /etc/nginx/apps.d
+          readOnly: true
+        - name: webapp-images
+          mountPath: /srv/webapp/images
+          readOnly: true
+  volumes:
+    - name: templates
+      hostPath:
+        path: /etc/app-proxy/templates
+        type: Directory
+    - name: apps
+      hostPath:
+        path: /etc/app-proxy/apps.d
+        type: Directory
+    - name: webapp-images
+      persistentVolumeClaim:
+        claimName: webapp-images

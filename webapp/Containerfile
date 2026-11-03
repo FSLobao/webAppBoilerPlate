@@ -1,0 +1,29 @@
+# webapp image: FastAPI API and static SPA on TCP 8000.
+# Build context: repository root.
+#   podman build -f webapp/Containerfile -t localhost/webapp:0.1.0 .
+FROM ghcr.io/astral-sh/uv:0.9-python3.13-trixie-slim AS build
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+WORKDIR /src
+COPY pyproject.toml uv.lock .python-version ./
+COPY webapp/backend/pyproject.toml webapp/backend/
+RUN uv sync --locked --no-dev --no-install-workspace --package webapp-api
+COPY webapp/backend/src webapp/backend/src
+RUN uv sync --locked --no-dev --no-editable --package webapp-api
+
+FROM docker.io/library/python:3.13-slim-trixie
+# /data/images is the mount point of the webapp-images volume. Podman copies this
+# directory's ownership into an empty named volume on first use.
+RUN groupadd --system --gid 10001 webapp \
+    && useradd --system --uid 10001 --gid webapp --no-create-home \
+       --shell /usr/sbin/nologin webapp \
+    && install -d -o webapp -g webapp -m 0755 /data/images
+COPY --from=build /app/.venv /app/.venv
+COPY webapp/frontend /app/frontend
+ENV PATH=/app/.venv/bin:$PATH \
+    PYTHONUNBUFFERED=1
+USER 10001:10001
+EXPOSE 8000
+CMD ["uvicorn", "webapp_api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

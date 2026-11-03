@@ -1,0 +1,15 @@
+[Unit]
+Description=webapp API and SPA pod
+Requires=webapp-db.service
+After=webapp-db.service
+
+[Kube]
+Yaml=/etc/webapp/kube/webapp.yaml
+Network=podman
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 ---
 name: Planner
 description: "Use as a read-only researcher to turn a repository task into a scoped implementation plan with risks and verification."
-model: "Claude Haiku 5.5 (Copilot)"
+model: "Gemini 3.8 Flash (Copilot)"
 tools: [read, search, web, edit]
 user-invocable: false
 ---

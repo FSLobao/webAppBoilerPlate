@@ -1,0 +1,21 @@
+# Shared application server. Rendered by the nginx image entrypoint (envsubst)
+# into /etc/nginx/conf.d/default.conf. Only defined variables are substituted.
+server {
+    listen 8080;
+    server_name _;
+
+    # Resolve upstreams at request time so recreated pods with new IPs are found.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+    resolver_timeout 5s;
+
+    # Contract section 8.1: 1 GB upload limit by default; apps may lower it.
+    client_max_body_size 1g;
+    absolute_redirect off;
+    server_tokens off;
+
+    location / {
+        return 404;
+    }
+
+    include /etc/nginx/apps.d/*.conf;
+}
