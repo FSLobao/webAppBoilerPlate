@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pt-BR">
-  <head>
+
+<head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1351b4">
@@ -8,187 +9,201 @@
     <link rel="stylesheet" href="assets/vendor/govbr-core-3.7.0/core.min.css">
     <link rel="stylesheet" href="styles.css">
     <script type="module" src="app.js"></script>
-  </head>
-  <body>
+</head>
+
+<body>
     <a class="skip-link" href="#conteudo-principal">Ir para o conteúdo principal</a>
 
     <header class="br-header">
-      <div class="container-lg">
-        <div class="header-bottom">
-          <div class="header-menu">
-            <div class="header-menu-trigger">
-              <button class="br-button circle menu-trigger" id="navigation-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="navigation-dialog">
-                <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/bars.svg" alt="">
-              </button>
+        <div class="container-lg">
+            <div class="header-bottom">
+                <div class="header-menu">
+                    <div class="header-menu-trigger">
+                        <button class="br-button circle menu-trigger" id="navigation-toggle" type="button"
+                            aria-label="Abrir menu" aria-expanded="false" aria-controls="navigation-dialog">
+                            <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/bars.svg" alt="">
+                        </button>
+                    </div>
+                    <div class="header-info">
+                        <div class="header-title">&lt;NOME DA APLICAÇÃO&gt;</div>
+                        <div class="header-subtitle">&lt;subtítulo da aplicação&gt;</div>
+                    </div>
+                </div>
             </div>
-            <div class="header-info">
-              <div class="header-title">&lt;NOME DA APLICAÇÃO&gt;</div>
-              <div class="header-subtitle">Gerenciamento de usuários</div>
-            </div>
-          </div>
         </div>
-      </div>
     </header>
 
     <dialog class="br-menu navigation-dialog" id="navigation-dialog" aria-labelledby="navigation-title">
-      <div class="menu-container">
-        <div class="menu-panel">
-          <div class="menu-header">
-            <div class="menu-title"><span id="navigation-title">Navegação</span></div>
-            <button class="br-button menu-close" type="button" data-menu-close>Fechar</button>
-          </div>
-          <nav class="menu-body" aria-label="Navegação principal">
-            <ul>
-              <li><a class="menu-item current-page" href="index.html" aria-current="page"><span class="content">Usuários</span></a></li>
-            </ul>
-          </nav>
-          <nav class="menu-links" aria-label="Links do menu">
-            <ul>
-              <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md" target="_blank" rel="noopener noreferrer">Termos <span class="link-note">(abre em nova aba)</span></a></li>
-              <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md" target="_blank" rel="noopener noreferrer">Ajuda <span class="link-note">(abre em nova aba)</span></a></li>
-              <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Colabore <span class="link-note">(abre em nova aba)</span></a></li>
-            </ul>
-          </nav>
+        <div class="menu-container">
+            <div class="menu-panel">
+                <div class="menu-header">
+                    <div class="menu-title"><span id="navigation-title">Navegação</span></div>
+                    <button class="br-button menu-close" type="button" data-menu-close>Fechar</button>
+                </div>
+                <nav class="menu-body" aria-label="Navegação principal">
+                    <ul>
+                        <li><a class="menu-item current-page" href="index.html" aria-current="page"><span
+                                    class="content">Usuários</span></a></li>
+                    </ul>
+                </nav>
+                <nav class="menu-links" aria-label="Links do menu">
+                    <ul>
+                        <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md" target="_blank"
+                                rel="noopener noreferrer">Termos</a></li>
+                        <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md" target="_blank"
+                                rel="noopener noreferrer">Ajuda</a></li>
+                        <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md"
+                                target="_blank" rel="noopener noreferrer">Colabore</a></li>
+                    </ul>
+                </nav>
+            </div>
+            <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
         </div>
-        <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
-      </div>
     </dialog>
 
     <main class="container-lg page-shell" id="conteudo-principal" tabindex="-1">
-      <div class="page-header">
-        <div>
-          <p class="eyebrow">Cadastro</p>
-          <h1>Usuários</h1>
-          <p class="page-description">Consulte e gerencie os usuários cadastrados.</p>
+        <div class="page-header">
+            <div>
+                <p class="eyebrow">Cadastro</p>
+                <h1>Usuários</h1>
+                <p class="page-description">Consulte e gerencie os usuários cadastrados.</p>
+            </div>
+            <button class="br-button primary action-button" id="new-user-button" type="button">
+                <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/plus.svg" alt="">
+                <span>Novo usuário</span>
+            </button>
         </div>
-        <button class="br-button primary action-button" id="new-user-button" type="button">
-          <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/plus.svg" alt="">
-          <span>Novo usuário</span>
-        </button>
-      </div>
 
-      <p class="status-region" id="status-region" role="status" aria-live="polite"></p>
+        <p class="status-region" id="status-region" role="status" aria-live="polite"></p>
 
-      <section class="br-table table-card" aria-labelledby="users-table-title">
-        <div class="table-header">
-          <div class="top-bar">
-            <h2 class="table-title" id="users-table-title">Usuários cadastrados</h2>
-          </div>
-        </div>
-        <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários">
-          <!-- Explicit roles retain table semantics when responsive CSS changes display values. -->
-          <table role="table">
-            <caption>Usuários cadastrados</caption>
-            <thead class="table-head-hidden-in-cards" role="rowgroup">
-              <tr role="row">
-                <th role="columnheader" scope="col">Foto</th>
-                <th role="columnheader" scope="col">Nome</th>
-                <th role="columnheader" scope="col">Email</th>
-                <th role="columnheader" scope="col">Localização</th>
-                <th class="actions-cell" role="columnheader" scope="col">Ações</th>
-              </tr>
-            </thead>
-            <tbody id="users-table-body" role="rowgroup">
-              <tr class="table-message-row" role="row">
-                <td role="cell" colspan="5">Carregando usuários...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <section class="br-table table-card" aria-labelledby="users-table-title">
+            <div class="table-header">
+                <div class="top-bar">
+                    <h2 class="table-title" id="users-table-title">Usuários cadastrados</h2>
+                </div>
+            </div>
+            <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários">
+                <!-- Explicit roles retain table semantics when responsive CSS changes display values. -->
+                <table role="table">
+                    <caption>Usuários cadastrados</caption>
+                    <thead class="table-head-hidden-in-cards" role="rowgroup">
+                        <tr role="row">
+                            <th role="columnheader" scope="col">Foto</th>
+                            <th role="columnheader" scope="col">Nome</th>
+                            <th role="columnheader" scope="col">Email</th>
+                            <th role="columnheader" scope="col">Localização</th>
+                            <th class="actions-cell" role="columnheader" scope="col">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body" role="rowgroup">
+                        <tr class="table-message-row" role="row">
+                            <td role="cell" colspan="5">Carregando usuários...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
 
     <footer class="br-footer">
-      <div class="container-lg">
-        <div class="footer-layout">
-          <div class="footer-brand footer-anatel">
-            <img class="footer-logo" src="assets/brand/Anatel_Logo.svg" alt="Logotipo da Anatel">
-          </div>
-          <div class="footer-brand footer-govbr">
-            <img class="footer-logo" src="assets/brand/Gov.br_logo.svg" alt="Logotipo gov.br">
-          </div>
-          <div class="footer-content">
-            <div class="info">&lt;NOME DA APLICAÇÃO&gt;</div>
-            <nav class="footer-links" aria-label="Links do rodapé">
-              <ul>
-                <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md" target="_blank" rel="noopener noreferrer">Termos <span class="link-note">(abre em nova aba)</span></a></li>
-                <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md" target="_blank" rel="noopener noreferrer">Ajuda <span class="link-note">(abre em nova aba)</span></a></li>
-                <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Colabore <span class="link-note">(abre em nova aba)</span></a></li>
-              </ul>
-            </nav>
-          </div>
+        <div class="container-lg">
+            <div class="footer-layout">
+                <div class="footer-brand footer-anatel">
+                    <img class="footer-logo" src="assets/brand/Anatel_Logo.svg" alt="Logotipo da Anatel">
+                </div>
+                <div class="footer-brand footer-govbr">
+                    <img class="footer-logo" src="assets/brand/Gov.br_logo.svg" alt="Logotipo gov.br">
+                </div>
+                <div class="footer-content">
+                    <div class="info">&lt;NOME DA APLICAÇÃO&gt;</div>
+                    <nav class="footer-links" aria-label="Links do rodapé">
+                        <ul>
+                            <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/LICENSES.md"
+                                    target="_blank" rel="noopener noreferrer">Termos</a></li>
+                            <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/SUPPORT.md"
+                                    target="_blank" rel="noopener noreferrer">Ajuda</a></li>
+                            <li><a href="https://github.com/FSLobao/webAppBoilerPlate/blob/main/CONTRIBUTING.md"
+                                    target="_blank" rel="noopener noreferrer">Colabore</a></li>
+                        </ul>
+                    </nav>
+                </div>
+            </div>
         </div>
-      </div>
     </footer>
 
     <dialog class="dialog-card" id="user-dialog" aria-labelledby="user-dialog-title">
-      <form class="br-modal medium dialog-form" id="user-form" tabindex="-1">
-        <div class="br-modal-header dialog-heading">
-          <div>
-            <p class="eyebrow">Cadastro de usuário</p>
-            <h2 class="modal-title" id="user-dialog-title">Novo usuário</h2>
-          </div>
-          <button class="br-button dialog-close" id="user-dialog-close" type="button" aria-label="Fechar formulário">
-            <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/times.svg" alt="">
-            <span>Fechar</span>
-          </button>
-        </div>
-
-        <div class="br-modal-body">
-          <p class="dialog-error" id="user-dialog-error" role="alert" tabindex="-1" hidden></p>
-
-          <div class="br-input field">
-            <label for="user-name">Nome</label>
-            <input id="user-name" name="name" type="text" maxlength="200" autocomplete="name" required autofocus>
-          </div>
-          <div class="br-input field">
-            <label for="user-email">Email</label>
-            <input id="user-email" name="email" type="email" maxlength="254" autocomplete="email" required>
-          </div>
-          <div class="br-input field">
-            <label for="user-location">Localização <span class="optional-label">(opcional)</span></label>
-            <input id="user-location" name="location" type="text" maxlength="200" autocomplete="address-level2">
-          </div>
-
-          <div class="image-field">
-            <div class="image-input-container">
-              <label class="field-label" for="user-image">Foto</label>
-              <p class="field-hint" id="user-image-hint">PNG, JPEG, GIF ou WebP. Até 5 MiB.</p>
-              <input class="file-input" id="user-image" name="image" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="user-image-hint">
+        <form class="br-modal medium dialog-form" id="user-form" tabindex="-1">
+            <div class="br-modal-header dialog-heading">
+                <div>
+                    <p class="eyebrow">Cadastro de usuário</p>
+                    <h2 class="modal-title" id="user-dialog-title">Novo usuário</h2>
+                </div>
+                <button class="br-button dialog-close" id="user-dialog-close" type="button"
+                    aria-label="Fechar formulário">
+                    <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/times.svg" alt="">
+                    <span>Fechar</span>
+                </button>
             </div>
-            <div class="image-preview" id="image-preview" aria-live="polite">
-              <span class="preview-placeholder">Prévia da foto</span>
+
+            <div class="br-modal-body">
+                <p class="dialog-error" id="user-dialog-error" role="alert" tabindex="-1" hidden></p>
+
+                <div class="br-input field">
+                    <label for="user-name">Nome</label>
+                    <input id="user-name" name="name" type="text" maxlength="200" autocomplete="name" required
+                        autofocus>
+                </div>
+                <div class="br-input field">
+                    <label for="user-email">Email</label>
+                    <input id="user-email" name="email" type="email" maxlength="254" autocomplete="email" required>
+                </div>
+                <div class="br-input field">
+                    <label for="user-location">Localização <span class="optional-label">(opcional)</span></label>
+                    <input id="user-location" name="location" type="text" maxlength="200" autocomplete="address-level2">
+                </div>
+
+                <div class="image-field">
+                    <div class="image-input-container">
+                        <label class="field-label" for="user-image">Foto</label>
+                        <p class="field-hint" id="user-image-hint">PNG, JPEG, GIF ou WebP. Até 5 MiB.</p>
+                        <input class="file-input" id="user-image" name="image" type="file"
+                            accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="user-image-hint">
+                    </div>
+                    <div class="image-preview" id="image-preview" aria-live="polite">
+                        <span class="preview-placeholder">Prévia da foto</span>
+                    </div>
+                </div>
+
+                <label class="remove-image-option" id="remove-image-option" for="remove-image" hidden>
+                    <input id="remove-image" name="remove-image" type="checkbox">
+                    <span>Remover foto atual</span>
+                </label>
             </div>
-          </div>
 
-          <label class="remove-image-option" id="remove-image-option" for="remove-image" hidden>
-            <input id="remove-image" name="remove-image" type="checkbox">
-            <span>Remover foto atual</span>
-          </label>
-        </div>
-
-        <div class="br-modal-footer dialog-actions">
-          <button class="br-button secondary" id="user-dialog-cancel" type="button">Cancelar</button>
-          <button class="br-button primary" id="user-save-button" type="submit">Criar usuário</button>
-        </div>
-      </form>
+            <div class="br-modal-footer dialog-actions">
+                <button class="br-button secondary" id="user-dialog-cancel" type="button">Cancelar</button>
+                <button class="br-button primary" id="user-save-button" type="submit">Criar usuário</button>
+            </div>
+        </form>
     </dialog>
 
-    <dialog class="dialog-card confirm-dialog" id="delete-dialog" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-message">
-      <div class="br-modal medium" id="delete-dialog-content" tabindex="-1">
-        <div class="br-modal-header">
-          <p class="eyebrow">Atenção</p>
-          <h2 class="modal-title" id="delete-dialog-title">Excluir usuário</h2>
+    <dialog class="dialog-card confirm-dialog" id="delete-dialog" aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-message">
+        <div class="br-modal medium" id="delete-dialog-content" tabindex="-1">
+            <div class="br-modal-header">
+                <p class="eyebrow">Atenção</p>
+                <h2 class="modal-title" id="delete-dialog-title">Excluir usuário</h2>
+            </div>
+            <div class="br-modal-body">
+                <p class="confirm-message" id="delete-dialog-message"></p>
+                <p class="dialog-error" id="delete-dialog-error" role="alert" tabindex="-1" hidden></p>
+            </div>
+            <div class="br-modal-footer dialog-actions">
+                <button class="br-button secondary" id="delete-dialog-cancel" type="button" autofocus>Cancelar</button>
+                <button class="br-button danger" id="delete-confirm-button" type="button">Excluir usuário</button>
+            </div>
         </div>
-        <div class="br-modal-body">
-          <p class="confirm-message" id="delete-dialog-message"></p>
-          <p class="dialog-error" id="delete-dialog-error" role="alert" tabindex="-1" hidden></p>
-        </div>
-        <div class="br-modal-footer dialog-actions">
-          <button class="br-button secondary" id="delete-dialog-cancel" type="button" autofocus>Cancelar</button>
-          <button class="br-button danger" id="delete-confirm-button" type="button">Excluir usuário</button>
-        </div>
-      </div>
     </dialog>
-  </body>
+</body>
+
 </html>
