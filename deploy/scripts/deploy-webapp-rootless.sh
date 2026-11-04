@@ -620,11 +620,7 @@ ensure_secret() {
       fail "Existing secret must be a regular file: ${path}"
       return 1
     }
-    # Exception to the "--" rule in the shell guide: `podman unshare chown` with "--"
-    # left webapp-images at 0:0 (exit status 0 in that run); without it the owner became
-    # 10001:10001 and persisted in a fresh namespace. Observed on Podman 5.8.2, webapp-images only.
-    # Secret chowns are not A/B tested; acceptance reads back their owners.
-    podman unshare chown "${owner}:${owner}" "${path}" || return
+    podman unshare chown "${owner}:${owner}" -- "${path}" || return
     podman unshare chmod 0400 -- "${path}" || return
     return 0
   fi
@@ -635,7 +631,7 @@ ensure_secret() {
   staged=$(mktemp --tmpdir="${SECRETS_DIR}" .secret.XXXXXX) || return
   TEMP_FILES+=("${staged}")
   printf '%s' "${value}" > "${staged}" || return
-  podman unshare chown "${owner}:${owner}" "${staged}" || return
+  podman unshare chown "${owner}:${owner}" -- "${staged}" || return
   podman unshare chmod 0400 -- "${staged}" || return
   mv -T --no-clobber -- "${staged}" "${path}" || return
   [[ ! -e "${staged}" ]] || {
@@ -772,7 +768,8 @@ ensure_image_volume() {
     ((command_status == 1)) || return "${command_status}"
   fi
 
-  podman volume create webapp-images >/dev/null || return
+  # Set ownership at creation to avoid image copy-up resetting it on first mount.
+  podman volume create --opt "o=uid=${WEBAPP_UID},gid=${WEBAPP_UID}" webapp-images >/dev/null || return
   log "Created volume webapp-images"
   mountpoint=$(podman volume inspect webapp-images --format '{{.Mountpoint}}') || {
     fail "Could not inspect volume webapp-images after creation."
@@ -782,7 +779,7 @@ ensure_image_volume() {
     fail "Volume webapp-images has an invalid mountpoint."
     return 1
   }
-  podman unshare chown -R "${WEBAPP_UID}:${WEBAPP_UID}" "${mountpoint}" || return
+  podman unshare chown -R "${WEBAPP_UID}:${WEBAPP_UID}" -- "${mountpoint}" || return
   verify_image_volume
 }
 # ---------------------------------- #
