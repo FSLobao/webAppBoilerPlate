@@ -487,7 +487,7 @@ h1 {
 }
 
 .br-footer {
-  padding: var(--spacing-scale-3x) 0;
+  padding: var(--spacing-scale-base) 0;
   color: var(--gray-80);
   background: var(--pure-0);
 }
@@ -517,7 +517,7 @@ h1 {
   min-width: 0;
   align-self: stretch;
   place-items: end center;
-  padding: var(--spacing-scale-half);
+  padding: 0 var(--spacing-scale-half);
 }
 
 .br-footer .footer-logo {
@@ -532,12 +532,13 @@ h1 {
 }
 
 .br-footer .footer-govbr .footer-logo {
-  height: 1em;
+  height: 3em;
 }
 
 .br-footer .footer-content {
   grid-area: content;
   min-width: 0;
+  line-height: 3;
   text-align: center;
 }
 

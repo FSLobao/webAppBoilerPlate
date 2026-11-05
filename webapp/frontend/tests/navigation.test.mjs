@@ -7,6 +7,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { initializeNavigation } from "../navigation.mjs";
+import {
+  normalizeCssDeclarations,
+  parseCssRuleNodes
+} from "./helpers/css-scanner.mjs";
 
 class ClassList {
   values = new Set();
@@ -645,112 +649,299 @@ async function withInitializedApp(
 }
 
 /**
- * Extract a balanced CSS block that starts after a matching marker.
+ * Extract the first CSS rule containing the requested selector list.
  *
  * @param {string} source - The CSS source text.
- * @param {string} marker - The selector or at-rule preceding the block.
- * @param {number} fromIndex - The first source index to inspect.
- * @returns {{content: string, endIndex: number}|null} The block body and next source index.
+ * @param {string} marker - A selector or complete selector list to find.
+ * @returns {{selectors: Array<string>, content: string}|null} The parsed rule.
+ * @throws {SyntaxError} If rule structure is malformed or nesting is
+ * unsupported.
  */
-function extractCssBlock(source, marker, fromIndex = 0) {
-  const markerIndex = source.indexOf(marker, fromIndex);
-  if (markerIndex < 0) {
-    return null;
-  }
+function extractCssRule(source, marker) {
+  const expectedSelectors = marker
+    .replace(/\s*\{\s*$/, "")
+    .split(",")
+    .map((selector) => selector.trim().replace(/\s+/g, " "));
 
-  const openingBrace = source.indexOf("{", markerIndex);
+  return extractCssRules(source).find((rule) =>
+    expectedSelectors.every((selector) => rule.selectors.includes(selector))
+  ) ?? null;
+}
 
-  if (openingBrace < 0) {
-    return null;
-  }
+/**
+ * Extract CSS rules, recursively entering at-rule blocks.
+ *
+ * This parser handles the app's at-rule structure; it does not parse native CSS
+ * rule nesting.
+ *
+ * @param {string} source - The CSS rule text.
+ * @returns {Array<{selectors: Array<string>, content: string}>} The parsed rules.
+ * @throws {SyntaxError} If rule structure is malformed or nesting is
+ * unsupported.
+ */
+function extractCssRules(source) {
+  const rules = [];
 
-  let depth = 0;
+  /** Flatten qualified rules from recursively parsed at-rule blocks. */
+  function collectRules(nodes) {
+    for (const node of nodes) {
+      if (node.prelude.startsWith("@")) {
+        collectRules(node.children);
+      } else {
+        const selectors = node.prelude
+          .split(",")
+          .map((selector) => selector.trim().replace(/\s+/g, " "));
 
-  for (let index = openingBrace; index < source.length; index += 1) {
-    if (source[index] === "{") {
-      depth += 1;
-    } else if (source[index] === "}") {
-      depth -= 1;
-
-      if (depth === 0) {
-        return {
-          content: source.slice(openingBrace + 1, index),
-          endIndex: index + 1
-        };
+        rules.push({ selectors, content: node.content });
+        collectRules(node.children);
       }
     }
   }
 
-  return null;
+  collectRules(parseCssRuleNodes(source));
+  return rules;
 }
 
 /**
- * Extract a CSS rule's exact selector list and declarations.
+ * Extract at-rule block contents containing the requested marker.
  *
  * @param {string} source - The CSS source text.
- * @param {string} marker - A selector contained in the rule.
- * @returns {{selectors: Array<string>, content: string}|null} The parsed rule.
- */
-function extractCssRule(source, marker) {
-  const markerIndex = source.indexOf(marker);
-  const block = extractCssBlock(source, marker);
-
-  if (!block) {
-    return null;
-  }
-
-  const openingBrace = source.indexOf("{", markerIndex);
-  const selectorStart = Math.max(
-    source.lastIndexOf("{", markerIndex),
-    source.lastIndexOf("}", markerIndex)
-  ) + 1;
-  const selectors = source
-    .slice(selectorStart, openingBrace)
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim()
-    .split(",")
-    .map((selector) => selector.trim());
-
-  return { selectors, content: block.content };
-}
-
-/**
- * Extract every balanced CSS block with the requested marker.
- *
- * @param {string} source - The CSS source text.
- * @param {string} marker - The selector or at-rule preceding each block.
+ * @param {string} marker - The at-rule text to find.
  * @returns {Array<string>} The extracted block bodies.
+ * @throws {SyntaxError} If rule structure is malformed or nesting is
+ * unsupported.
  */
 function extractCssBlocks(source, marker) {
   const blocks = [];
-  let fromIndex = 0;
 
-  while (fromIndex < source.length) {
-    const block = extractCssBlock(source, marker, fromIndex);
+  /** Collect block contents from matching at-rules and their descendants. */
+  function collectBlocks(nodes) {
+    for (const node of nodes) {
+      if (node.prelude.startsWith("@") && node.prelude.includes(marker)) {
+        blocks.push(node.content);
+      }
 
-    if (!block) {
-      return blocks;
+      collectBlocks(node.children);
     }
-
-    blocks.push(block.content);
-    fromIndex = block.endIndex;
   }
 
+  collectBlocks(parseCssRuleNodes(source));
   return blocks;
 }
 
 /**
- * Normalize a CSS declaration block for exact structural assertions.
+ * Find sizing declarations that can change the footer logos or their containers.
  *
- * @param {string} source - The declarations inside one CSS rule.
- * @returns {Array<string>} The ordered, whitespace-normalized declarations.
+ * @param {string} source - The stylesheet to inspect.
+ * @returns {Array<{selectors: Array<string>, declarations: Array<string>}>}
+ * Matching image and footer-tree rules.
  */
-function normalizeCssDeclarations(source) {
-  return source
-    .split(";")
-    .map((declaration) => declaration.trim().replace(/\s+/g, " "))
-    .filter(Boolean);
+function extractFooterLogoSizingRules(source) {
+  const footerElementSelector =
+    /(?:^|[\s>+~])footer(?=$|[\s.#:[>+~])/i;
+  const footerContainerSelector =
+    /(?:^|[\s>+~])\.(?:br-footer|footer-layout|footer-content|footer-brand|footer-anatel|footer-govbr)(?=$|[\s.#:[>+~])/;
+  const imageOrSvgSelector =
+    /(?:^|[\s>+~])(?:img|svg)(?=$|[\s.#:[>+~])/i;
+  const footerLogoSelector = /\.footer-logo(?![\w-])/;
+  const dimensionProperties = new Set([
+    "width",
+    "height",
+    "min-width",
+    "max-width",
+    "min-height",
+    "max-height",
+    "inline-size",
+    "block-size",
+    "min-inline-size",
+    "max-inline-size",
+    "min-block-size",
+    "max-block-size",
+    "aspect-ratio",
+    "font",
+    "font-size",
+    "zoom",
+    "transform",
+    "scale",
+    "flex",
+    "flex-basis",
+    "flex-grow",
+    "flex-shrink",
+    "box-sizing",
+    "object-fit",
+    "padding",
+    "border"
+  ]);
+
+  return extractCssRules(source).flatMap((rule) => {
+    const matchesFooterLogoSelector = rule.selectors.some((selector) => {
+      const subject = selector
+        .trim()
+        .split(/\s*[>+~]\s*|\s+/)
+        .at(-1) ?? "";
+      const targetsFooterContainer =
+        footerContainerSelector.test(subject) ||
+        footerElementSelector.test(subject);
+
+      if (
+        footerLogoSelector.test(selector) ||
+        targetsFooterContainer
+      ) {
+        return true;
+      }
+
+      return (
+        imageOrSvgSelector.test(subject) &&
+        (footerElementSelector.test(selector) ||
+          footerContainerSelector.test(selector))
+      );
+    });
+
+    if (!matchesFooterLogoSelector) {
+      return [];
+    }
+
+    const declarations = normalizeCssDeclarations(rule.content).filter(
+      (declaration) => {
+        const colonIndex = declaration.indexOf(":");
+        const property =
+          colonIndex < 0
+            ? ""
+            : declaration.slice(0, colonIndex).trim().toLowerCase();
+
+        return (
+          dimensionProperties.has(property) ||
+          property.startsWith("padding-") ||
+          property.startsWith("border-")
+        );
+      }
+    );
+
+    return declarations.length > 0
+      ? [{ selectors: rule.selectors, declarations }]
+      : [];
+  });
 }
+
+test("users page header omits eyebrow and keeps title and description", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const pageHeader = html.match(
+    /<div class="page-header">([\s\S]*?)<\/div>\s*<p class="status-region"/
+  )?.[1];
+
+  assert.ok(pageHeader);
+  assert.doesNotMatch(pageHeader, /class="eyebrow"/);
+  assert.match(pageHeader, /<h1>Usuários<\/h1>/);
+  assert.match(
+    pageHeader,
+    /<p class="page-description">Consulte e gerencie os usuários cadastrados\.<\/p>/
+  );
+});
+
+test("compact GOV.BR header keeps Core density, responsive title, and hamburger size", async () => {
+  const [html, styles, coreStyles] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../styles.css", import.meta.url), "utf8"),
+    readFile(
+      new URL("../assets/vendor/govbr-core-3.7.0/core.min.css", import.meta.url),
+      "utf8"
+    )
+  ]);
+  const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0];
+  const headerClassAttribute = header?.match(
+    /<header\b[^>]*\bclass="([^"]*)"/
+  )?.[1];
+  const headerClassNames = headerClassAttribute?.split(/\s+/) ?? [];
+  const hamburger = header?.match(
+    /<button[^>]*id="navigation-toggle"[\s\S]*?<\/button>/
+  )?.[0];
+  const baseHeaderRule = extractCssRule(coreStyles, ".br-header{");
+  const compactHeaderRule = extractCssRule(coreStyles, ".br-header.compact{");
+  const headerTitleRule = extractCssRule(
+    coreStyles,
+    ".br-header .header-menu .header-title{"
+  );
+  const tabletCompactTitleRule = extractCssBlocks(
+    coreStyles,
+    "@media (min-width:576px)"
+  )
+    .map((block) =>
+      extractCssRule(block, ".br-header.compact .header-menu{")
+    )
+    .find((rule) => rule);
+  const desktopCompactTitleRule = extractCssBlocks(
+    coreStyles,
+    "@media (min-width:1280px)"
+  )
+    .map((block) =>
+      extractCssRule(block, ".br-header.compact .header-menu{")
+    )
+    .find((rule) => rule);
+  const coreButtonRule = extractCssRule(coreStyles, ".br-button{");
+  const coreCircleButtonRule = extractCssRule(
+    coreStyles,
+    ".br-button.circle,.br-button.is-circle,.br-button[circle]{"
+  );
+  const coreStylesheetLink =
+    '<link rel="stylesheet" href="assets/vendor/govbr-core-3.7.0/core.min.css">';
+  const appStylesheetLink = '<link rel="stylesheet" href="styles.css">';
+  const stylesheetMarkup = html.replace(/<!--[\s\S]*?-->/g, "");
+
+  assert.ok(header);
+  assert.ok(headerClassNames.includes("br-header"));
+  assert.ok(headerClassNames.includes("compact"));
+  assert.ok(stylesheetMarkup.includes(coreStylesheetLink));
+  assert.ok(stylesheetMarkup.includes(appStylesheetLink));
+  assert.ok(
+    stylesheetMarkup.indexOf(coreStylesheetLink) <
+      stylesheetMarkup.indexOf(appStylesheetLink)
+  );
+  assert.ok(hamburger);
+  assert.match(hamburger, /class="br-button circle menu-trigger"/);
+  assert.match(hamburger, /aria-label="Navegação"/);
+  assert.match(hamburger, /bars\.svg[^>]*alt=""/);
+  assert.ok(baseHeaderRule);
+  assert.deepEqual(baseHeaderRule.selectors, [".br-header"]);
+  assert.match(baseHeaderRule.content, /--header-padding-small:var\(--spacing-scale-base\)/);
+  assert.match(baseHeaderRule.content, /--header-title-size:var\(--font-size-scale-base\)/);
+  assert.match(baseHeaderRule.content, /padding:var\(--header-padding\) 0/);
+  assert.ok(compactHeaderRule);
+  assert.deepEqual(compactHeaderRule.selectors, [".br-header.compact"]);
+  assert.match(compactHeaderRule.content, /--header-padding:var\(--header-padding-small\)/);
+  assert.ok(headerTitleRule);
+  assert.deepEqual(headerTitleRule.selectors, [".br-header .header-menu .header-title"]);
+  assert.match(headerTitleRule.content, /font-size:var\(--header-title-size\)/);
+  assert.match(coreStyles, /--spacing-scale-base:8px/);
+  assert.match(coreStyles, /--font-size-scale-base:14px/);
+  assert.match(coreStyles, /--font-size-scale-up-01:16\.8px/);
+  assert.match(coreStyles, /--font-size-scale-up-02:20\.16px/);
+  assert.ok(tabletCompactTitleRule);
+  assert.deepEqual(tabletCompactTitleRule.selectors, [
+    ".br-header.compact .header-menu"
+  ]);
+  assert.deepEqual(normalizeCssDeclarations(tabletCompactTitleRule.content), [
+    "--header-title-size:var(--font-size-scale-up-01)"
+  ]);
+  assert.ok(desktopCompactTitleRule);
+  assert.deepEqual(desktopCompactTitleRule.selectors, [
+    ".br-header.compact .header-menu"
+  ]);
+  assert.deepEqual(normalizeCssDeclarations(desktopCompactTitleRule.content), [
+    "--header-title-size:var(--font-size-scale-up-02)"
+  ]);
+  assert.doesNotMatch(styles, /--header-(?:padding|title-size)\s*:/);
+  assert.ok(coreButtonRule);
+  assert.match(coreButtonRule.content, /--button-medium:40px/);
+  assert.match(coreButtonRule.content, /--button-size:var\(--button-medium\)/);
+  assert.match(coreButtonRule.content, /height:var\(--button-size\)/);
+  assert.ok(coreCircleButtonRule);
+  assert.deepEqual(coreCircleButtonRule.selectors, [
+    ".br-button.circle",
+    ".br-button.is-circle",
+    ".br-button[circle]"
+  ]);
+  assert.match(coreCircleButtonRule.content, /width:var\(--button-size\)/);
+});
 
 test("desktop starts closed and hamburger opens a non-modal aside", () => {
   const { dialog, layout, mainControl, menuContainer, panel, toggle } =
@@ -1595,7 +1786,6 @@ test("markup and local CSS preserve one accessible menu across responsive wrappe
     /<dialog class="br-menu navigation-surface navigation-dialog"[^>]*>[\s\S]*?<\/dialog>/
   )?.[0];
   const toggleButton = html.match(/<button[^>]*id="navigation-toggle"[\s\S]*?<\/button>/)?.[0];
-  const footer = html.match(/<footer class="br-footer">[\s\S]*?<\/footer>/)?.[0];
   const closeButton = panel?.match(/<button[^>]*data-menu-close[\s\S]*?<\/button>/)?.[0];
   const collapseButton = panel?.match(/<button[^>]*data-menu-collapse[\s\S]*?<\/button>/)?.[0];
   const links = [...(panel?.matchAll(/<a class="menu-item[^>]*>([\s\S]*?)<\/a>/g) ?? [])];
@@ -1603,10 +1793,6 @@ test("markup and local CSS preserve one accessible menu across responsive wrappe
   assert.ok(panel);
   assert.ok(dialog);
   assert.ok(toggleButton);
-  assert.ok(footer);
-  assert.match(footer, /class="[^"]*\bfooter-anatel\b[^"]*"/);
-  assert.match(footer, /class="[^"]*\bfooter-govbr\b[^"]*"/);
-  assert.match(footer, /class="footer-content"/);
   assert.match(panel, /aria-labelledby="navigation-title"/);
   assert.match(dialog, /aria-labelledby="navigation-title"/);
   assert.match(panel, /id="navigation-panel"/);
@@ -1660,24 +1846,6 @@ test("markup and local CSS preserve one accessible menu across responsive wrappe
   const mobileScreenReaderRule = extractCssRule(
     mobileTableStyles ?? "",
     ".table-scroll thead.table-head-hidden-in-cards"
-  );
-  const mobileFooterRule = extractCssRule(styles, ".br-footer .footer-layout");
-  const footerBrandRule = extractCssRule(styles, ".br-footer .footer-brand");
-  const footerAnatelLogoRule = extractCssRule(
-    styles,
-    ".br-footer .footer-anatel .footer-logo"
-  );
-  const footerGovbrLogoRule = extractCssRule(
-    styles,
-    ".br-footer .footer-govbr .footer-logo"
-  );
-  const desktopFooterStyles = extractCssBlocks(
-    styles,
-    "@media (min-width: 576px)"
-  ).find((block) => block.includes(".br-footer .footer-layout"));
-  const desktopFooterRule = extractCssRule(
-    desktopFooterStyles ?? "",
-    ".br-footer .footer-layout"
   );
   const localMenuContainerRule = extractCssRule(
     styles,
@@ -1843,6 +2011,254 @@ test("markup and local CSS preserve one accessible menu across responsive wrappe
     "clip: rect(0, 0, 0, 0)",
     "border: 0"
   ]);
+  assert.match(html, /<dialog[^>]*id="user-dialog"/);
+  assert.match(html, /<dialog[^>]*id="delete-dialog"/);
+});
+
+test("footer logo CSS extraction ignores comments and captures later rules", () => {
+  assert.deepEqual(normalizeCssDeclarations("/* note */ width: 40px;"), [
+    "width: 40px"
+  ]);
+
+  const commentedWidth = extractFooterLogoSizingRules(`
+    /* .footer-logo { width: 999px; } */
+    /* Comment before selector. */
+    .br-footer .footer-logo /* Ignore this brace: } */ {
+      /* Keep this declaration visible to the sizing check. */
+      width: 40px;
+    }
+  `);
+  const duplicateTopLevelRules = extractFooterLogoSizingRules(`
+    .br-footer .footer-logo { width: auto; }
+    .br-footer .footer-logo { height: 42px; }
+  `);
+  const nestedMediaRules = extractFooterLogoSizingRules(`
+    @media (max-width: 767px) {
+      @supports (min-width: 320px) {
+        .br-footer .footer-logo {
+          width: 80px;
+          min-width: 40px;
+          max-width: 120px;
+          font-size: 14px;
+          zoom: 1;
+          transform: scale(1);
+          scale: 1.2;
+          flex: 1;
+          flex-basis: auto;
+        }
+      }
+    }
+  `);
+  const ruleAfterAtRule = extractFooterLogoSizingRules(`
+    @media (max-width: 767px) {
+      .br-footer .footer-logo { width: 80px; }
+    }
+    .br-footer .footer-logo { height: 42px; }
+  `);
+  const containerSizing = extractFooterLogoSizingRules(`
+    .br-footer { font-size: 14px; }
+    footer img { transform: scale(1.1); }
+    .footer-brand { zoom: 1.2; }
+    .footer-layout { width: 100%; }
+    footer { height: 100%; }
+    .br-footer .footer-links ul { padding: 0; }
+    .footer { width: 999px; }
+    .menu-footer { width: 999px; }
+    .footer-logo-x { width: 999px; }
+    .unrelated { width: 999px; }
+    .unrelated img { height: 999px; }
+  `);
+
+  assert.deepEqual(commentedWidth, [
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: ["width: 40px"]
+    }
+  ]);
+  assert.deepEqual(duplicateTopLevelRules, [
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: ["width: auto"]
+    },
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: ["height: 42px"]
+    }
+  ]);
+  assert.deepEqual(nestedMediaRules, [
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: [
+        "width: 80px",
+        "min-width: 40px",
+        "max-width: 120px",
+        "font-size: 14px",
+        "zoom: 1",
+        "transform: scale(1)",
+        "scale: 1.2",
+        "flex: 1",
+        "flex-basis: auto"
+      ]
+    }
+  ]);
+  assert.deepEqual(ruleAfterAtRule, [
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: ["width: 80px"]
+    },
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: ["height: 42px"]
+    }
+  ]);
+  assert.deepEqual(containerSizing, [
+    {
+      selectors: [".br-footer"],
+      declarations: ["font-size: 14px"]
+    },
+    {
+      selectors: ["footer img"],
+      declarations: ["transform: scale(1.1)"]
+    },
+    {
+      selectors: [".footer-brand"],
+      declarations: ["zoom: 1.2"]
+    },
+    {
+      selectors: [".footer-layout"],
+      declarations: ["width: 100%"]
+    },
+    {
+      selectors: ["footer"],
+      declarations: ["height: 100%"]
+    }
+  ]);
+});
+
+test("footer logo sizing extraction detects image and SVG selectors and sizing properties", () => {
+  const sizingFixtures = [
+    ["footer img", "width", "40px"],
+    [".footer-layout img", "height", "40px"],
+    [".footer-content img", "min-width", "10px"],
+    [".footer-brand img", "max-width", "100%"],
+    [".footer-anatel img", "min-height", "10px"],
+    [".footer-govbr img", "max-height", "50px"],
+    [".br-footer img", "inline-size", "40px"],
+    [".footer-logo", "block-size", "40px"],
+    ["footer svg", "min-inline-size", "10px"],
+    [".footer-layout svg", "max-inline-size", "40px"],
+    [".footer-content svg", "min-block-size", "10px"],
+    [".footer-brand svg", "max-block-size", "50px"],
+    [".footer-anatel svg", "aspect-ratio", "1 / 1"],
+    [".footer-govbr img", "font-size", "14px"],
+    [".footer-govbr img", "font", "14px Arial"],
+    [".footer-anatel img", "zoom", "1"],
+    [".footer-govbr img", "transform", "scale(1)"],
+    [".footer-anatel img", "scale", "1.2"],
+    [".footer-govbr img", "flex", "1"],
+    [".footer-anatel img", "flex-basis", "auto"],
+    [".footer-govbr img", "flex-grow", "1"],
+    [".footer-anatel img", "flex-shrink", "0"],
+    [".footer-govbr img", "padding", "0 4px"],
+    [".footer-govbr img", "padding-inline", "4px"],
+    [".footer-anatel img", "border", "1px solid"],
+    [".footer-anatel img", "border-block-width", "1px"],
+    [".footer-govbr img", "box-sizing", "border-box"],
+    [".footer-govbr svg", "width", "40px"],
+    [".br-footer svg", "height", "40px"],
+    [".footer-logo svg", "max-width", "100%"],
+    [".br-footer", "font-size", "14px"],
+    ["footer img", "transform", "scale(1.1)"],
+    [".footer-brand", "zoom", "1.2"],
+    [".footer-layout", "width", "100%"]
+  ];
+  const styles = [
+    "/* .footer-logo { width: 999px; } */",
+    ...sizingFixtures.map(
+      ([selector, property, value]) =>
+        `/* Comment before selector. */ ${selector} /* Ignore { } here. */ { ${property}: ${value}; }`
+    ),
+    ".footer { width: 999px; }",
+    ".menu-footer { width: 999px; }",
+    ".footer-logo-x { width: 999px; }",
+    ".unrelated { width: 999px; }",
+    ".unrelated img { height: 999px; }"
+  ].join("\n");
+  const extracted = extractFooterLogoSizingRules(styles);
+
+  assert.deepEqual(
+    extracted,
+    sizingFixtures.map(([selector, property, value]) => ({
+      selectors: [selector],
+      declarations: [`${property}: ${value}`]
+    }))
+  );
+});
+
+test("footer markup and CSS preserve responsive layout and logo sizing", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const footer = html.match(/<footer class="br-footer">[\s\S]*?<\/footer>/)?.[0];
+  const footerImages = footer?.match(/<img\b[^>]*>/g) ?? [];
+  const anatelWrapper = footer?.match(
+    /<div class="footer-brand footer-anatel">([\s\S]*?)<\/div>/
+  )?.[1];
+  const govbrWrapper = footer?.match(
+    /<div class="footer-brand footer-govbr">([\s\S]*?)<\/div>/
+  )?.[1];
+  const mobileFooterRule = extractCssRule(styles, ".br-footer .footer-layout");
+  const footerBrandRule = extractCssRule(styles, ".br-footer .footer-brand");
+  const footerLogoRule = extractCssRule(styles, ".br-footer .footer-logo");
+  const footerAnatelLogoRule = extractCssRule(
+    styles,
+    ".br-footer .footer-anatel .footer-logo"
+  );
+  const footerRule = extractCssRule(styles, ".br-footer {");
+  const footerGovbrLogoRule = extractCssRule(
+    styles,
+    ".br-footer .footer-govbr .footer-logo"
+  );
+  const footerContentRule = extractCssRule(
+    styles,
+    ".br-footer .footer-content"
+  );
+  const desktopFooterStyles = extractCssBlocks(
+    styles,
+    "@media (min-width: 576px)"
+  ).find((block) => block.includes(".br-footer .footer-layout"));
+  const desktopFooterRule = extractCssRule(
+    desktopFooterStyles ?? "",
+    ".br-footer .footer-layout"
+  );
+  const footerLogoSizingRules = extractFooterLogoSizingRules(styles);
+
+  assert.ok(footer);
+  assert.ok(anatelWrapper);
+  assert.equal(
+    anatelWrapper.trim(),
+    '<img class="footer-logo" src="assets/brand/Anatel_Logo.svg" alt="Logotipo da Anatel">'
+  );
+  assert.ok(govbrWrapper);
+  assert.equal(
+    govbrWrapper.trim(),
+    '<img class="footer-logo" src="assets/brand/Gov.br_logo.svg" alt="Logotipo gov.br">'
+  );
+  assert.equal(
+    [...(footer?.matchAll(/<div class="footer-brand footer-anatel">/g) ?? [])]
+      .length,
+    1
+  );
+  assert.equal(
+    [...(footer?.matchAll(/<div class="footer-brand footer-govbr">/g) ?? [])]
+      .length,
+    1
+  );
+  assert.match(
+    footer,
+    /<div class="footer-layout">\s*<div class="footer-brand footer-anatel">\s*<img class="footer-logo" src="assets\/brand\/Anatel_Logo\.svg" alt="Logotipo da Anatel">\s*<\/div>\s*<div class="footer-brand footer-govbr">\s*<img class="footer-logo" src="assets\/brand\/Gov\.br_logo\.svg" alt="Logotipo gov\.br">\s*<\/div>\s*<div class="footer-content">/
+  );
+  assert.equal(footerImages.length, 2);
+  assert.match(footer, /class="footer-content"/);
   assert.ok(mobileFooterRule);
   assert.deepEqual(mobileFooterRule.selectors, [".br-footer .footer-layout"]);
   assert.deepEqual(normalizeCssDeclarations(mobileFooterRule.content), [
@@ -1854,20 +2270,77 @@ test("markup and local CSS preserve one accessible menu across responsive wrappe
     "gap: var(--spacing-scale-2x)"
   ]);
   assert.ok(footerBrandRule);
+  assert.deepEqual(footerBrandRule.selectors, [".br-footer .footer-brand"]);
   assert.deepEqual(normalizeCssDeclarations(footerBrandRule.content), [
     "display: grid",
     "min-width: 0",
     "align-self: stretch",
     "place-items: end center",
-    "padding: var(--spacing-scale-half)"
+    "padding: 0 var(--spacing-scale-half)"
+  ]);
+  assert.ok(footerLogoRule);
+  assert.deepEqual(footerLogoRule.selectors, [".br-footer .footer-logo"]);
+  assert.deepEqual(normalizeCssDeclarations(footerLogoRule.content), [
+    "display: block",
+    "width: auto",
+    "max-width: 100%",
+    "object-fit: contain"
+  ]);
+
+  assert.ok(footerRule);
+  assert.deepEqual(footerRule.selectors, [".br-footer"]);
+  assert.deepEqual(normalizeCssDeclarations(footerRule.content), [
+    "padding: var(--spacing-scale-base) 0",
+    "color: var(--gray-80)",
+    "background: var(--pure-0)"
+  ]);
+  assert.ok(footerContentRule);
+  assert.deepEqual(footerContentRule.selectors, [".br-footer .footer-content"]);
+  assert.deepEqual(normalizeCssDeclarations(footerContentRule.content), [
+    "grid-area: content",
+    "min-width: 0",
+    "line-height: 3",
+    "text-align: center"
   ]);
   assert.ok(footerAnatelLogoRule);
+  assert.deepEqual(footerAnatelLogoRule.selectors, [
+    ".br-footer .footer-anatel .footer-logo"
+  ]);
   assert.deepEqual(normalizeCssDeclarations(footerAnatelLogoRule.content), [
     "height: 3em"
   ]);
   assert.ok(footerGovbrLogoRule);
+  assert.deepEqual(footerGovbrLogoRule.selectors, [
+    ".br-footer .footer-govbr .footer-logo"
+  ]);
   assert.deepEqual(normalizeCssDeclarations(footerGovbrLogoRule.content), [
-    "height: 1em"
+    "height: 3em"
+  ]);
+  assert.deepEqual(footerLogoSizingRules, [
+    {
+      selectors: [".br-footer"],
+      declarations: ["padding: var(--spacing-scale-base) 0"]
+    },
+    {
+      selectors: [".br-footer .footer-brand"],
+      declarations: ["min-width: 0", "padding: 0 var(--spacing-scale-half)"]
+    },
+    {
+      selectors: [".br-footer .footer-logo"],
+      declarations: ["width: auto", "max-width: 100%", "object-fit: contain"]
+    },
+    {
+      selectors: [".br-footer .footer-anatel .footer-logo"],
+      declarations: ["height: 3em"]
+    },
+    {
+      selectors: [".br-footer .footer-govbr .footer-logo"],
+      declarations: ["height: 3em"]
+    },
+    {
+      selectors: [".br-footer .footer-content"],
+      declarations: ["min-width: 0"]
+    }
   ]);
   assert.ok(desktopFooterRule);
   assert.deepEqual(desktopFooterRule.selectors, [".br-footer .footer-layout"]);
@@ -1876,10 +2349,4 @@ test("markup and local CSS preserve one accessible menu across responsive wrappe
     "grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)",
     "column-gap: 0"
   ]);
-  assert.ok(
-    html.indexOf("assets/vendor/govbr-core-3.7.0/core.min.css") <
-      html.indexOf('href="styles.css"')
-  );
-  assert.match(html, /<dialog[^>]*id="user-dialog"/);
-  assert.match(html, /<dialog[^>]*id="delete-dialog"/);
 });

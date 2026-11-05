@@ -185,12 +185,15 @@ mensagens e foco usam o `node:test` integrado. O ambiente testado é Linux, Bash
 Essa é uma versão testada, não uma versão mínima declarada. Na raiz do repositório:
 
 ```bash
-node --test webapp/frontend/tests/dialog-accessibility.test.mjs webapp/frontend/tests/navigation.test.mjs
+node --test webapp/frontend/tests/dialog-accessibility.test.mjs \
+  webapp/frontend/tests/navigation.test.mjs webapp/frontend/tests/css-scanner.test.mjs
 node --check webapp/frontend/app.js &&
   node --check webapp/frontend/navigation.mjs &&
   node --check webapp/frontend/dialog-accessibility.mjs &&
   node --check webapp/frontend/tests/dialog-accessibility.test.mjs &&
-  node --check webapp/frontend/tests/navigation.test.mjs
+  node --check webapp/frontend/tests/navigation.test.mjs &&
+  node --check webapp/frontend/tests/helpers/css-scanner.mjs &&
+  node --check webapp/frontend/tests/css-scanner.test.mjs
 ```
 
 O CSS Core 3.7.0, Rawline, ícones e a ilustração são locais. As origens, licenças e
