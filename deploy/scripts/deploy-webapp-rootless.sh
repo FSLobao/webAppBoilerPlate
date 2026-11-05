@@ -7,7 +7,10 @@
 # Then chown the staged tree to podman_user.
 #
 # Idempotent: generated configuration is reinstalled; secrets and volumes are
-# never overwritten or removed. Runs as podman_user with rootless Podman.
+# never overwritten or removed. webapp and app-proxy restart every run;
+# webapp-db restarts only when its pending-restart marker exists. Runs as
+# podman_user with rootless Podman.
+# Re-pulling the same postgres tag does not restart webapp-db unless webapp-db.yaml or the Quadlet changes.
 set -Eeuo pipefail
 
 readonly EXPECTED_USER=podman_user
@@ -15,8 +18,12 @@ readonly EXPECTED_UID=1001
 readonly IMAGE=localhost/webapp:0.1.0
 readonly POSTGRES_UID=999
 readonly WEBAPP_UID=10001
-readonly UNITS=(webapp-db.service webapp.service app-proxy.service)
-readonly PODS=(webapp-db webapp app-proxy)
+readonly GATEWAY_NETWORK=gateway-vpn
+readonly DEPLOYMENT_MAP=(
+  "webapp-db.service|webapp-db|10.90.0.10|webapp-db.dev.anatel"
+  "webapp.service|webapp|10.90.0.11|webapp.dev.anatel"
+  "app-proxy.service|app-proxy|10.90.0.12|app-proxy.dev.anatel"
+)
 readonly BASE_IMAGES=(
   docker.io/library/postgres:18-trixie
   docker.io/library/nginx:1.28-alpine
@@ -30,6 +37,8 @@ SOURCE_DIR=""
 NO_BUILD=false
 HOME_DIR=""
 CONFIG_DIR=""
+PENDING_RESTART_DIR=""
+DB_PENDING_RESTART_MARKER=""
 KUBE_DIR=""
 DB_INIT_DIR=""
 PROXY_DIR=""
@@ -63,6 +72,7 @@ log() {
 # Return status: 0.
 usage() {
   printf 'Usage: %s --source DIR [--no-build]\n' "${0##*/}"
+  printf 'Restart policy: webapp.service and app-proxy.service restart every run; webapp-db.service restarts only when its pending marker exists.\n'
   printf 'Stage the repository as root with:\n'
   printf '  git archive HEAD | tar -x -C <dir>\n'
   printf 'Then chown the staged tree to podman_user.\n'
@@ -127,8 +137,9 @@ resolve_source_dir() {
 # Resolves all managed paths beneath the current user's home directory.
 # Arguments: none.
 # Global state read: HOME.
-# Global state changed: HOME_DIR, CONFIG_DIR, KUBE_DIR, DB_INIT_DIR, PROXY_DIR,
-#   QUADLET_DIR, SECRETS_DIR.
+# Global state changed: HOME_DIR, CONFIG_DIR, PENDING_RESTART_DIR,
+#   DB_PENDING_RESTART_MARKER, KUBE_DIR, DB_INIT_DIR, PROXY_DIR, QUADLET_DIR,
+#   SECRETS_DIR.
 # Output streams: diagnostics to stderr.
 # Return status: 0 on success, nonzero on error.
 set_user_paths() {
@@ -146,11 +157,29 @@ set_user_paths() {
   }
 
   CONFIG_DIR="${HOME_DIR}/.config/webapp"
+  PENDING_RESTART_DIR="${CONFIG_DIR}/pending-restart"
   KUBE_DIR="${CONFIG_DIR}/kube"
   DB_INIT_DIR="${CONFIG_DIR}/db-init"
   PROXY_DIR="${CONFIG_DIR}/proxy"
   QUADLET_DIR="${HOME_DIR}/.config/containers/systemd"
   SECRETS_DIR="${HOME_DIR}/.local/share/webapp/secrets"
+
+  local mapping_entry
+  local unit_name
+  local pod_name
+  local fixed_ip
+  local network_alias
+  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+    IFS='|' read -r unit_name pod_name fixed_ip network_alias <<< "${mapping_entry}"
+    if [[ "${pod_name}" == webapp-db ]]; then
+      DB_PENDING_RESTART_MARKER="${PENDING_RESTART_DIR}/${unit_name}"
+      break
+    fi
+  done
+  [[ -n "${DB_PENDING_RESTART_MARKER}" ]] || {
+    fail "No pending-restart mapping exists for webapp-db."
+    return 1
+  }
 }
 # ---------------------------------- #
 
@@ -204,7 +233,8 @@ verify_image_volume() {
 
 # Validates source files, user paths, rootless services, network, cgroups, and volumes.
 # Arguments: none.
-# Global state read: SOURCE_DIR, NO_BUILD, IMAGE, EXPECTED_USER, EXPECTED_UID.
+# Global state read: SOURCE_DIR, NO_BUILD, IMAGE, EXPECTED_USER, EXPECTED_UID,
+#   GATEWAY_NETWORK, DEPLOYMENT_MAP.
 # Global state changed: runtime bus variables, user paths, DB_VOLUME_EXISTS.
 # Output streams: diagnostics to stderr.
 # Return status: 0 when all checks pass, nonzero otherwise.
@@ -215,7 +245,7 @@ preflight() {
   }
 
   local command_name
-  for command_name in podman systemctl curl openssl install loginctl id grep sleep chmod mktemp mv rm stat; do
+  for command_name in podman systemctl curl openssl install loginctl id grep sleep chmod mktemp mv rm stat cmp; do
     command -v "${command_name}" >/dev/null || {
       fail "Missing command: ${command_name}"
       return 1
@@ -277,7 +307,7 @@ preflight() {
   }
 
   local network_info
-  network_info=$(podman network inspect gateway-vpn --format '{{.DNSEnabled}} {{range .Subnets}}{{.Subnet}}{{end}}') || {
+  network_info=$(podman network inspect "${GATEWAY_NETWORK}" --format '{{.DNSEnabled}} {{range .Subnets}}{{.Subnet}}{{end}}') || {
     fail "Could not inspect network gateway-vpn."
     return 1
   }
@@ -285,6 +315,8 @@ preflight() {
     fail "Network gateway-vpn must have DNS enabled and subnet 10.90.0.0/24 (found: ${network_info})."
     return 1
   }
+
+  validate_fixed_ip_owners || return
 
   local cgroup_manager
   cgroup_manager=$(podman info --format '{{.Host.CgroupManager}}') || {
@@ -301,6 +333,89 @@ preflight() {
     fail "Image ${IMAGE} not found; run without --no-build."
     return 1
   fi
+}
+# ---------------------------------- #
+
+# Rejects fixed gateway IPs held by containers other than each expected pod's
+# infra container.
+# Arguments: none.
+# Global state read: DEPLOYMENT_MAP, GATEWAY_NETWORK.
+# Output streams: diagnostics to stderr.
+# Return status: 0 when target addresses are free or deployment-owned, 1 otherwise.
+validate_fixed_ip_owners() {
+  local attachment_output
+  local mapping_entry
+  local pod_name
+  local pod_status
+  local infra_id
+  local infra_name
+  local entry
+  local entry_name
+  local entry_ip
+  local fixed_ip
+  local expected_infra_name
+  local -A allowed_infra_names=()
+  local -a attachments=()
+
+  attachment_output=$(podman network inspect "${GATEWAY_NETWORK}" --format "{{range .Containers}}{{.Name}}|{{range .Interfaces}}{{range .Subnets}}{{.IPNet}}{{end}}{{end}};{{end}}") || {
+    fail "Could not inspect containers attached to ${GATEWAY_NETWORK}."
+    return 1
+  }
+
+  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+    IFS='|' read -r _ pod_name _ _ <<< "${mapping_entry}"
+    if podman pod exists "${pod_name}"; then
+      infra_id=$(podman pod inspect --format "{{.InfraContainerID}}" "${pod_name}") || {
+        fail "Could not inspect deployment pod ${pod_name}."
+        return 1
+      }
+      [[ -n "${infra_id}" ]] || {
+        fail "Deployment pod ${pod_name} has no infra container."
+        return 1
+      }
+      infra_name=$(podman inspect --format "{{.Name}}" "${infra_id}") || {
+        fail "Could not inspect infra container for ${pod_name}."
+        return 1
+      }
+      allowed_infra_names["${pod_name}"]=${infra_name#/}
+    else
+      pod_status=$?
+      ((pod_status == 1)) || {
+        fail "Could not check deployment pod ${pod_name}."
+        return 1
+      }
+    fi
+  done
+
+  IFS=";" read -r -a attachments <<< "${attachment_output}" || return
+  for entry in "${attachments[@]}"; do
+    [[ -n "${entry}" ]] || continue
+    [[ "${entry}" == *"|"* ]] || {
+      fail "Could not parse a container attachment on ${GATEWAY_NETWORK}."
+      return 1
+    }
+    entry_name=${entry%%|*}
+    entry_ip=${entry#*|}
+    entry_ip=${entry_ip%%/*}
+    [[ -n "${entry_name}" && -n "${entry_ip}" ]] || {
+      fail "Could not parse a container address on ${GATEWAY_NETWORK}."
+      return 1
+    }
+    [[ "${entry_ip}" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$ ]] || {
+      fail "Invalid IPv4 address on ${GATEWAY_NETWORK}: ${entry_ip}."
+      return 1
+    }
+
+    for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+      IFS='|' read -r _ pod_name fixed_ip _ <<< "${mapping_entry}"
+      [[ "${entry_ip}" == "${fixed_ip}" ]] || continue
+      expected_infra_name=${allowed_infra_names["${pod_name}"]:-}
+      [[ "${entry_name}" == "${expected_infra_name}" ]] || {
+        fail "Fixed IP ${fixed_ip} on ${GATEWAY_NETWORK} is held by ${entry_name}, not the infra container for ${pod_name}."
+        return 1
+      }
+    done
+  done
 }
 # ---------------------------------- #
 
@@ -350,6 +465,7 @@ validate_destination_paths() {
   local -a directories=(
     "${HOME_DIR}/.config"
     "${CONFIG_DIR}"
+    "${PENDING_RESTART_DIR}"
     "${KUBE_DIR}"
     "${DB_INIT_DIR}"
     "${PROXY_DIR}"
@@ -379,6 +495,7 @@ validate_destination_paths() {
   local -a targets=(
     "${PROXY_DIR}/templates/default.conf.template"
     "${PROXY_DIR}/apps.d/webapp.conf"
+    "${DB_PENDING_RESTART_MARKER}"
     "${SECRETS_DIR}/postgres-password"
     "${SECRETS_DIR}/db-init-api-password"
     "${SECRETS_DIR}/api-db-password"
@@ -461,9 +578,26 @@ check_existing_volumes() {
 }
 # ---------------------------------- #
 
+# Atomically writes the pending database-restart marker before a changed unit moves.
+# Arguments: none.
+# Global state read: PENDING_RESTART_DIR, DB_PENDING_RESTART_MARKER.
+# Global state changed: TEMP_FILES.
+# Output streams: diagnostics to stderr.
+# Return status: 0 on success, nonzero on error.
+mark_db_restart_pending() {
+  local staged
+  staged=$(mktemp --tmpdir="${PENDING_RESTART_DIR}" .pending-restart.XXXXXX) || return
+  TEMP_FILES+=("${staged}")
+  printf 'pending' > "${staged}" || return
+  mv -T -f -- "${staged}" "${DB_PENDING_RESTART_MARKER}" || return
+}
+# ---------------------------------- #
+
 # Writes a transformed YAML or Quadlet copy using an atomic same-directory rename.
 # Arguments: $1 - source; $2 - destination; $3 - kube or quadlet.
-# Global state read: managed config paths, SECRETS_DIR.
+# Global state read: managed config paths, SECRETS_DIR, DEPLOYMENT_MAP,
+#   GATEWAY_NETWORK, DB_PENDING_RESTART_MARKER.
+# Global state changed: TEMP_FILES.
 # Output streams: diagnostics to stderr.
 # Return status: 0 on success, nonzero otherwise.
 write_transformed_copy() {
@@ -475,6 +609,40 @@ write_transformed_copy() {
   local prefix
   local host_path
   local host_path_pending=false
+  local compare_status
+  local unit_name
+  local mapping_entry
+  local pod_name
+  local fixed_ip
+  local network_alias
+  local expected_network_line
+  local mapped=false
+  if [[ "${copy_kind}" == kube ]]; then
+    for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+      IFS='|' read -r unit_name pod_name fixed_ip network_alias <<< "${mapping_entry}"
+      if [[ "${source_file##*/}" == "${pod_name}.yaml" ]]; then
+        mapped=true
+        break
+      fi
+    done
+    [[ "${mapped}" == true ]] || {
+      fail "No deployment mapping for kube file ${source_file##*/}."
+      return 1
+    }
+  elif [[ "${copy_kind}" == quadlet ]]; then
+    for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+      IFS='|' read -r unit_name pod_name fixed_ip network_alias <<< "${mapping_entry}"
+      if [[ "${source_file##*/}" == "${unit_name%.service}.kube" ]]; then
+        mapped=true
+        break
+      fi
+    done
+    [[ "${mapped}" == true ]] || {
+      fail "No deployment mapping for Quadlet file ${source_file##*/}."
+      return 1
+    }
+    expected_network_line="Network=${GATEWAY_NETWORK}:ip=${fixed_ip},alias=${network_alias}"
+  fi
   staged=$(mktemp --tmpdir="${destination%/*}" .webapp-copy.XXXXXX) || return
   TEMP_FILES+=("${staged}")
 
@@ -516,7 +684,9 @@ write_transformed_copy() {
         fi
       fi
     elif [[ "${copy_kind}" == quadlet ]]; then
-      line=${line//Network=podman/Network=gateway-vpn}
+      if [[ "${line}" == Network=podman ]]; then
+        line="${expected_network_line}"
+      fi
       line=${line//WantedBy=multi-user.target/WantedBy=default.target}
       line=${line//\/etc\/webapp\/kube/"${KUBE_DIR}"}
       line=${line//\/etc\/app-proxy/"${PROXY_DIR}"}
@@ -531,7 +701,32 @@ write_transformed_copy() {
     fail "Missing path entry in ${source_file}."
     return 1
   }
+  if [[ "${copy_kind}" == quadlet ]]; then
+    if ! grep -Fxq -- "${expected_network_line}" "${staged}"; then
+      fail "Generated Quadlet copy ${source_file##*/} is missing expected line: ${expected_network_line}."
+      return 1
+    fi
+  fi
+  if [[ "${copy_kind}" == quadlet || ( "${copy_kind}" == kube && "${pod_name}" == webapp-db ) ]]; then
+    if [[ -f "${destination}" ]]; then
+      if cmp -s -- "${staged}" "${destination}"; then
+        chmod 0644 -- "${destination}" || return
+        rm -- "${staged}" || return
+        return 0
+      else
+        compare_status=$?
+        ((compare_status == 1)) || {
+          fail "Could not compare generated Quadlet file ${destination}."
+          return 1
+        }
+      fi
+    fi
+  fi
+
   chmod 0644 -- "${staged}" || return
+  if [[ "${pod_name}" == webapp-db ]]; then
+    mark_db_restart_pending || return
+  fi
   mv -f -- "${staged}" "${destination}" || return
 }
 # ---------------------------------- #
@@ -705,7 +900,8 @@ ensure_secrets() {
 install_config() {
   log "Installing user configuration"
   install -d -m 0755 -- "${KUBE_DIR}" "${DB_INIT_DIR}" \
-    "${PROXY_DIR}/templates" "${PROXY_DIR}/apps.d" "${QUADLET_DIR}" || return
+    "${PROXY_DIR}/templates" "${PROXY_DIR}/apps.d" "${QUADLET_DIR}" \
+    "${PENDING_RESTART_DIR}" || return
 
   local -a yaml_sources=("${SOURCE_DIR}"/deploy/webapp/kube/*.yaml)
   local -a quadlet_sources=("${SOURCE_DIR}"/deploy/webapp/quadlet/*.kube)
@@ -809,25 +1005,69 @@ build_image() {
 }
 # ---------------------------------- #
 
-# Reloads user systemd and starts the database before restarting the app and proxy.
+# Reloads user systemd; starts webapp-db when no marker exists and restarts it
+# when pending. Restarts webapp and app-proxy on every run.
 # Arguments: none.
+# Global state read: DEPLOYMENT_MAP, DB_PENDING_RESTART_MARKER.
 # Output streams: progress to stdout; systemd diagnostics to stderr.
 # Return status: 0 on success, nonzero on error.
 start_units() {
-  log "Reloading user systemd and starting units"
+  log "Reloading user systemd"
   systemctl --user daemon-reload || return
-  systemctl --user start webapp-db.service || return
-  systemctl --user restart webapp.service app-proxy.service
+
+  local mapping_entry
+  local unit
+  local pod_name
+  local database_unit=""
+  local webapp_unit=""
+  local proxy_unit=""
+  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+    IFS='|' read -r unit pod_name _ _ <<< "${mapping_entry}"
+    if [[ "${pod_name}" == webapp-db ]]; then
+      database_unit=${unit}
+    fi
+    if [[ "${pod_name}" == webapp ]]; then
+      webapp_unit=${unit}
+    fi
+    if [[ "${pod_name}" == app-proxy ]]; then
+      proxy_unit=${unit}
+    fi
+  done
+  [[ -n "${database_unit}" && -n "${webapp_unit}" && -n "${proxy_unit}" ]] || {
+    fail "Deployment unit mapping is incomplete."
+    return 1
+  }
+
+  if [[ -e "${DB_PENDING_RESTART_MARKER}" ]]; then
+    log "Restarting ${database_unit} because a pending marker exists"
+    systemctl --user restart "${database_unit}" || return
+    rm -- "${DB_PENDING_RESTART_MARKER}" || return
+  else
+    log "Starting ${database_unit} if needed"
+    systemctl --user start "${database_unit}" || return
+  fi
+
+  log "Restarting ${webapp_unit}"
+  systemctl --user restart "${webapp_unit}" || return
+  log "Restarting ${proxy_unit}"
+  systemctl --user restart "${proxy_unit}" || return
 }
 # ---------------------------------- #
 
 # Waits up to 45 two-second polls for the API health endpoint.
 # Arguments: none.
-# Global state read: HEALTH_URL, UNITS.
+# Global state read: HEALTH_URL, DEPLOYMENT_MAP.
 # Output streams: progress to stdout; unit status and diagnostics to stderr.
 # Return status: 0 when healthy, nonzero after timeout.
 wait_healthy() {
   local _attempt
+  local mapping_entry
+  local unit
+  local -a units=()
+  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+    IFS='|' read -r unit _ _ _ <<< "${mapping_entry}"
+    units+=("${unit}")
+  done
   for _attempt in {1..45}; do
     if curl -fsS --max-time 3 "${HEALTH_URL}" >/dev/null 2>&1; then
       log "Healthy: ${HEALTH_URL}"
@@ -835,7 +1075,7 @@ wait_healthy() {
     fi
     sleep 2 || return
   done
-  if ! systemctl --user --no-pager --lines=20 status "${UNITS[@]}" >&2; then
+  if ! systemctl --user --no-pager --lines=20 status "${units[@]}" >&2; then
     log "systemctl status returned nonzero." >&2
   fi
   fail "API not healthy after 90 s: ${HEALTH_URL}"
@@ -844,21 +1084,24 @@ wait_healthy() {
 
 # Reports active states for all three user units and their containers.
 # Arguments: none.
-# Global state read: UNITS, PODS.
+# Global state read: DEPLOYMENT_MAP.
 # Output streams: unit and container states to stdout; diagnostics to stderr.
 # Return status: 0 on success, nonzero on status-query failure.
 report_status() {
+  local mapping_entry
   local unit
   local pod_name
   local unit_state
   local container_states
   log "Unit states:"
-  for unit in "${UNITS[@]}"; do
+  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+    IFS='|' read -r unit _ _ _ <<< "${mapping_entry}"
     unit_state=$(systemctl --user show --property=ActiveState --value "${unit}") || return
     printf '%s: %s\n' "${unit}" "${unit_state}"
   done
   log "Container states:"
-  for pod_name in "${PODS[@]}"; do
+  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
+    IFS='|' read -r _ pod_name _ _ <<< "${mapping_entry}"
     container_states=$(podman ps --all --filter "pod=${pod_name}" --format '{{.Names}} {{.State}}') || return
     [[ -n "${container_states}" ]] || {
       fail "No containers found for pod ${pod_name}."
