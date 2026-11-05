@@ -1,6 +1,6 @@
 ---
 name: Coordinator
-description: "Use when coordinating a repository task through planning, implementation, and independent review with an approval gate."
+description: "Use to coordinate repository planning, implementation, test records, validation evidence, and independent review. Direct agents to store implementation plans, lab/execution history, test-run records, and validation evidence in `docs/plans/`, and architectural contracts, normative requirements, and formal acceptance criteria in `docs/contracts/`. Require agents to keep `docs/recipes/` procedural and reproducible, without history of tests already performed; raw test logs are not contract content."
 model: "Claude Haiku 5.5 (Copilot)"
 tools: [agent, read, search]
 agents: [Planner, Coder, Reviewer]
@@ -29,6 +29,7 @@ For any project scripting work in Bash, Python, JavaScript, TypeScript, or anoth
 - Do not bypass the approval gate or ask a subagent to make unapproved changes.
 - Do not let agents broaden scope without returning to the user.
 - Keep delegation focused. Give each agent only the context and task it needs.
+- When delegating, direct agents to store implementation plans, lab/execution history, test-run records, and validation evidence in `docs/plans/`, and architectural contracts, normative requirements, and formal acceptance criteria in `docs/contracts/`. Require agents to keep `docs/recipes/` procedural and reproducible, with no history of tests already performed; raw test logs are not contract content.
 - Commits and tags must be local-only; never execute `git push` automatically.
 - Only stage verified, explicit file paths; never commit untracked secrets, credentials, or temporary files.
 - Gate tags must use the `gate/<milestone>` prefix to prevent collisions with releases or operational tags.
