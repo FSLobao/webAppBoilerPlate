@@ -25,29 +25,30 @@ ao Headscale auto-hospedado no Gateway. A VPN oferece acesso dividido (split tun
 dos containers e DNS dividido para nomes autorizados em `dev.anatel`; não encaminha a rota
 default nem transforma o Gateway em exit node.
 
-> **Status do cliente (2026-10-29):** resultados do teste de laboratório Debian 13 (registro de
-> sessão, fora do repositório), com Tailscale 1.104.4, no experimento rootless da
-> [receita Headscale](gateway-headscale-podman-rootless.md). Não infira argumentos que o registro
-> não informa:
+> **Status do cliente — testes de laboratório em 2026-10-29 e 2026-11-05.** As datas distinguem os registros históricos dos testes de acesso nomeado mais recentes. Não infira argumentos que os registros não informam:
 >
-> | Comando ou teste | Plataforma | Estado |
-> | --- | --- | --- |
-> | `tailscale status` e estado pós-boot do Headscale | Debian 13 / Tailscale 1.104.4 | Testado; IDs 1 (`gateway-router`, `100.96.0.1`) e 2 (`containerhost`, `100.96.0.2`) mantiveram-se online. |
-> | DNS dividido por `10.90.0.1:53` | Debian 13 / Tailscale 1.104.4 | Testado por UDP e TCP; Gateway resolveu para `10.90.0.2` e app para `10.90.0.3`. `getent` via split DNS também resolveu ambos; argumentos exatos não registrados. |
-> | HTTPS em TCP 8443 pela LAN | Debian 13 / Tailscale 1.104.4 | Testado; respondeu HTTP 200. TLS validou; o arquivo CA estava presente em `/usr/local/share/ca-certificates/gwvpn-lab.crt`, mas o mecanismo de confiança (`update-ca-certificates` ou `--cacert`) não foi registrado. Isso não comprova a execução da §4. Certificado `CN=headscale.dev.anatel`, emissor `CN=GWVPN Lab CA 2026`. |
-> | Acesso à aplicação por IP e alias | Debian 13 / Tailscale 1.104.4 | Testado; aplicação acessada por IP e alias. A aplicação recebeu `100.96.0.2` como IP de origem VPN preservado, conforme §5.5 do contrato. |
-> | Teste de conexão ao servidor em TCP 443 e 9090 | Debian 13 / Tailscale 1.104.4, LAN | Sem conexão (`http_code=000`); o servidor não tinha listener nessas portas no momento do teste. A inscrição usou `:8443` pela LAN; 443 público via perímetro não foi testado. |
-> | Rota default do cliente | Debian 13 / Tailscale 1.104.4 | Testado; permaneceu `192.168.7.1`. |
+> **Registro das linhas de 2026-10-29:** registro de sessão de laboratório, 2026-10-29, fora do repositório.
 >
-> A inscrição usou uma chave de uso único e `https://headscale.dev.anatel:8443` pela LAN; o comando
-> CLI exato não consta no registro. **Não** usou nem validou Headscale público em TCP 443. Os
-> comandos e fluxos que não constam na tabela são **não verificados**, inclusive a forma escrita
-> `tailscale up --auth-key=file:`, `--operator`, `resolvectl query`, `ip route get`, GUIs, Windows e
-> macOS. Os comandos da §4 também não foram executados como escritos.
+> | Data | Comando ou teste | Plataforma | Estado |
+> | --- | --- | --- | --- |
+> | 2026-10-29 | `tailscale status` e nós do Headscale | Debian 13 / Tailscale 1.104.4 | Testado; os nós observados naquela sessão permaneceram online. A numeração atual está registrada na linha de 2026-11-05. |
+> | 2026-10-29 | DNS dividido por `10.90.0.1:53` | Debian 13 / Tailscale 1.104.4 | Testado por UDP e TCP; o Gateway resolveu para `10.90.0.2` e o serviço de aplicação da prova para `10.90.0.3`. |
+> | 2026-10-29 | HTTPS em TCP 8443 pela LAN | Debian 13 / Tailscale 1.104.4 | Testado; respondeu HTTP 200; TLS em TCP 8443 validado contra a CA do laboratório. Um arquivo público da CA estava presente no cliente; o mecanismo de confiança (`update-ca-certificates` ou `--cacert`) não foi registrado. Isso não comprova a execução da §4. Certificado `CN=headscale.dev.anatel`, emissor `CN=GWVPN Lab CA 2026`. |
+> | 2026-10-29 | Acesso à aplicação por IP e alias | Debian 13 / Tailscale 1.104.4 | Testado; a aplicação recebeu `100.96.0.2` como IP de origem VPN preservado, conforme §5.5 do contrato. |
+> | 2026-10-29 | TCP 443 e 9090 do servidor pela LAN | Debian 13 / Tailscale 1.104.4 | Sem conexão (`http_code=000`); o servidor não tinha listener nessas portas no momento. O encaminhamento externo TCP 443 não foi testado. |
+> | 2026-10-29 | Rota default do cliente | Debian 13 / Tailscale 1.104.4 | Testado; permaneceu `192.168.7.1`. |
+> | 2026-11-05 | Reboot do host e reconexão do cliente | RHEL 9.8 / Podman 5.8.2; Debian 13 / Tailscale 1.104.4 | Testado; linger e unidades ativos, rota `100.96.0.0/24 via 10.90.0.2 dev podman1`, nós Headscale 2 e 3 online e cliente reconectado. |
+> | 2026-11-05 | `getent hosts` para os aliases da webapp | Debian 13 / Tailscale 1.104.4 | Testado; `webapp-db.dev.anatel` → `10.90.0.10`, `webapp.dev.anatel` → `10.90.0.11` e `app-proxy.dev.anatel` → `10.90.0.12`. |
+> | 2026-11-05 | SPA `http://app-proxy.dev.anatel:8080/webapp/index.html` | Debian 13 / Tailscale 1.104.4 | Testado; HTTP 200. |
+> | 2026-11-05 | Saúde da API `http://app-proxy.dev.anatel:8080/webapp/api/health` | Debian 13 / Tailscale 1.104.4 | Testado; resposta `{"status":"ok"}`. |
+> | 2026-11-05 | TCP `webapp-db.dev.anatel:5432` | Debian 13 / Tailscale 1.104.4 | Testado; conexão TCP aberta. Não houve autenticação nem consulta PostgreSQL. |
+> | 2026-11-05 | Origem do cliente nos logs NGINX | Debian 13 / Tailscale 1.104.4 | Testado; NGINX registrou `100.96.0.2`. |
 >
-> O experimento é temporário e experimental; não altera o contrato rootful de
-> [ARCHITECTURE.md](../contracts/ARCHITECTURE.md).
-
+> Na inscrição de laboratório anterior, foi usada uma chave de uso único e `https://headscale.dev.anatel:8443` pela LAN; o comando CLI exato não consta no registro. Em 2026-11-05, o nó 2 era `gateway-router` (`100.96.0.1`) e o nó 3 era `containerhost` (`100.96.0.2`). O nó 1 (cliente de teste) foi removido e o Gateway recebeu o ID 2. O encaminhamento externo TCP 443 continua sem teste.
+>
+> Os comandos e fluxos que não constam como testados na tabela são **não verificados**, inclusive a forma escrita `tailscale up --auth-key=file:`, `--operator`, `resolvectl query`, `ip route get`, GUIs, Windows e macOS. Os comandos da §4 também não foram executados como escritos.
+>
+> O experimento rootless é temporário; não altera os requisitos rootful do [ARCHITECTURE.md](../contracts/ARCHITECTURE.md).
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
@@ -61,12 +62,11 @@ default nem transforma o Gateway em exit node.
 ## 2. Visão geral e pré-requisitos
 
 No ambiente de produção, o endpoint HTTPS do Headscale precisa ser alcançável antes da inscrição.
-No teste rootless, a inscrição e a verificação usaram o endpoint LAN
-`https://headscale.dev.anatel:8443`; TCP 443 público não foi testado. Depois da inscrição,
-o cliente usa WireGuard para chegar ao Gateway e às rotas de containers aprovadas. O split DNS
-resolve somente nomes de desenvolvimento. No teste rootless, o cliente consultou
-`10.90.0.1:53` por UDP e TCP, e os nomes do Gateway e da app resolveram para `10.90.0.2` e
-`10.90.0.3`; não publique esse DNS na Internet.
+No teste rootless, a inscrição usou o endpoint LAN `https://headscale.dev.anatel:8443`; TCP 443
+público não foi testado. Depois da inscrição, o cliente usa WireGuard para chegar ao Gateway e às
+rotas de containers aprovadas. Em 2026-11-05, `getent hosts` resolveu os aliases
+`webapp-db.dev.anatel` (`10.90.0.10`), `webapp.dev.anatel` (`10.90.0.11`) e
+`app-proxy.dev.anatel` (`10.90.0.12`). O split DNS não deve ser publicado na Internet.
 
 Headplane é acessível somente pela VPN por operadores autorizados, via HTTPS e com autenticação
 própria. Desenvolvedores sem autorização de operador não devem acessá-lo.
@@ -94,14 +94,11 @@ do dispositivo é gerada localmente pelo Tailscale e não deve ser compartilhada
 | `<CA_FILE>` | Caminho do certificado público da CA privada, somente se o endpoint usar essa CA. | `/home/ana/Downloads/gateway-ca.crt` |
 | `<APP_ALIAS>` | Nome DNS autorizado para o serviço/container. | `backend.project-a.dev.anatel` |
 | `<GATEWAY_ALIAS>` | Nome DNS autorizado para o Gateway. | `dev-gateway.dev.anatel` |
-| `<EMULATOR_ALIAS>` | Alias ou endereço do emulador de identidade de desenvolvimento na rede Podman, dentro de `<CONTAINER_CIDR>`. Confirme com o operador. | Fornecido pelo operador; sem valor padrão. |
 | `<CONTAINER_CIDR>` | Rede de containers anunciada pelo Gateway e aceita pelo cliente. | `10.90.0.0/24` — bridge rootless de teste, não padrão de produção |
-| `<IP_DO_CONTAINER>` | Endereço do container/serviço autorizado, informado pelo operador. | `10.90.0.3` — endereço de teste, não padrão de produção |
+| `<IP_DO_CONTAINER>` | Endereço do container/serviço autorizado, informado pelo operador. | `10.90.0.11` — endereço de teste da API, não padrão de produção |
 | `<VPN_PREFIX>` | Prefixo de endereços atribuídos aos clientes VPN. | `100.96.0.0/24` — valor de teste, não padrão de produção |
 | `<SERVICE_PORT>` | Porta do serviço liberada pelo operador. | `5432` para PostgreSQL |
 | `<OPERADOR_LOCAL>` | Conta local autorizada a operar `tailscaled` sem `sudo`, se necessário. | `ana` |
-| `<CONTA_SSH>` | Conta SSH já autorizada no container. | `appuser` |
-| `<SSH_PORT>` | Porta SSH do serviço/container. | `22` |
 
 Proteja `<AUTH_KEY_FILE>` contra leitura por outros usuários e apague-o depois da inscrição.
 Confirme com o operador o CIDR efetivo, aliases permitidos, portas e procedimento de aprovação.
@@ -152,8 +149,8 @@ Execute esta seção somente quando o operador confirmar que o certificado HTTPS
 usa uma CA privada. Obtenha o certificado público da CA por canal confiável. Compare a impressão
 digital SHA-256 do certificado com o valor SHA-256 entregue pelo operador por canal separado.
 **Pare** se os valores diferirem. Não instale a CA de laboratório usada nos testes como CA de
-produção. No cliente Debian 13, o arquivo público `/usr/local/share/ca-certificates/gwvpn-lab.crt`
-estava presente e TLS validou. O registro não informa se a confiança veio de
+produção. No cliente Debian 13, um arquivo público da CA estava presente; TLS em TCP 8443 foi validado
+contra a CA do laboratório. O registro não informa se a confiança veio de
 `update-ca-certificates`, `--cacert` ou outro mecanismo; isso não comprova a execução dos
 procedimentos desta seção. Trate todos os comandos da seção como não verificados.
 
@@ -342,12 +339,12 @@ netstat -rn -f inet | grep default
 
 ## 8. Verificar a conexão
 
-O registro do laboratório confirma que `tailscale status` mostrou os dois nós online e que `getent`
-via split DNS resolveu o Gateway (`10.90.0.2`) e a app (`10.90.0.3`). Também confirma consulta a
-`10.90.0.1:53` por UDP e TCP e que a rota default permaneceu `192.168.7.1`. O registro não informa
-os argumentos usados com `getent`; o exemplo abaixo é uma forma de repetir a verificação, não um
-comando testado. Use aliases autorizados e compare DNS, endereço e porta com os dados do operador.
-Não use teste ICMP como única prova, pois containers podem bloquear ping.
+Os testes de 2026-11-05 confirmam `getent hosts` para os aliases `webapp-db.dev.anatel`,
+`webapp.dev.anatel` e `app-proxy.dev.anatel`, com os endereços registrados na tabela da §1. A rota
+default do cliente permaneceu `192.168.7.1` no teste de laboratório anterior. Os comandos genéricos
+abaixo são exemplos de repetição e não foram testados como escritos. Use aliases autorizados e
+compare DNS, endereço e porta com os dados do operador. Não use teste ICMP como única prova, pois
+containers podem bloquear ping.
 
 ```bash
 tailscale status
@@ -403,29 +400,24 @@ própria. Não é um serviço de desenvolvedor.
 
 ## 9. Acessar containers
 
-A VPN fornece rede, não autenticação da aplicação. Para SSH, use a conta, porta e chave
-autorizadas do destino. O procedimento para gerar e instalar a chave está em
+A VPN fornece conectividade de rede, mas não autenticação dos serviços. O acesso SSH aos containers,
+inclusive por VS Code, está **a implementar** e fora do escopo atual; acompanhe
+[docs/TODO.md](../TODO.md). A referência de chaves permanece
 [Chaves SSH de acesso ao Gateway e aos containers](ssh-key.md).
 
-```bash
-ssh -p <SSH_PORT> <CONTA_SSH>@<APP_ALIAS>
-```
+O emulador de identidade está **a implementar** e fora do escopo atual; acompanhe
+[docs/TODO.md](../TODO.md). O acesso HTTP testado usa o proxy da aplicação, não o emulador.
 
-No VS Code, instale a extensão Remote - SSH e conecte ao hostname DNS do container. O Gateway
-não é um bastion SSH: a conexão segue diretamente pela VPN ao serviço publicado pelo container.
-Consulte a [documentação VS Code Remote - SSH](https://code.visualstudio.com/docs/remote/ssh).
+### HTTP de desenvolvimento
 
-Para HTTP de desenvolvimento pela VPN, use o emulador de identidade na rede Podman, em TCP `80`,
-sem porta vinculada no host: `http://<EMULATOR_ALIAS>:80/app/` para a SPA e
-`http://<EMULATOR_ALIAS>:80/app/api/` para a API. O alias deve resolver para um endereço dentro de
-`<CONTAINER_CIDR>`. O emulador injeta headers de identidade sintéticos `X-User-*`; não autentica
-usuários e não substitui autenticação de produção. Estas URLs não foram testadas em laboratório.
-O NGINX compartilhado publicado no host em TCP `8080` é o alvo do perímetro de produção, não o
-caminho VPN de desenvolvimento. `webApp:8000` é interno e não deve ser acessado pelo cliente.
-Para PostgreSQL, configure `psql`, pgAdmin ou DBeaver com
-`<APP_ALIAS>:<SERVICE_PORT>` e as credenciais próprias do banco. Confirme com o operador qual
-serviço e porta estão autorizados.
+A SPA respondeu HTTP 200 em `http://app-proxy.dev.anatel:8080/webapp/index.html`. A rota de saúde
+respondeu `{"status":"ok"}` em
+`http://app-proxy.dev.anatel:8080/webapp/api/health`.
 
+### PostgreSQL
+
+O teste registrado verificou somente TCP em `webapp-db.dev.anatel:5432`; não houve autenticação
+nem consulta ao banco. Esta receita não inclui credenciais PostgreSQL.
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
@@ -496,7 +488,7 @@ e atualize o repositório de confiança; confirme a impressão digital antes de 
 
 ## 12. Fontes oficiais
 
-URLs verificadas com `curl` (HTTP 200) em 2026-10-29; conteúdo pode mudar — confira a versão atual.
+Referências oficiais, não revalidadas nesta versão.
 A documentação de cliente Linux do Headscale não foi encontrada no caminho testado; use a tabela
 geral de clientes e a documentação Linux do Tailscale. Projetos GUI Linux são de terceiros e estão
 identificados como tal.

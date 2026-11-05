@@ -1,32 +1,31 @@
 <details id="top">
     <summary>Índice</summary>
     <ol>
-        <li><a href="#objetivo">Objetivo</a></li>
-        <li><a href="#ambiente-alvo">Ambiente-alvo</a></li>
-        <li><a href="#princípio-fundamental-de-isolamento">Princípio fundamental de isolamento</a></li>
-        <li><a href="#containers-principais">Containers principais</a></li>
-        <li><a href="#gateway">Gateway</a></li>
-        <li><a href="#aplicações">Aplicações</a></li>
-        <li><a href="#postgresql">PostgreSQL</a></li>
-        <li><a href="#http-proxy">HTTP Proxy</a></li>
-        <li><a href="#rede-podman-e-dns-de-desenvolvimento">Rede Podman e DNS de desenvolvimento</a></li>
-        <li><a href="#endereçamento-da-rede-podman">Endereçamento da rede Podman</a></li>
-        <li><a href="#acesso-aos-containers-e-vs-code">Acesso aos containers e VS Code</a></li>
-        <li><a href="#volumes">Volumes</a></li>
-        <li><a href="#configuração-e-secrets">Configuração e secrets</a></li>
-        <li><a href="#deployment">Deployment</a></li>
-        <li><a href="#manutenção">Manutenção</a></li>
-        <li><a href="#diagnóstico">Diagnóstico</a></li>
-        <li><a href="#observabilidade">Observabilidade</a></li>
-        <li><a href="#estrutura-lógica-do-repositório">Estrutura lógica do repositório</a></li>
-        <li><a href="#regras-para-desenvolvimento-no-vs-code">Regras para desenvolvimento no VS Code</a></li>
-        <li><a href="#desenvolvimento-versus-produção">Desenvolvimento versus produção</a></li>
-        <li><a href="#princípios-de-segurança">Princípios de segurança</a></li>
-        <li><a href="#decisões-arquiteturais-já-estabelecidas">Decisões arquiteturais já estabelecidas</a></li>
-        <li><a href="#inputs-e-gates-de-implementação">Inputs e gates de implementação</a></li>
-        <li><a href="#critérios-de-aceitação-arquitetural">Critérios de aceitação arquitetural</a></li>
-        <li><a href="#regra-de-evolução">Regra de evolução</a></li>
-        <li><a href="#visão-final">Visão final</a></li>
+        <li><a href="#1-objetivo">Objetivo</a></li>
+        <li><a href="#2-ambiente-alvo">Ambiente-alvo</a></li>
+        <li><a href="#3-princípio-fundamental-de-isolamento">Princípio fundamental de isolamento</a></li>
+        <li><a href="#4-containers-principais">Containers principais</a></li>
+        <li><a href="#5-gateway">Gateway</a></li>
+        <li><a href="#6-aplicações">Aplicações</a></li>
+        <li><a href="#7-postgresql">PostgreSQL</a></li>
+        <li><a href="#8-http-proxy">HTTP Proxy</a></li>
+        <li><a href="#9-rede-podman-e-dns-de-desenvolvimento">Rede Podman e DNS de desenvolvimento</a></li>
+        <li><a href="#10-endereçamento-da-rede-podman">Endereçamento da rede Podman</a></li>
+        <li><a href="#11-acesso-aos-containers-e-vs-code">Acesso aos containers e VS Code</a></li>
+        <li><a href="#12-volumes">Volumes</a></li>
+        <li><a href="#13-configuração-e-secrets">Configuração e secrets</a></li>
+        <li><a href="#14-deployment">Deployment</a></li>
+        <li><a href="#15-manutenção">Manutenção</a></li>
+        <li><a href="#16-diagnóstico">Diagnóstico</a></li>
+        <li><a href="#17-observabilidade">Observabilidade</a></li>
+        <li><a href="#18-estrutura-lógica-do-repositório">Estrutura lógica do repositório</a></li>
+        <li><a href="#19-regras-para-desenvolvimento-no-vs-code">Regras para desenvolvimento no VS Code</a></li>
+        <li><a href="#20-desenvolvimento-versus-produção">Desenvolvimento versus produção</a></li>
+        <li><a href="#21-princípios-de-segurança">Princípios de segurança</a></li>
+        <li><a href="#22-decisões-arquiteturais-já-estabelecidas">Decisões arquiteturais já estabelecidas</a></li>
+        <li><a href="#23-inputs-e-gates-de-implementação">Inputs e gates de implementação</a></li>
+        <li><a href="#24-critérios-de-aceitação-arquitetural">Critérios de aceitação arquitetural</a></li>
+        <li><a href="#25-regra-de-evolução">Regra de evolução</a></li>
     </ol>
 </details>
 
@@ -408,7 +407,7 @@ usuários com base em identidade confiável fornecida pelo perímetro, quando ap
 não assume funções de infraestrutura do Gateway.
 
 Vite constrói assets JavaScript estáticos, servidos por FastAPI na aplicação inicial. O caminho
-padrão é `/app/` para a SPA e `/app/api/` para a API, no mesmo listener TCP `8000`. Páginas pequenas
+padrão é `/webapp/` para a SPA e `/webapp/api/` para a API, no mesmo listener TCP `8000`. Páginas pequenas
 podem usar HTML/CSS/JavaScript sem build; adote framework somente quando a complexidade justificar.
 Assets do browser nunca recebem credenciais PostgreSQL.
 
@@ -475,7 +474,7 @@ não declara que sua implantação ou validação já ocorreu.
 Este NGINX recebe as chamadas externas na porta `8080` do host, vinculada ao listener TCP `8080`
 do container. É o único endpoint HTTP publicado pelo boilerplate para aplicações e encaminha
 requisições por caminho a todas as aplicações configuradas, por exemplo `/app1` e `/app2`.
-Cada aplicação declara seus prefixos e upstreams. A aplicação inicial usa `/app/` e `/app/api/`,
+Cada aplicação declara seus prefixos e upstreams. A aplicação inicial usa `/webapp/` e `/webapp/api/`,
 ambos encaminhados ao listener FastAPI `webApp:8000`; avalia a rota da API antes do fallback SPA.
 O proxy mantém somente estado de configuração e logs operacionais; não armazena dados de aplicação.
 
@@ -1139,7 +1138,7 @@ As seguintes decisões são consideradas parte do contrato:
 | Podman mode | Rootful |
 | Backend | Python + FastAPI |
 | Frontend | Vite com JavaScript sem framework por padrão; HTML/JS estático para páginas pequenas |
-| Rota frontend/API | `/app/` e `/app/api/<route>` no mesmo domínio |
+| Rota frontend/API | `/webapp/` e `/webapp/api/<route>` no mesmo domínio |
 | Database | PostgreSQL 18 por padrão, versão configurável por instância |
 | Stack inicial da aplicação | `webApp` combina assets SPA e FastAPI em um listener TCP `8000`; PostgreSQL permanece separado |
 | Gateway | Um único container compartilhado |
@@ -1244,8 +1243,8 @@ Uma implementação do boilerplate será considerada aderente quando:
 - NGINX compartilhado receber todas as aplicações por um endpoint host `0.0.0.0:8080`, mapeado ao TCP/8080 do container;
 - cada aplicação HTTP puder ser encaminhada por um prefixo de caminho, como `/app1` ou `/app2`, sem exigir outra porta publicada;
 - o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080;
-- NGINX encaminhar, para a aplicação inicial, `/app/` e `/app/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
-- FastAPI servir, na aplicação inicial, a SPA em `/app/` e a API em `/app/api/` no único listener TCP `8000`;
+- NGINX encaminhar, para a aplicação inicial, `/webapp/` e `/webapp/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
+- FastAPI servir, na aplicação inicial, a SPA em `/webapp/` e a API em `/webapp/api/` no único listener TCP `8000`;
 - o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
 - rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
 - serviços não HTTP de usuário usarem publicação direta explicitamente configurada, sem confundir isso com o acesso de desenvolvimento via Gateway;

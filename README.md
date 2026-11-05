@@ -38,6 +38,21 @@ deploy/scripts/smoke-test-webapp.sh
 Depois, abra `http://localhost:8080/webapp/index.html`.
 A documentação da API fica em `http://localhost:8080/webapp/api/docs`.
 
+### Alternativa rootless
+
+**Experimental, test-only e somente para laboratório.** Exige a rede `gateway-vpn` (`10.90.0.0/24`, DNS ativo) da receita rootless.
+
+O comando rootful acima continua sendo o padrão. Como `root`, na raiz do checkout, crie `<DIR>` com
+`mkdir -p <DIR>`, extraia `git archive HEAD | tar -x -C <DIR>` e ajuste a propriedade com
+`chown -R podman_user:podman_user <DIR>`.
+Depois, execute como `podman_user`:
+
+```bash
+deploy/scripts/deploy-webapp-rootless.sh --source <DIR>
+```
+
+Consulte a [receita do Gateway rootless](docs/recipes/gateway-headscale-podman-rootless.md).
+
 Para desenvolver o backend:
 
 ```bash
