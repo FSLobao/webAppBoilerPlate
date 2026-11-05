@@ -35,13 +35,13 @@
 **Objetivo:** Definir o contrato técnico e operacional do boilerplate para desenvolvimento de aplicações web com Python/FastAPI, frontend JavaScript, PostgreSQL e execução integral em containers.
 
 **Revisão do acesso remoto:** Headscale, Headplane e `tailscaled` no Gateway constituem a única
-solução aprovada para conectividade de desenvolvedores. Essa solução está planejada, ainda não
-implementada nem validada no host-alvo. O runtime, o schema, a configuração versionada e os
-procedimentos existentes precisam ser adequados antes de declarar conformidade com este contrato.
-**Revisão da rede de containers:** todos os containers usarão exclusivamente a rede bridge padrão
-`podman`, com Netavark e Aardvark DNS. Não haverá redes por aplicação nem inventário de múltiplas
-redes. Essa topologia e sua integração DNS ainda precisam ser implementadas e validadas; o requisito
-de preservar o IP de origem VPN permanece.
+solução aprovada para conectividade de desenvolvedores. O alvo de runtime é Podman rootless com
+Quadlet; a variante rootful permanece implementada e mantida como alternativa. O deploy do Gateway
+rootless como código continua pendente em [TODO.md](../TODO.md).
+**Revisão da rede de containers:** o alvo rootless usa exclusivamente a bridge `gateway-vpn`,
+`10.90.0.0/24`, com Netavark e Aardvark DNS, resolver `10.90.0.1` e Gateway `10.90.0.2`. A rede
+padrão rootful `podman` permanece como alternativa. Não haverá redes por aplicação; preserve o IP
+de origem VPN.
 
 **Revisão da administração:** Portainer será a interface de gestão de containers, em container
 dedicado na rede padrão `podman`, acessível somente por operadores pela VPN. A integração ainda
@@ -60,11 +60,11 @@ O boilerplate deve privilegiar:
 - simplicidade operacional;
 - reprodutibilidade;
 - baixo esforço administrativo;
-- uma única rede Podman padrão para todos os containers, com DNS nativo e autenticação por serviço;
+- uma única rede rootless `gateway-vpn` (`10.90.0.0/24`) para todos os containers, com DNS nativo e autenticação por serviço; a rede padrão rootful `podman` permanece como alternativa;
 - desenvolvimento remoto por VS Code;
 - manutenção direta dos containers;
 - deployment reproduzível a partir do host;
-- mínimo de dependências no host RHEL 9.8 com Podman rootful 5.8.2;
+- mínimo de dependências no host RHEL 9.8 com Podman rootless 5.8.2 como alvo; rootful permanece alternativa;
 - separação entre acesso administrativo e prestação do serviço;
 - configuração versionada no Git;
 - utilização preferencial de componentes maduros em vez de software administrativo desenvolvido especificamente para o boilerplate.
@@ -85,7 +85,7 @@ O boilerplate deve privilegiar:
 O ambiente de produção/desenvolvimento remoto é suportado por:
 
 - Red Hat Enterprise Linux 9.8 como alvo de qualificação;
-- Podman 5.8.2 em modo rootful e Quadlet como alvo de deployment;
+- Podman 5.8.2 em modo rootless e Quadlet como alvo; Podman rootful é a alternativa implementada e mantida;
 - SELinux desativado, conforme decisão explícita do solicitante;
 - acesso administrativo ao host restrito à equipe responsável pela infraestrutura;
 - autenticação do acesso ao host realizada pelos mecanismos corporativos existentes;
@@ -230,7 +230,7 @@ Responsabilidades:
 - servidor de coordenação Headscale;
 - interface administrativa Headplane;
 - daemon Tailscale (`tailscaled`) como subnet router;
-- encaminhamento entre a VPN e a rede Podman padrão;
+- encaminhamento entre a VPN e a rede rootless `gateway-vpn`;
 - ferramentas de diagnóstico;
 
 Portainer usa container de gestão separado. A seção 5 define composição, privilégios, acesso e
@@ -356,8 +356,8 @@ indiscriminado ao host. Use capabilities específicas; não use `--privileged`, 
 completo do host nem exponha o socket Podman.
 
 O Gateway não é o firewall de segurança do ambiente. O perímetro controla endpoints publicados;
-Headscale/Headplane controla acesso VPN. `firewalld` e `nftables` ficam desativados por decisão do
-contrato. Deployment documenta esse requisito sem alterar a configuração do host.
+Headscale/Headplane controla acesso VPN. `firewalld` e `nftables` estão desativados no host-alvo.
+A preparação do host desativa esses serviços quando presentes.
 
 ## 5.5 VPN, roteamento e acesso remoto
 
@@ -365,23 +365,26 @@ Headscale, Headplane e `tailscaled` compartilham o Gateway. Headscale coordena i
 e rotas; Headplane administra usuários e dispositivos; `tailscaled` atua como subnet router.
 Clientes Tailscale conectam-se ao Headscale auto-hospedado.
 
-A VPN é split tunnel IPv4. O Gateway anuncia somente o CIDR efetivo da rede padrão `podman`;
-clientes autorizados aceitam essa rota. Desative SNAT com `--snat-subnet-routes=false` e configure
-retorno pelo endereço estável do Gateway no host. Preserve o IP VPN de origem. Não anuncie rota
-default nem transforme o Gateway em exit node.
+A VPN é split tunnel IPv4. O Gateway rootless anuncia somente `10.90.0.0/24`, da rede
+`gateway-vpn`; o resolver Aardvark é `10.90.0.1` e o Gateway usa `10.90.0.2`. Clientes autorizados
+aceitam essa rota. Headscale usa o prefixo IPv4 `100.96.0.0/24`. Desative SNAT com
+`--snat-subnet-routes=false` e instale a rota de retorno ao prefixo VPN na namespace rootless.
+Preserve o IP VPN de origem. Não anuncie rota default nem transforme o Gateway em exit node. A rede
+padrão rootful `podman` é a alternativa mantida.
 
-O endpoint HTTPS do Headscale precisa de DNS e conectividade antes da VPN. Headplane e Portainer
-exigem HTTPS, autenticação própria e acesso de operadores pela VPN. O Gateway não oferece bastion,
-listener de shell nem transporte alternativo para desenvolvedores.
+O endpoint de controle do Headscale e o endpoint VPN usam diretamente TCP 443 no host, acessível
+pela LAN antes da VPN; não encaminhe TCP 443 para 8443. Headplane e Portainer exigem HTTPS,
+autenticação própria e acesso de operadores pela VPN. O Gateway não oferece bastion, listener de
+shell nem transporte alternativo para desenvolvedores.
 
 Inscrição usa tokens individuais, de uso único e validade curta. Clientes geram e mantêm chaves
 privadas localmente. Expirar um token não revoga dispositivos já inscritos; operadores gerenciam
 expiração e revogação separadamente.
 
-O host instala rota de retorno ao prefixo VPN pelo Gateway. Containers usam egress normal do
-Podman rootful, que pode aplicar masquerading; isso não altera a origem preservada na VPN.
-Não implante estado quando prefixos ou rotas conflitarem. Rotas gerenciadas precisam de ownership,
-reconciliação idempotente e rollback limitado ao estado do deployment.
+O retorno da VPN usa rota na namespace rootless e `--snat-subnet-routes=false`. A rede rootless
+usa o egress normal do Podman; a variante rootful pode usar masquerading. Não implante estado quando
+prefixos ou rotas conflitarem. Rotas gerenciadas precisam de ownership, reconciliação idempotente
+e rollback limitado ao estado do deployment.
 
 Persistir identidade e banco do Headscale, estado de `tailscaled` e dados do Headplane em volumes
 separados. Reinícios não devem exigir reinscrição. Falhas de processos e de saúde devem ser
@@ -413,8 +416,8 @@ Assets do browser nunca recebem credenciais PostgreSQL.
 
 Frontend e FastAPI compartilham o container e não têm isolamento entre processos. Somente o
 processo FastAPI deve receber credenciais PostgreSQL. Cada container de aplicação conecta-se
-somente à rede padrão `podman`, autentica seus próprios serviços e usa aliases únicos declarados
-no Podman.
+somente à rede rootless `gateway-vpn`, autentica seus próprios serviços e usa aliases únicos
+declarados no Podman. A rede padrão `podman` fica como alternativa rootful.
 
 Imagens devem usar distribuição mantida e eficiente, preferencialmente Debian ou Alpine. O host
 RHEL não determina a distribuição dos containers.
@@ -431,8 +434,8 @@ RHEL não determina a distribuição dos containers.
 # 7. PostgreSQL
 
 PostgreSQL 18 é o padrão inicial, com versão configurável por instância no JSON. Ele usa um
-container separado, uma interface na rede padrão `podman` e volume persistente. Não publique sua
-porta no host. Desenvolvedores podem alcançar o serviço pela VPN roteada; PostgreSQL aplica
+container separado, uma interface na rede rootless `gateway-vpn` e volume persistente. Não publique
+sua porta no host. Desenvolvedores podem alcançar o serviço pela VPN roteada; PostgreSQL aplica
 autenticação e autorização próprias.
 
 Somente o processo FastAPI no container `webApp` recebe credenciais PostgreSQL. Como frontend e
@@ -463,11 +466,11 @@ suportados pelo runtime atual.
 
 # 8. HTTP Proxy
 
-O deployment inclui dois containers NGINX distintos na rede padrão `podman`. O primeiro é
-obrigatório e publica um endpoint compartilhado para todas as aplicações HTTP. O segundo é
-exclusivo para desenvolvimento e emula o proxy autenticado de perímetro, como F5 Big-IP.
-Nenhum deles atende Portainer, Headplane ou Cockpit. Este contrato define a topologia desejada;
-não declara que sua implantação ou validação já ocorreu.
+O deployment alvo inclui dois containers NGINX distintos na rede rootless `gateway-vpn`. O primeiro
+é obrigatório e publica um endpoint compartilhado para todas as aplicações HTTP. O segundo é
+exclusivo para desenvolvimento e emula o proxy autenticado de perímetro, como F5 Big-IP. A rede
+padrão `podman` é a alternativa rootful. Nenhum deles atende Portainer, Headplane ou Cockpit. Este
+contrato define a topologia desejada; não declara que sua implantação ou validação já ocorreu.
 
 ## 8.1 Proxy compartilhado das aplicações
 
@@ -490,6 +493,8 @@ TUS. Compartilhamento básico de arquivos é opcional e somente para leitura.
 
 ## 8.2 Emulador de proxy autenticado para desenvolvimento
 
+**Status:** a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
+
 Este segundo NGINX existe exclusivamente para desenvolvimento e testes. Ele escuta TCP `80` no
 container, não publica nem vincula porta no host e recebe chamadas pela rede Podman, inclusive
 pela VPN autorizada. Encaminha as chamadas ao listener TCP `8080` do proxy compartilhado das
@@ -509,8 +514,8 @@ publicado no host nem substituir o perímetro em produção.
 
 Serviços não HTTP destinados a usuários usam publicação direta, com bind, protocolo e portas
 declarados, além de autenticação própria. O acesso de desenvolvimento pela VPN não depende de
-portas de aplicação publicadas no host; o acesso HTTP de desenvolvimento usa o emulador da seção
-8.2.
+portas de aplicação publicadas no host; quando implementado, o acesso HTTP de desenvolvimento usa
+o emulador da seção 8.2, a implementar e fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
 
 ---
 
@@ -523,30 +528,28 @@ portas de aplicação publicadas no host; o acesso HTTP de desenvolvimento usa o
 
 # 9. Rede Podman e DNS de desenvolvimento
 
-Todos os containers usam exclusivamente a rede bridge rootful padrão `podman`, com backend
-Netavark. Não criar redes por aplicação nem recriar automaticamente uma rede em uso. O deployment
-inspeciona CIDR, bridge e DNS habilitado antes de usar a rede existente.
+O alvo rootless usa exclusivamente a rede bridge `gateway-vpn` (`10.90.0.0/24`), com backend
+Netavark e DNS Aardvark. Não criar redes por aplicação nem recriar automaticamente rede em uso.
+O deployment inspeciona a rede e confirma DNS habilitado. A rede padrão rootful `podman` permanece
+como alternativa.
 
 Containers podem comunicar-se diretamente; não há isolamento de rede entre aplicações ou banco.
 Cada serviço deve aplicar autenticação e autorização próprias. A rede publica somente endereços
 IPv4 de serviços; isso não exige desativar IPv6 no host.
 
-O Gateway tem uma interface na rede `podman`, com endereço estável para retorno da VPN. Todos os
-outros containers usam a mesma rede. O CIDR e endereços de infraestrutura são definidos por
-inspeção, conforme a seção 10.
+O Gateway usa `10.90.0.2` na rede `gateway-vpn`; o resolver Aardvark é `10.90.0.1`. Os outros
+containers do alvo rootless usam a mesma rede. Endereços e aliases estão definidos na seção 10.
 
 ## 9.1 DNS nativo do Podman
 
-Netavark e Aardvark DNS mantêm o registro dos nomes e aliases dos containers na rede `podman`
-durante seu ciclo de vida. Containers usam o resolver fornecido pelo Podman, sem arquivos
-manuais de endereços ou banco de registros mantido pelo Gateway.
+Netavark e Aardvark DNS mantêm o registro dos nomes e aliases dos containers na rede `gateway-vpn` durante seu ciclo de vida. Containers usam o resolver da bridge rootless `10.90.0.1`, sem arquivos manuais de endereços ou banco de registros mantido pelo Gateway.
 
 Não haverá serviço DNS independente para manter registros de containers. O deployment deve
 validar nomes curtos, aliases completos e atualização após recriação na versão-alvo.
 
 ## 9.2 Nomes e aliases declarados
 
-O deployment declara nomes e aliases estáveis, únicos em toda a rede padrão, nas definições dos
+O deployment declara nomes e aliases estáveis, únicos na rede `gateway-vpn`, nas definições dos
 containers. Aliases completos de desenvolvimento usam o sufixo interno `dev.anatel`, por exemplo:
 
 ```text
@@ -555,9 +558,9 @@ frontend.project-a.dev.anatel
 backend.project-b.dev.anatel
 ```
 
-Podman registra esses aliases com o endereço atual do container. Não haverá geração de registros
-por IP, inventário paralelo `dns_records` ou watcher customizado. Nomes curtos também devem ser
-únicos; aliases completos distinguem serviços de aplicações diferentes.
+Podman registra esses aliases na rede `gateway-vpn`. Não haverá inventário paralelo `dns_records`
+ou watcher customizado. Nomes curtos também devem ser únicos; aliases completos distinguem serviços
+de aplicações diferentes. A rede padrão rootful `podman` permanece alternativa.
 
 Consultas externas dos containers seguem os upstreams configurados no Podman. Não configure
 encaminhamento circular entre o resolver Podman, o host e o cliente VPN do Gateway.
@@ -578,10 +581,9 @@ frontend.project-a.dev.anatel
 dev-gateway.dev.anatel
 ```
 
-Esses nomes são aliases registrados no DNS nativo da rede padrão. Headscale distribui split DNS
-de `dev.anatel` para o endereço efetivo do resolver Aardvark na bridge do host, descoberto pela
-inspeção da rede. Esse endereço pertence ao CIDR anunciado pelo Gateway; não confunda o endereço
-do resolver/bridge do host com o endereço do container Gateway.
+Esses nomes são aliases registrados no DNS nativo da rede rootless `gateway-vpn`. Headscale
+distribui split DNS de `dev.anatel` para o resolver Aardvark `10.90.0.1`. Esse endereço pertence
+ao CIDR anunciado pelo Gateway; não confunda o resolver/bridge com o container Gateway `10.90.0.2`.
 
 Clientes Tailscale devem aceitar DNS e rotas. A política VPN e as regras do host devem permitir
 consultas UDP e TCP 53 ao resolver somente pelas origens autorizadas, com retorno ao prefixo VPN.
@@ -614,11 +616,12 @@ Os namespaces interno e externo não devem ser tratados como equivalentes.
 
 ## 9.4 Containers recriados
 
-Os endereços IP individuais dos containers não constituem identidade permanente.
+No alvo rootless, o deployment declara endereços estáveis para os containers da webapp. Os aliases
+DNS permanecem como nomes de acesso e são atualizados pelo Podman quando containers são recriados.
+Outros endereços individuais não constituem identidade permanente.
 
-Quando um container for recriado, Podman atualiza os registros de seus nomes e aliases.
-O deployment preserva os mesmos aliases. As rotas cobrem o CIDR da rede padrão e não dependem
-do endereço individual do container; caches DNS devem respeitar os TTLs do resolver.
+A rota VPN cobre `10.90.0.0/24` e não depende dos endereços individuais. Caches DNS devem respeitar
+os TTLs do resolver.
 
 O desenvolvedor continuará utilizando o mesmo nome lógico.
 
@@ -631,15 +634,16 @@ backend.project-a.dev.anatel
 
 ## 9.5 Escopo
 
-O DNS Podman cobre os containers da única rede padrão. A VPN fornece aos desenvolvedores acesso
-roteado a essa rede e ao seu resolver. Registros DNS não criam conectividade nem concedem acesso.
+O DNS Podman cobre os containers da rede rootless `gateway-vpn`. A VPN fornece aos desenvolvedores
+acesso roteado a essa rede e ao resolver `10.90.0.1`. Registros DNS não criam conectividade nem
+concedem acesso; a rede `podman` é a alternativa rootful.
 
 ## 9.6 Serviços publicados no DNS
 
-Podman registra nomes de containers e aliases; não haverá lista DNS independente por serviço.
-Os aliases completos declarados definem os nomes de desenvolvimento. O Gateway e os clientes
-autorizados alcançam os serviços configurados, inclusive bancos; cada serviço controla sua
-própria autenticação e autorização.
+Podman registra nomes de containers e aliases em `gateway-vpn`; não haverá lista DNS independente
+por serviço. Os aliases completos declarados definem os nomes de desenvolvimento. O Gateway e os
+clientes autorizados alcançam os serviços configurados, inclusive bancos; cada serviço controla
+sua própria autenticação e autorização.
 
 ---
 
@@ -652,21 +656,25 @@ própria autenticação e autorização.
 
 # 10. Endereçamento da rede Podman
 
-O CIDR efetivo da rede padrão `podman` é descoberto no host, não alocado por aplicação.
-O padrão upstream é `10.88.0.0/16`, mas a infraestrutura pode tê-lo alterado; não fixe rotas ou
-endereços do Gateway com base nesse valor sem inspeção.
+O alvo rootless usa a rede `gateway-vpn` (`10.90.0.0/24`), com resolver Aardvark
+`10.90.0.1` e endereço do Gateway `10.90.0.2`. Headscale usa o prefixo IPv4 `100.96.0.0/24`.
+A rota de retorno ao prefixo VPN fica na namespace rootless.
 
-Headscale atribui endereços de dispositivos a partir de um prefixo IPv4 da VPN, separado do CIDR
-Podman. Esse prefixo e o endereço persistente do Gateway são inputs de deployment; não reutilize
-o CIDR de containers como pool de dispositivos.
+A webapp usa endereços fixos na rede rootless:
 
-Antes de instalar estado, compare prefixo VPN e CIDR Podman com redes e rotas relevantes do host,
-da LAN dos desenvolvedores e do ambiente corporativo. O deployment deve anunciar somente os
-CIDR da rede padrão e instalar rotas de retorno ao prefixo VPN pelo Gateway. O endpoint Headscale
-deve estar alcançável antes de estabelecer a VPN.
+| Serviço | Endereço | Alias de desenvolvimento |
+| --- | --- | --- |
+| `webapp-db` | `10.90.0.10` | `webapp-db.dev.anatel` |
+| `webapp` | `10.90.0.11` | `webapp.dev.anatel` |
+| `app-proxy` | `10.90.0.12` | `app-proxy.dev.anatel` |
 
-Endereços IP individuais de aplicações não são identificadores permanentes. Reserve somente os
-endereços de infraestrutura necessários, sem colidir com a bridge ou o IPAM do Podman.
+Antes de instalar estado, compare os prefixos rootless e VPN com redes e rotas relevantes do host,
+da LAN e do ambiente corporativo. O endpoint Headscale está disponível diretamente em TCP 443 no
+host antes de estabelecer a VPN.
+
+A alternativa rootful usa a rede padrão `podman`, com CIDR descoberto por inspeção; o padrão
+upstream `10.88.0.0/16` não é garantido. Seus endereços de infraestrutura não devem conflitar com
+redes ou rotas existentes.
 
 Referências: [rede padrão e DNS Podman](https://docs.podman.io/en/latest/markdown/podman-network.1.html)
 e [inspeção da rede](https://docs.podman.io/en/latest/markdown/podman-network-inspect.1.html).
@@ -687,9 +695,12 @@ e [inspeção da rede](https://docs.podman.io/en/latest/markdown/podman-network-
 # 11. Acesso aos containers e VS Code
 
 O desenvolvedor estabelece primeiro a VPN com o cliente Tailscale inscrito no Headscale do Gateway.
+SSH e VS Code nos containers estão a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
 Depois utiliza o DNS e as rotas distribuídos para acessar diretamente os serviços dos containers (SSH, SFTP, HTTP, ODBC etc.)
 
 ## 11.1 VS Code Remote - SSH
+
+**Status:** a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
 
 O VS Code conecta-se ao nome DNS do container de destino pela rede VPN, sem salto intermediário
 de autenticação no Gateway e sem publicar a porta do serviço no host.
@@ -858,22 +869,22 @@ Essa integração não faz parte do boilerplate inicial.
 
 O repositório deve conter scripts para:
 
-1. validar pré-requisitos do host e a rede padrão `podman`; adequar `config/host_config.json` ao contrato de rede única;
+1. validar pré-requisitos do host e a rede rootless `gateway-vpn`; adequar `config/host_config.json` ao alvo rootless; a rede padrão `podman` é a alternativa rootful;
 2. executar verificações e configurações específicas somente para os serviços declarados/ativados no arquivo;
 3. criar a estrutura de diretórios, volumes e secrets sem sobrescrever dados existentes;
-4. validar a rede padrão conforme os requisitos da seção 9, sem recriar rede em uso;
+4. validar `gateway-vpn` conforme os requisitos da seção 9, sem recriar rede em uso;
 5. construir/atualizar containers através de Quadlet;
-6. conectar todos os containers somente à rede padrão, reservando o endereço estável do Gateway;
+6. conectar containers rootless somente a `gateway-vpn`, reservando `10.90.0.2` para o Gateway;
 7. declarar nomes e aliases conforme a seção 9;
-8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente o CIDR padrão e instalar rotas simétricas sem NAT para a VPN;
-9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080, e o emulador de desenvolvimento sem bind no host;
-10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados;
+8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente `10.90.0.0/24` e instalar a rota de retorno na namespace rootless sem SNAT;
+9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080; o emulador de desenvolvimento está a implementar, fora do escopo atual, conforme [docs/TODO.md](../TODO.md);
+10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados; SSH está a implementar, fora do escopo atual, conforme [docs/TODO.md](../TODO.md);
 11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
 12. apresentar estado, logs, recursos alterados e instruções de recuperação;
 13. agendar no host full mensal e incremental semanal por PostgreSQL; executar pgBackRest no container como `postgres`, publicar somente gerações completas verificadas em volume host separado e fornecer restore manual validado.
 14. implantar Portainer na rede padrão com volume persistente, socket Podman local exclusivo, HTTPS restrito à VPN e bootstrap administrativo protegido; validar compatibilidade sem `--privileged` e sem disputar o ciclo de vida Quadlet.
 
-O preflight deve confirmar SELinux desativado sem alterar essa configuração. O egress dos containers usa o caminho padrão do Podman no host e pode usar masquerading.
+O preflight deve confirmar SELinux desativado sem alterar essa configuração. O egress rootless usa o caminho normal do Podman no host; a alternativa rootful pode usar masquerading.
 
 O deployment deve ser idempotente sempre que possível.
 
@@ -911,7 +922,7 @@ Ferramentas principais:
 
 - Portainer para inspeção, logs e operações de containers compatíveis com Quadlet;
 - Headplane para administração da VPN;
-- SSH aos containers de aplicação pela VPN;
+- SSH aos containers de aplicação pela VPN (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
 - VS Code;
 - logs dos containers;
 - ferramentas de diagnóstico de rede.
@@ -1131,11 +1142,11 @@ As seguintes decisões são consideradas parte do contrato:
 
 | Decisão | Escolha |
 |---|---|
-| Alvo de qualificação do host | RHEL 9.8, Podman rootful 5.8.2, SELinux desativado |
-| Runtime de containers | Podman 5.8.2 rootful |
+| Alvo de qualificação do host | RHEL 9.8, Podman rootless 5.8.2, SELinux desativado; rootful mantido como alternativa |
+| Runtime de containers | Podman 5.8.2 rootless como alvo; rootful como alternativa implementada e mantida |
 | Imagens de containers | Distribuição Linux eficiente e mantida; preferir Debian ou Alpine |
 | Ciclo de vida dos containers | Quadlet para containers persistentes |
-| Podman mode | Rootful |
+| Podman mode | Rootless como alvo; rootful como alternativa |
 | Backend | Python + FastAPI |
 | Frontend | Vite com JavaScript sem framework por padrão; HTML/JS estático para páginas pequenas |
 | Rota frontend/API | `/webapp/` e `/webapp/api/<route>` no mesmo domínio |
@@ -1151,33 +1162,35 @@ As seguintes decisões são consideradas parte do contrato:
 | Acesso ao Cockpit | HTTPS no endereço administrativo do host, TCP `9090` por padrão, restrito à infraestrutura e aos controles corporativos; independente da VPN de desenvolvimento |
 | Limite do Cockpit | Gestão do servidor, sem `cockpit-podman`; Portainer permanece a interface de containers e Quadlet a autoridade de deployment |
 | Headscale | Servidor de coordenação auto-hospedado dentro do Gateway; implementação pendente |
+| Endpoint de controle e VPN | TCP 443 publicado diretamente no host; Headscale e VPN usam o mesmo endpoint LAN |
 | Headplane | Interface administrativa VPN dentro do Gateway, restrita a operadores |
 | Daemon VPN | `tailscaled` no Gateway em modo kernel, atuando como subnet router |
-| Proxy HTTP | Dois containers obrigatórios: NGINX compartilhado de aplicações e NGINX emulador exclusivo para desenvolvimento |
-| Configuração mínima | Host, Development Gateway, Portainer e os dois containers NGINX; aplicações são opcionais |
+| Proxy HTTP | NGINX compartilhado obrigatório; emulador exclusivo de desenvolvimento a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
+| Configuração mínima | Host, Gateway, Portainer e NGINX compartilhado; emulador de desenvolvimento a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
 | Porta do proxy de aplicações | Bind selecionado `0.0.0.0:8080`, mapeado ao TCP 8080 do container NGINX compartilhado |
-| Emulador de autenticação | Container NGINX exclusivo para desenvolvimento, listener TCP 80 sem bind no host, encaminhando ao proxy compartilhado em TCP 8080 |
-| Identidade HTTP | Perímetro real autentica em produção; emulador injeta headers sintéticos somente para desenvolvimento; aplicação autoriza; proxy compartilhado não autentica |
+| Emulador de autenticação | Container NGINX exclusivo para desenvolvimento, listener TCP 80 sem bind no host, encaminhando ao proxy compartilhado em TCP 8080; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
+| Identidade HTTP | Perímetro real autentica em produção; emulador de headers sintéticos a implementar, fora do escopo atual; aplicação autoriza; consulte [docs/TODO.md](../TODO.md) |
 | Autorização HTTP | Gate de deployment exige restrição efetiva ao perímetro confiável ou proveniência verificada; lista exata de campos e mecanismo permanecem pré-requisitos |
 | DNS e nomes | Requisitos internos e externos, incluindo split DNS, definidos na seção 9 |
-| Rede de containers | Somente a bridge padrão rootful `podman`, usada por todos os containers |
-| Interface Podman do Gateway | Uma interface na rede padrão, com endereço estável para retorno da VPN |
-| Acesso do Gateway | A todos os serviços na rede padrão; componente administrativo confiável |
-| Configuração de rede | Adequar `config/host_config.json` à rede padrão única, sem inventário por aplicação |
-| CIDR de containers | Descoberto por inspeção da rede padrão; `10.88.0.0/16` é padrão upstream, não valor garantido |
-| Acesso remoto | Somente clientes Tailscale inscritos no Headscale; split tunnel Layer 3 IPv4 ao CIDR padrão; sem NAT; origem VPN e default route do cliente preservadas |
+| Rede de containers | Somente `gateway-vpn` (`10.90.0.0/24`) no alvo rootless; rede padrão `podman` na alternativa rootful |
+| Interface Podman do Gateway | Uma interface em `gateway-vpn`, endereço `10.90.0.2`; resolver Aardvark `10.90.0.1` |
+| Acesso do Gateway | A todos os serviços em `gateway-vpn`; componente administrativo confiável |
+| Configuração de rede | Adequar `config/host_config.json` à rede rootless `gateway-vpn`, sem inventário por aplicação; rede padrão `podman` é alternativa rootful |
+| CIDR de containers | Alvo rootless fixo `10.90.0.0/24`; alternativa rootful descobre a rede `podman` por inspeção (`10.88.0.0/16` é padrão upstream, não garantido) |
+| Endereços fixos da webapp rootless | `10.90.0.10` `webapp-db`; `10.90.0.11` `webapp`; `10.90.0.12` `app-proxy` |
+| Acesso remoto | Clientes Tailscale inscritos no Headscale; split tunnel IPv4 para `10.90.0.0/24`, prefixo VPN `100.96.0.0/24`, sem SNAT; origem VPN e default route preservadas |
 | Inscrição | Headplane gerencia usuários/dispositivos e tokens de uso único; chaves privadas geradas nos clientes; OIDC corporativo opcional |
-| Retorno da VPN | `--snat-subnet-routes=false` e rota host determinística ao prefixo VPN pelo Gateway |
-| Egress de containers | Saída normal do Podman rootful pelo host, com masquerading quando necessário |
-| SSH para aplicações | Conexão direta ao destino pela VPN para VS Code; autenticação no container, sem bastion |
+| Retorno da VPN | `--snat-subnet-routes=false` e rota determinística ao prefixo VPN na namespace rootless |
+| Egress de containers | Saída normal do Podman rootless pelo host; alternativa rootful pode usar masquerading |
+| SSH para aplicações | Conexão direta ao destino pela VPN para VS Code; autenticação no container, sem bastion; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
 | Administração do Gateway | Headplane para VPN e Portainer para gestão do container pela VPN; sem listener de shell para desenvolvedores |
 | Bind de gestão | Headplane atrás de frontend HTTPS no Gateway; Portainer HTTPS no container dedicado, sem publicação no host; ingresso restrito à VPN e a operadores |
-| Chaves SSH dos destinos | Individuais por desenvolvedor, privadas somente no cliente, públicas provisionadas por destino |
+| Chaves SSH dos destinos | Individuais por desenvolvedor, privadas somente no cliente, públicas provisionadas por destino; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
 | Controle de acesso | Perímetro externo mais inscrição e política Headscale; autenticação de serviço independente |
 | Podman API | Socket Unix local exclusivo do Portainer; acesso de alto privilégio, sem exposição TCP |
 | Acesso diário ao host | Não |
 | Deployment | Scripts versionados e Quadlet; preflight comum e verificações específicas por serviço |
-| SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo |
+| SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
 | Backup PostgreSQL | pgBackRest versionado na imagem; full mensal/incremental semanal por timers host; repositório de trabalho e exportações concluídas em volumes distintos; publicação de geração completa verificada; restore manual com drill; plano, não implementado |
 | TUS e file sharing | Serviços opcionais; limite de arquivo de 1 GB por padrão; file sharing NGINX somente leitura |
 | Serviços não HTTP para usuários | Publicação direta por bind de host, protocolo e portas explicitamente declarados; autenticação do serviço e perímetro próprios |
@@ -1232,38 +1245,39 @@ SELinux desativado é uma decisão de segurança explícita. O deployment valida
 Uma implementação do boilerplate será considerada aderente quando:
 
 - uma aplicação puder ser implantada sem alterar manualmente o host na operação normal;
-- todos os containers usarem somente a rede padrão `podman`, com uma interface Podman por container;
+- containers do alvo usarem somente a rede rootless `gateway-vpn` (`10.90.0.0/24`); a rede padrão `podman` fica como alternativa rootful;
 - conectividade direta entre containers ser intencional e protegida por autenticação de serviço, sem alegar isolamento por aplicação;
 - configuração de serviços e aliases estiver declarada, sem inventário de redes por aplicação;
-- Gateway possuir endereço estável na única rede padrão e anunciar somente seu CIDR efetivo;
-- deployment e testes de DNS cumprirem integralmente a seção 9, sem recriar rede em uso;
+- Gateway possuir `10.90.0.2` em `gateway-vpn` e anunciar somente `10.90.0.0/24`;
+- deployment e testes de DNS em `gateway-vpn` cumprirem integralmente a seção 9, sem recriar rede em uso;
+- webapp usar endereços fixos `10.90.0.10` (`webapp-db`), `10.90.0.11` (`webapp`) e `10.90.0.12` (`app-proxy`);
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
-- desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale;
-- o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
+- desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
+- o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
 - NGINX compartilhado receber todas as aplicações por um endpoint host `0.0.0.0:8080`, mapeado ao TCP/8080 do container;
 - cada aplicação HTTP puder ser encaminhada por um prefixo de caminho, como `/app1` ou `/app2`, sem exigir outra porta publicada;
-- o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080;
+- o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080 (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
 - NGINX encaminhar, para a aplicação inicial, `/webapp/` e `/webapp/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
 - FastAPI servir, na aplicação inicial, a SPA em `/webapp/` e a API em `/webapp/api/` no único listener TCP `8000`;
 - o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
 - rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
 - serviços não HTTP de usuário usarem publicação direta explicitamente configurada, sem confundir isso com o acesso de desenvolvimento via Gateway;
 - Headscale, Headplane e `tailscaled` executarem no Gateway como única solução de acesso remoto de desenvolvedores;
-- clientes inscritos alcançarem o CIDR padrão autorizado, inclusive PostgreSQL, por split tunnel Layer 3 IPv4 sem NAT, preservando endereço VPN de origem e rota default local;
-- `--snat-subnet-routes=false` e rotas de retorno determinísticas pelo host permitirem respostas aos dispositivos VPN;
+- clientes inscritos alcançarem `10.90.0.0/24`, inclusive PostgreSQL, por split tunnel IPv4 sem SNAT, preservando endereço VPN de origem e rota default local;
+- `--snat-subnet-routes=false` e rota de retorno determinística na namespace rootless permitirem respostas aos dispositivos VPN;
 - inscrição via Headplane usar tokens individuais de uso único e curta validade, sem distribuição de chaves privadas de dispositivos;
 - expirar token não ser tratado como revogação de dispositivo; testar expiração/revogação do dispositivo, auditoria e bloqueio de novos acessos;
-- prefixo VPN não se sobrepor ao CIDR Podman nem às redes/rotas relevantes do host, LAN e ambiente corporativo;
-- anúncio, aprovação e aceitação de rotas funcionarem sem anunciar rota default nem aceitar rotas Podman de outro router no próprio Gateway;
-- endpoint Headscale ser alcançável antes da VPN e conectividade direta/relay funcionar conforme política de infraestrutura;
+- prefixo VPN `100.96.0.0/24` não se sobrepor a `10.90.0.0/24` nem às redes/rotas relevantes do host, LAN e ambiente corporativo;
+- anúncio, aprovação e aceitação de `10.90.0.0/24` funcionarem sem anunciar rota default nem aceitar rotas da alternativa rootful no próprio Gateway;
+- endpoint Headscale estar disponível diretamente em TCP 443 antes da VPN e conectividade direta/relay funcionar conforme política de infraestrutura;
 - endpoints administrativos dos containers exigirem autenticação e acesso de operador pela VPN, sem API administrativa pública nem socket Podman no Headplane; Cockpit do host usar o acesso corporativo independente da seção 2.2;
 - reinícios preservarem identidades e inscrições; falhas dos processos serem explícitas, com comportamento de reconexão e recuperação validado;
 - candidatos inválidos não mutarem estado e rotas/regras terem ownership, reconciliação idempotente e rollback definidos;
 - não haver DHCP para clientes VPN, extensão Ethernet da rede de containers aos clientes ou TAP;
-- egress de containers alcançar destinos externos pela saída normal do Podman no host, usando masquerading quando necessário;
-- deployment usar Quadlet e passar aceitação em RHEL 9.8 / Podman rootful 5.8.2 com SELinux desativado;
-- chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment;
-- chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente; PAM permanece responsabilidade externa;
+- egress rootless alcançar destinos externos pela saída normal do Podman no host; a alternativa rootful pode usar masquerading;
+- deployment rootless usar Quadlet e passar aceitação em RHEL 9.8 / Podman 5.8.2 com SELinux desativado; rootful permanece alternativa;
+- chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
+- chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md)); PAM permanece responsabilidade externa;
 - o Gateway não oferecer listener de shell ou transporte alternativo para acesso remoto de desenvolvedores;
 - Portainer permitir as operações de containers aprovadas, via API compatível com Docker e socket local, no alvo RHEL 9.8 / Podman 5.8.2, sem `--privileged`;
 - somente Portainer receber o socket Podman, com acesso restrito a operadores confiáveis e sem exposição TCP da API;
@@ -1279,7 +1293,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
 - seções não relacionadas do JSON permanecerem compatíveis com `schema_version: 1`; rede, DNS e acesso remoto seguem validação definida nas seções 5.5 e 9;
-- os dois NGINX funcionarem como proxies HTTP distintos: o compartilhado obrigatório para aplicações e o emulador exclusivo para desenvolvimento; nenhum deles servir tráfego administrativo;
+- os dois NGINX funcionarem como proxies HTTP distintos: o compartilhado obrigatório para aplicações e o emulador exclusivo para desenvolvimento (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md)); nenhum deles servir tráfego administrativo;
 - o acesso externo continuar controlado pela infraestrutura de segurança existente;
 - deployment puder ser repetido sem destruir dados;
 - diagnóstico básico de rede puder ser realizado sem acesso ao host RHEL;

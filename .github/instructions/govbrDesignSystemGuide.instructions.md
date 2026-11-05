@@ -13,14 +13,29 @@ Keep existing application behavior intact when changing presentation.
 
 ## Read Before Implementing
 
-1. Read the relevant project contract and the
+1. Read the relevant project contract, this guide, and the
    [source-backed reuse guide](../../docs/recipes/govbr-design-system.md).
 2. Follow the official page for each component or foundation being changed.
    Check its anatomy, states, responsive behavior, accessibility, and examples.
 3. Inspect existing frontend dependencies, assets, and integration patterns.
-   Record which official resources and package versions the change will use.
+   Choose one compatible integration and record its release, official sources,
+   dependencies, and licenses.
 4. Define the affected screens and acceptance checks before editing.
-   A documentation request alone does not authorize a frontend migration.
+   Preserve existing behavior. A documentation request alone does not authorize
+   a frontend migration.
+5. Include only resources required for the implementation. For the current static
+   frontend, assess local assets, relative paths, and preserved license notices.
+6. Initialize components for the selected release. Verify user flows and update
+   affected documentation.
+7. Report evidence, deviations, limitations, and update or rollback procedures.
+
+Follow the official [integration workflow](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds-site-content/como-comecar/fluxo-dev/fluxo-dev.md)
+for the selected release's required dependencies and load order. Do not assume Design System
+assets are standalone.
+The [Core 3.7.0 package metadata](https://registry.npmjs.org/@govbr-ds%2fcore/3.7.0) lists
+`flatpickr: ^4.6.9` and `@popperjs/core: ^2.9.2` as dependencies. Check which dependencies the
+selected components require; [LICENSES.md](../../LICENSES.md) records Flatpickr's project license.
+The visual Sign-in component does not implement GOV.BR authentication or replace backend security.
 
 ## Reuse and Delivery
 

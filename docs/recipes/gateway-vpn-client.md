@@ -21,34 +21,14 @@
 ## 1. Objetivo e público
 
 Procedimento para desenvolvedores e operadores conectarem clientes Linux, Windows 11 e macOS
-ao Headscale auto-hospedado no Gateway. A VPN oferece acesso dividido (split tunnel) ao CIDR
-dos containers e DNS dividido para nomes autorizados em `dev.anatel`; não encaminha a rota
-default nem transforma o Gateway em exit node.
+ao Headscale auto-hospedado no Gateway. O endpoint de produção é `https://headscale.dev.anatel`,
+HTTPS TCP 443, acessível pela LAN antes da VPN e pela VPN depois da inscrição. A VPN oferece
+acesso dividido (split tunnel) ao CIDR dos containers e DNS dividido para nomes autorizados em
+`dev.anatel`; não encaminha a rota default nem transforma o Gateway em exit node.
 
-> **Status do cliente — testes de laboratório em 2026-10-29 e 2026-11-05.** As datas distinguem os registros históricos dos testes de acesso nomeado mais recentes. Não infira argumentos que os registros não informam:
->
-> **Registro das linhas de 2026-10-29:** registro de sessão de laboratório, 2026-10-29, fora do repositório.
->
-> | Data | Comando ou teste | Plataforma | Estado |
-> | --- | --- | --- | --- |
-> | 2026-10-29 | `tailscale status` e nós do Headscale | Debian 13 / Tailscale 1.104.4 | Testado; os nós observados naquela sessão permaneceram online. A numeração atual está registrada na linha de 2026-11-05. |
-> | 2026-10-29 | DNS dividido por `10.90.0.1:53` | Debian 13 / Tailscale 1.104.4 | Testado por UDP e TCP; o Gateway resolveu para `10.90.0.2` e o serviço de aplicação da prova para `10.90.0.3`. |
-> | 2026-10-29 | HTTPS em TCP 8443 pela LAN | Debian 13 / Tailscale 1.104.4 | Testado; respondeu HTTP 200; TLS em TCP 8443 validado contra a CA do laboratório. Um arquivo público da CA estava presente no cliente; o mecanismo de confiança (`update-ca-certificates` ou `--cacert`) não foi registrado. Isso não comprova a execução da §4. Certificado `CN=headscale.dev.anatel`, emissor `CN=GWVPN Lab CA 2026`. |
-> | 2026-10-29 | Acesso à aplicação por IP e alias | Debian 13 / Tailscale 1.104.4 | Testado; a aplicação recebeu `100.96.0.2` como IP de origem VPN preservado, conforme §5.5 do contrato. |
-> | 2026-10-29 | TCP 443 e 9090 do servidor pela LAN | Debian 13 / Tailscale 1.104.4 | Sem conexão (`http_code=000`); o servidor não tinha listener nessas portas no momento. O encaminhamento externo TCP 443 não foi testado. |
-> | 2026-10-29 | Rota default do cliente | Debian 13 / Tailscale 1.104.4 | Testado; permaneceu `192.168.7.1`. |
-> | 2026-11-05 | Reboot do host e reconexão do cliente | RHEL 9.8 / Podman 5.8.2; Debian 13 / Tailscale 1.104.4 | Testado; linger e unidades ativos, rota `100.96.0.0/24 via 10.90.0.2 dev podman1`, nós Headscale 2 e 3 online e cliente reconectado. |
-> | 2026-11-05 | `getent hosts` para os aliases da webapp | Debian 13 / Tailscale 1.104.4 | Testado; `webapp-db.dev.anatel` → `10.90.0.10`, `webapp.dev.anatel` → `10.90.0.11` e `app-proxy.dev.anatel` → `10.90.0.12`. |
-> | 2026-11-05 | SPA `http://app-proxy.dev.anatel:8080/webapp/index.html` | Debian 13 / Tailscale 1.104.4 | Testado; HTTP 200. |
-> | 2026-11-05 | Saúde da API `http://app-proxy.dev.anatel:8080/webapp/api/health` | Debian 13 / Tailscale 1.104.4 | Testado; resposta `{"status":"ok"}`. |
-> | 2026-11-05 | TCP `webapp-db.dev.anatel:5432` | Debian 13 / Tailscale 1.104.4 | Testado; conexão TCP aberta. Não houve autenticação nem consulta PostgreSQL. |
-> | 2026-11-05 | Origem do cliente nos logs NGINX | Debian 13 / Tailscale 1.104.4 | Testado; NGINX registrou `100.96.0.2`. |
->
-> Na inscrição de laboratório anterior, foi usada uma chave de uso único e `https://headscale.dev.anatel:8443` pela LAN; o comando CLI exato não consta no registro. Em 2026-11-05, o nó 2 era `gateway-router` (`100.96.0.1`) e o nó 3 era `containerhost` (`100.96.0.2`). O nó 1 (cliente de teste) foi removido e o Gateway recebeu o ID 2. O encaminhamento externo TCP 443 continua sem teste.
->
-> Os comandos e fluxos que não constam como testados na tabela são **não verificados**, inclusive a forma escrita `tailscale up --auth-key=file:`, `--operator`, `resolvectl query`, `ip route get`, GUIs, Windows e macOS. Os comandos da §4 também não foram executados como escritos.
->
-> O experimento rootless é temporário; não altera os requisitos rootful do [ARCHITECTURE.md](../contracts/ARCHITECTURE.md).
+O alvo é rootless; a variante rootful continua implementada e mantida como alternativa no
+[ARCHITECTURE.md](../contracts/ARCHITECTURE.md).
+
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
@@ -61,19 +41,13 @@ default nem transforma o Gateway em exit node.
 
 ## 2. Visão geral e pré-requisitos
 
-No ambiente de produção, o endpoint HTTPS do Headscale precisa ser alcançável antes da inscrição.
-No teste rootless, a inscrição usou o endpoint LAN `https://headscale.dev.anatel:8443`; TCP 443
-público não foi testado. Depois da inscrição, o cliente usa WireGuard para chegar ao Gateway e às
-rotas de containers aprovadas. Em 2026-11-05, `getent hosts` resolveu os aliases
-`webapp-db.dev.anatel` (`10.90.0.10`), `webapp.dev.anatel` (`10.90.0.11`) e
-`app-proxy.dev.anatel` (`10.90.0.12`). O split DNS não deve ser publicado na Internet.
+O endpoint de produção é `https://headscale.dev.anatel` em TCP 443, pela LAN antes da inscrição e pela VPN depois da conexão. Não acrescente `:8443`. Depois da inscrição, o cliente usa WireGuard para chegar ao Gateway e às rotas de containers aprovadas.
+O split DNS de `dev.anatel` é para a rede autorizada e não deve ser publicado na Internet.
 
 Headplane é acessível somente pela VPN por operadores autorizados, via HTTPS e com autenticação
 própria. Desenvolvedores sem autorização de operador não devem acessá-lo.
 
-Se o operador fornecer porta não padrão para endpoint de teste/LAN, use
-`--login-server=https://<HEADSCALE_FQDN>:8443` (exemplo somente para teste). Em produção, use
-HTTPS na porta 443, encaminhada pelo perímetro.
+Use `--login-server=https://<HEADSCALE_FQDN>` nos clientes. HTTPS usa TCP 443 diretamente no host; não encaminhe a conexão para uma porta não padrão.
 
 ```mermaid
 flowchart LR
@@ -89,21 +63,21 @@ do dispositivo é gerada localmente pelo Tailscale e não deve ser compartilhada
 
 | Marcador | O que fornecer ou substituir | Exemplo ilustrativo |
 | --- | --- | --- |
-| `<HEADSCALE_FQDN>` | Nome público do Headscale; HTTPS TCP 443 deve funcionar antes da VPN. | `headscale.exemplo.net` |
+| `<HEADSCALE_FQDN>` | Nome público do Headscale; HTTPS TCP 443 deve funcionar antes da VPN. | `headscale.dev.anatel` |
 | `<AUTH_KEY_FILE>` | Caminho local, fora do repositório, para o arquivo de chave de inscrição entregue pelo operador. | `/home/ana/.config/tailscale/auth-key` |
 | `<CA_FILE>` | Caminho do certificado público da CA privada, somente se o endpoint usar essa CA. | `/home/ana/Downloads/gateway-ca.crt` |
 | `<APP_ALIAS>` | Nome DNS autorizado para o serviço/container. | `backend.project-a.dev.anatel` |
 | `<GATEWAY_ALIAS>` | Nome DNS autorizado para o Gateway. | `dev-gateway.dev.anatel` |
-| `<CONTAINER_CIDR>` | Rede de containers anunciada pelo Gateway e aceita pelo cliente. | `10.90.0.0/24` — bridge rootless de teste, não padrão de produção |
-| `<IP_DO_CONTAINER>` | Endereço do container/serviço autorizado, informado pelo operador. | `10.90.0.11` — endereço de teste da API, não padrão de produção |
-| `<VPN_PREFIX>` | Prefixo de endereços atribuídos aos clientes VPN. | `100.96.0.0/24` — valor de teste, não padrão de produção |
+| `<CONTAINER_CIDR>` | Rede rootless de containers anunciada pelo Gateway e aceita pelo cliente. | `10.90.0.0/24` |
+| `<IP_DO_CONTAINER>` | Endereço do container/serviço autorizado, informado pelo operador. | `10.90.0.11` — webapp |
+| `<VPN_PREFIX>` | Prefixo de endereços atribuídos aos clientes VPN. | `100.96.0.0/24` |
 | `<SERVICE_PORT>` | Porta do serviço liberada pelo operador. | `5432` para PostgreSQL |
 | `<OPERADOR_LOCAL>` | Conta local autorizada a operar `tailscaled` sem `sudo`, se necessário. | `ana` |
 
 Proteja `<AUTH_KEY_FILE>` contra leitura por outros usuários e apague-o depois da inscrição.
-Confirme com o operador o CIDR efetivo, aliases permitidos, portas e procedimento de aprovação.
-Não presuma que os exemplos correspondem à rede ativa. Se houver sobreposição com LAN, VPN
-corporativa ou outra rede Tailscale, pare e peça um plano de endereçamento.
+Confirme aliases permitidos, portas e procedimento de aprovação. O alvo usa `10.90.0.0/24` para
+containers e `100.96.0.0/24` para clientes VPN. Se houver sobreposição com LAN, VPN corporativa
+ou outra rede Tailscale, pare e peça um plano de endereçamento.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -117,15 +91,15 @@ corporativa ou outra rede Tailscale, pare e peça um plano de endereçamento.
 
 ## 3. Escolha do cliente
 
-| Sistema | Cliente CLI mínimo | Opção GUI | Versão mínima verificada na documentação |
+| Sistema | Cliente CLI | Opção GUI | Compatibilidade a confirmar |
 | --- | --- | --- | --- |
-| Linux | Tailscale CLI oficial; instale pelo repositório da distribuição indicado pelo Tailscale. | `tailscale systray` oficial; mínimo v1.88 não verificado. Trayscale e KTailctl são de terceiros. | A documentação consultada não declara um mínimo único; depende da distribuição e do pacote. |
+| Linux | Tailscale CLI oficial; instale pelo repositório da distribuição indicado pelo Tailscale. | `tailscale systray` oficial; confirme os requisitos da distribuição. Trayscale e KTailctl são de terceiros. | A versão mínima depende da distribuição e do pacote; consulte os requisitos atuais. |
 | Windows 11 | Tailscale CLI oficial no PowerShell. | Aplicativo Tailscale oficial; a documentação Headscale usa CLI para definir o servidor customizado. | O instalador atual declara Windows 10 ou posterior. Windows 11 está incluído. |
-| macOS | Tailscale CLI oficial, se instalado com o aplicativo; caminho do CLI standalone não verificado. | Headscale descreve GUI para servidor customizado; suporte nas variantes App Store e standalone não verificado. | Compatibilidade depende da versão atual do cliente; não verificada nesta receita. |
+| macOS | Tailscale CLI oficial, se instalado com o aplicativo; use o caminho documentado para a variante instalada. | Headscale descreve GUI para servidor customizado; confirme o suporte na variante instalada. | Confirme a compatibilidade com a documentação da versão atual do cliente. |
 
 Para Linux, prefira a instalação pelo repositório oficial. Consulte requisitos e instruções do
-systray na [documentação oficial](https://tailscale.com/kb/1597/linux-systray); o mínimo v1.88,
-D-Bus e `StatusNotifierItem` não foram verificados nesta receita. Trayscale e KTailctl são projetos
+systray na [documentação oficial](https://tailscale.com/kb/1597/linux-systray), incluindo a versão
+mínima, D-Bus e `StatusNotifierItem` exigidos pela distribuição. Trayscale e KTailctl são projetos
 não oficiais. Confirme a origem dos pacotes na seção [Fontes oficiais](#12-fontes-oficiais).
 
 No Windows, instale o cliente oficial, inclusive pelo MSI quando a equipe distribuir pacotes
@@ -148,11 +122,9 @@ não instale as variantes standalone e App Store simultaneamente.
 Execute esta seção somente quando o operador confirmar que o certificado HTTPS do Headscale
 usa uma CA privada. Obtenha o certificado público da CA por canal confiável. Compare a impressão
 digital SHA-256 do certificado com o valor SHA-256 entregue pelo operador por canal separado.
-**Pare** se os valores diferirem. Não instale a CA de laboratório usada nos testes como CA de
-produção. No cliente Debian 13, um arquivo público da CA estava presente; TLS em TCP 8443 foi validado
-contra a CA do laboratório. O registro não informa se a confiança veio de
-`update-ca-certificates`, `--cacert` ou outro mecanismo; isso não comprova a execução dos
-procedimentos desta seção. Trate todos os comandos da seção como não verificados.
+**Pare** se os valores diferirem. Não instale uma CA de laboratório como CA de produção. Siga
+somente as instruções oficiais da distribuição e do sistema operacional. Os comandos desta seção
+não foram verificados como escritos nesta receita.
 
 ### Debian
 
@@ -182,15 +154,16 @@ sudo install -m 0644 "<CA_FILE>" /etc/pki/ca-trust/source/anchors/gateway-vpn.cr
 sudo update-ca-trust extract
 ```
 
-Ubuntu e Fedora provavelmente usam procedimentos semelhantes aos de Debian e RHEL,
-respectivamente; essa equivalência não foi verificada.
+Para Ubuntu ou Fedora, a equivalência desses comandos não foi verificada. Siga a documentação
+oficial da distribuição; não presuma que os comandos Debian ou RHEL se aplicam.
 
 ### Windows 11
 
-**Não verificado.** Em PowerShell 7, calcule a impressão digital SHA-256 do certificado e compare
-com o valor SHA-256 recebido do operador por canal separado. O método usa .NET Core; não compare
-o hash SHA-256 do arquivo com a impressão digital do certificado. Se a impressão digital diferir,
-pare.
+**Não verificado nesta receita.**
+
+Em PowerShell 7, calcule a impressão digital SHA-256 do certificado e compare com o valor SHA-256
+recebido do operador por canal separado. O método usa .NET Core; não compare o hash SHA-256 do
+arquivo com a impressão digital do certificado. Se a impressão digital diferir, pare.
 
 ```powershell
 $c=[System.Security.Cryptography.X509Certificates.X509Certificate2]::new("<CA_FILE>"); $c.GetCertHashString("SHA256")
@@ -211,9 +184,11 @@ certutil -addstore -f Root "<CA_FILE>"
 
 ### macOS
 
-**Não verificado.** Antes de instalar, calcule a impressão digital SHA-256 e compare com o valor
-entregue pelo operador por canal separado. Pare se diferir. No Terminal, instale a CA raiz no
-chaveiro de sistema; a sintaxe não foi testada neste projeto.
+**Não verificado nesta receita.**
+
+Antes de instalar, calcule a impressão digital SHA-256 e compare com o valor entregue pelo operador
+por canal separado. Pare se diferir. Confirme a sintaxe atual do comando `security` na documentação
+Apple antes de instalar a CA raiz no chaveiro de sistema.
 
 ```bash
 openssl x509 -noout -fingerprint -sha256 -in "<CA_FILE>"
@@ -237,10 +212,10 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 
 Use um terminal Bash. Instale o pacote pelo [procedimento oficial para sua distribuição](https://tailscale.com/kb/1031/install-linux), que configura o repositório Tailscale. Inicie o serviço `tailscaled` conforme a distribuição e confirme que o comando `tailscale` está disponível.
 
-**Não verificado como escrito.** A inscrição no laboratório usou chave de uso único, mas o
-registro não contém a forma exata do comando. Com o arquivo de chave local entregue pelo operador,
-este exemplo inscreve o dispositivo e aceita rota e DNS. O prefixo `file:` faz o CLI ler a chave
-do arquivo, sem colocá-la no histórico do shell.
+**Não verificado como escrito nesta receita.**
+Confira a sintaxe e as opções suportadas na documentação da versão instalada. Com o arquivo de
+chave local entregue pelo operador, este exemplo inscreve o dispositivo e aceita rota e DNS. O
+prefixo `file:` faz o CLI ler a chave do arquivo, sem colocá-la no histórico do shell.
 
 ```bash
 sudo tailscale up --login-server=https://<HEADSCALE_FQDN> \
@@ -267,7 +242,8 @@ v1.88 e o uso com Headscale não foram verificados. Trayscale e KTailctl são GU
 
 ## 6. Windows 11
 
-**Não verificado.** Instale o cliente Tailscale oficial pelo [instalador Windows](https://tailscale.com/kb/1022/install-windows) ou pelo [MSI oficial](https://tailscale.com/docs/install/windows/msi). Use PowerShell elevado (Administrador) para `tailscale up`. O aplicativo gráfico oficial fornece o estado e os controles diários.
+**Não verificado nesta receita.**
+Instale o cliente Tailscale oficial pelo [instalador Windows](https://tailscale.com/kb/1022/install-windows) ou pelo [MSI oficial](https://tailscale.com/docs/install/windows/msi). Use PowerShell elevado (Administrador) para `tailscale up`. O aplicativo gráfico oficial fornece o estado e os controles diários. Confirme na documentação da versão instalada o suporte ao servidor Headscale customizado.
 
 Para definir o servidor Headscale, siga o fluxo CLI documentado pelo Headscale. Com chave
 entregue em arquivo, use o caminho local sem copiar o segredo para a linha de comando:
@@ -277,12 +253,13 @@ tailscale up --login-server=https://<HEADSCALE_FQDN> `
   --auth-key="file:<AUTH_KEY_FILE>" --accept-routes=true --accept-dns=true
 ```
 
-O aceite de rotas e DNS por padrão no Windows não foi verificado. Confira a rota default com o
-comando abaixo; não deve aparecer rota default via Tailscale. Esse comando também não foi verificado.
+Confira a rota default:
 
 ```powershell
 Get-NetRoute -DestinationPrefix 0.0.0.0/0
 ```
+
+**Resultado esperado:** a rota default continua usando o gateway local, não a Tailscale.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -296,18 +273,18 @@ Get-NetRoute -DestinationPrefix 0.0.0.0/0
 
 ## 7. macOS
 
-**Não verificado.** Prefira a variante standalone do aplicativo Tailscale. A documentação do
-Headscale descreve a configuração de servidor customizado no macOS, mas não informa se o fluxo
-funciona nas variantes App Store e standalone; o suporte de ambas não foi verificado. Não mantenha
-as duas variantes no mesmo computador. O aceite de rotas e DNS por padrão também não foi verificado.
+**Não verificado nesta receita.**
+Prefira a variante standalone do aplicativo Tailscale. Confirme na documentação da variante
+instalada o suporte ao servidor customizado, às rotas e ao DNS. Não mantenha as variantes App Store
+e standalone no mesmo computador.
 
 Para configurar o servidor customizado pela GUI conforme o fluxo documentado pelo Headscale,
 mantenha `⌥` (Option) pressionada e clique no ícone Tailscale da barra de menus. Passe sobre
 **Debug** e escolha **Custom Login Server** > **Add Account...**. Informe
 `https://<HEADSCALE_FQDN>`. Não conclua inscrição pelo navegador nem aprove solicitação de
 inscrição sem a chave individual, de uso único e validade curta fornecida pelo operador. Se a GUI
-não tiver campo para informar essa chave, pare e use o CLI abaixo com `--auth-key=file:`. Mantenha
-a GUI para status e uso diário. O passo a passo foi consultado, mas não testado neste projeto.
+não tiver campo para informar essa chave, pare e use o CLI abaixo com `--auth-key=file:`. Use a GUI
+para status e uso diário somente conforme o fluxo documentado para a variante instalada.
 
 Para inscrição pelo caminho contratual, use o CLI com a chave entregue em arquivo para conectar
 ao servidor customizado. O prefixo `file:` faz o CLI ler a chave sem incluí-la no histórico do shell:
@@ -317,11 +294,13 @@ tailscale up --login-server=https://<HEADSCALE_FQDN> \
   --auth-key=file:<AUTH_KEY_FILE> --accept-routes=true --accept-dns=true
 ```
 
-O caminho `/Applications/Tailscale.app/Contents/MacOS/Tailscale` para o CLI standalone não foi
-confirmado nas páginas oficiais consultadas; seu uso não foi verificado. Confirme a instalação e
-as permissões com o operador. O modo GUI e CLI no macOS não foi testado neste projeto.
+O caminho do CLI standalone não foi confirmado para a variante instalada. Use o caminho
+documentado pelo fornecedor; não presuma que
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale` existe. Confirme a instalação e as
+permissões com o operador.
 
-Confira a rota default; não deve aparecer rota default via Tailscale. O comando não foi verificado.
+O comando de rota default não foi verificado nesta receita. Resultado esperado: a rota continua
+usando o gateway local, não a Tailscale.
 
 ```bash
 netstat -rn -f inet | grep default
@@ -339,12 +318,9 @@ netstat -rn -f inet | grep default
 
 ## 8. Verificar a conexão
 
-Os testes de 2026-11-05 confirmam `getent hosts` para os aliases `webapp-db.dev.anatel`,
-`webapp.dev.anatel` e `app-proxy.dev.anatel`, com os endereços registrados na tabela da §1. A rota
-default do cliente permaneceu `192.168.7.1` no teste de laboratório anterior. Os comandos genéricos
-abaixo são exemplos de repetição e não foram testados como escritos. Use aliases autorizados e
-compare DNS, endereço e porta com os dados do operador. Não use teste ICMP como única prova, pois
-containers podem bloquear ping.
+Use aliases autorizados e compare DNS, endereço e porta com os dados do operador. Os comandos
+abaixo são exemplos de verificação. Não use teste ICMP como única prova, pois containers podem
+bloquear ping. Os exemplos usam placeholders e não foram verificados como escritos nesta receita.
 
 ```bash
 tailscale status
@@ -352,16 +328,22 @@ getent hosts <GATEWAY_ALIAS>
 getent hosts <APP_ALIAS>
 ```
 
-Exemplos não verificados de consulta e rota no Linux:
+Resultado esperado: `tailscale status` mostra o cliente conectado; os aliases resolvem para os
+endereços aprovados pelo operador.
+
+Em Linux com `systemd-resolved`, consulte o nome e a rota. Estes comandos não foram verificados
+nesta receita:
 
 ```bash
 resolvectl query <APP_ALIAS>
 ip route get <IP_DO_CONTAINER>
 ```
 
-`getent ahostsv4` também não foi verificado.
+Resultado esperado: `resolvectl` retorna o endereço aprovado e a rota para o container usa a
+interface VPN.
 
-Os comandos Windows e macOS não foram verificados:
+No Windows, verifique estado, resolução, porta autorizada e rota default. Estes comandos não foram
+verificados nesta receita:
 
 ```powershell
 tailscale status
@@ -370,6 +352,13 @@ Test-NetConnection <APP_ALIAS> -Port <SERVICE_PORT>
 Get-NetRoute -DestinationPrefix 0.0.0.0/0
 ```
 
+Resultado esperado: o alias resolve para o endereço aprovado; a rota default permanece no gateway
+local. A conexão TCP deve ter sucesso somente quando o operador autorizar a porta e o serviço
+estiver acessível.
+
+No macOS, verifique estado, resolução, porta autorizada e rota default. Estes comandos não foram
+verificados nesta receita:
+
 ```bash
 tailscale status
 dscacheutil -q host -a name <APP_ALIAS>
@@ -377,8 +366,12 @@ nc -vz <APP_ALIAS> <SERVICE_PORT>
 netstat -rn -f inet | grep default
 ```
 
-Confira também as rotas do Linux. Estes comandos não foram verificados. A rota de `<CONTAINER_CIDR>`
-deve usar a interface VPN; a rota default local não deve passar pela Tailscale.
+Resultado esperado: o alias resolve para o endereço aprovado; a rota default permanece no gateway
+local. A conexão TCP deve ter sucesso somente quando o operador autorizar a porta e o serviço
+estiver acessível.
+
+Confira também as rotas do Linux. Estes comandos não foram verificados nesta receita. A rota de
+`<CONTAINER_CIDR>` deve usar a interface VPN; a rota default local não deve passar pela Tailscale.
 
 ```bash
 ip -4 route show <CONTAINER_CIDR>
@@ -406,18 +399,17 @@ inclusive por VS Code, está **a implementar** e fora do escopo atual; acompanhe
 [Chaves SSH de acesso ao Gateway e aos containers](ssh-key.md).
 
 O emulador de identidade está **a implementar** e fora do escopo atual; acompanhe
-[docs/TODO.md](../TODO.md). O acesso HTTP testado usa o proxy da aplicação, não o emulador.
+[docs/TODO.md](../TODO.md). Use o proxy de aplicação autorizado para acesso HTTP de desenvolvimento.
 
 ### HTTP de desenvolvimento
 
-A SPA respondeu HTTP 200 em `http://app-proxy.dev.anatel:8080/webapp/index.html`. A rota de saúde
-respondeu `{"status":"ok"}` em
-`http://app-proxy.dev.anatel:8080/webapp/api/health`.
+Use o proxy de aplicação autorizado para acessar a SPA e a rota de saúde. Não use o emulador de
+identidade, que permanece fora do escopo.
 
 ### PostgreSQL
 
-O teste registrado verificou somente TCP em `webapp-db.dev.anatel:5432`; não houve autenticação
-nem consulta ao banco. Esta receita não inclui credenciais PostgreSQL.
+Esta receita não inclui credenciais PostgreSQL. Peça ao operador as instruções de conexão e
+autorização; conectividade TCP não substitui autenticação no banco.
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
@@ -433,7 +425,7 @@ nem consulta ao banco. Esta receita não inclui credenciais PostgreSQL.
 | Sintoma | Causa provável | Ação |
 | --- | --- | --- |
 | Erro TLS ao contatar Headscale | CA privada ausente, nome incorreto ou certificado expirado. | Confirme `<HEADSCALE_FQDN>`, validade e impressão digital SHA-256 com o operador; instale somente a CA pública aprovada. Não desative a validação TLS. |
-| Nó inscrito, mas serviço inacessível | Rota não aprovada, rota não aceita ou porta não liberada. | Confirme aprovação da rota, aceite de rotas no cliente e acesso ao `<SERVICE_PORT>` com o operador. O comportamento padrão de rotas por sistema não foi verificado neste teste. |
+| Nó inscrito, mas serviço inacessível | Rota não aprovada, rota não aceita ou porta não liberada. | Confirme aprovação da rota, aceite de rotas no cliente e acesso ao `<SERVICE_PORT>` com o operador. O comportamento de rotas pode variar por sistema; confirme a configuração aplicada no cliente. |
 | Alias `dev.anatel` não resolve | DNS não aceito, alias ausente, resolução local em cache ou VPN sem configuração split DNS. | Confirme `--accept-dns=true`, alias e política DNS distribuída; repita a consulta do sistema operacional. |
 | DNS usa endereço diferente do esperado | Cache local ou domínio conflitante com outra VPN. | Compare com o endereço fornecido pelo operador, limpe o cache pelo método do SO e teste sem alterar DNS corporativo. |
 | VPN corporativa/Tailscale conflitante | CIDR, domínio DNS ou rota sobrepostos. | Compare as rotas da LAN/VPN corporativa com `<CONTAINER_CIDR>` e `<VPN_PREFIX>`; envie conflitos ao operador e peça plano de endereçamento. Não altere a rota default nem desconecte a VPN corporativa sem autorização. |
@@ -488,10 +480,9 @@ e atualize o repositório de confiança; confirme a impressão digital antes de 
 
 ## 12. Fontes oficiais
 
-Referências oficiais, não revalidadas nesta versão.
-A documentação de cliente Linux do Headscale não foi encontrada no caminho testado; use a tabela
-geral de clientes e a documentação Linux do Tailscale. Projetos GUI Linux são de terceiros e estão
-identificados como tal.
+Consulte a documentação oficial correspondente à versão instalada. Para clientes Linux, use a
+tabela geral de clientes e a documentação Linux do Tailscale. Projetos GUI Linux são de terceiros
+e estão identificados como tal.
 
 ### Headscale
 

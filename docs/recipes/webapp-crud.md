@@ -36,7 +36,7 @@ Ao final, o host atende:
 
 ## Pré-requisitos
 
-- Linux com systemd e Podman 5 com Quadlet. Validado em RHEL 9.8 com Podman 5.8.2.
+- Linux com systemd e Podman 5 com Quadlet.
 - Execução como `root`.
 - Rede padrão `podman` com DNS habilitado. Confira com `podman network inspect podman --format '{{.DNSEnabled}}'`.
 - SELinux `Disabled`, conforme o [contrato de arquitetura](../contracts/ARCHITECTURE.md).
@@ -178,11 +178,18 @@ uv run ruff format --check .
 uv run pytest
 ```
 
+Resultado esperado:
+
+- `uv sync`: termina com código `0` depois de sincronizar as dependências.
+- `uv run ruff check .`: termina com código `0` sem apontar violações.
+- `uv run ruff format --check .`: termina com código `0` sem apontar arquivos que precisam de
+  formatação.
+- `uv run pytest`: termina com código `0`, sem falhas ou erros. A quantidade de testes depende
+  do conjunto presente no checkout.
+
 Os testes unitários usam um repositório falso e não precisam de banco.
 O frontend em `webapp/frontend/` não tem etapa de build. Os testes de navegação,
-mensagens e foco usam o `node:test` integrado. O ambiente testado é Linux, Bash 5.1.8
-(shell com expansão de glob) e Node.js v24.21.0, verificado por `node --version`.
-Essa é uma versão testada, não uma versão mínima declarada. Na raiz do repositório:
+mensagens e foco usam o `node:test` integrado. Na raiz do repositório:
 
 ```bash
 node --test webapp/frontend/tests/dialog-accessibility.test.mjs \
@@ -195,6 +202,10 @@ node --check webapp/frontend/app.js &&
   node --check webapp/frontend/tests/helpers/css-scanner.mjs &&
   node --check webapp/frontend/tests/css-scanner.test.mjs
 ```
+
+Resultado esperado: `node --test` termina com código `0` e sem falhas; a saída TAP informa os
+resultados do conjunto selecionado, sem contagem presumida. `node --check` termina com código `0`
+sem erros de sintaxe e sem saída.
 
 O CSS Core 3.7.0, Rawline, ícones e a ilustração são locais. As origens, licenças e
 atribuições estão no [índice de licenças de componentes](../../LICENSES.md); os detalhes

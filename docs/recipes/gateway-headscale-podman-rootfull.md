@@ -15,9 +15,11 @@
 
 # Gateway VPN com Headscale, Headplane e Tailscale
 
-Receita manual para RHEL 9.8, Podman 5.8.2 e Quadlet. Testado em verificação descartável no Debian 13.6 (trixie) com Podman 5.4.2; a qualificação-alvo permanece RHEL 9.8 / Podman rootful 5.8.2. Execute os comandos em Bash, a partir da
-raiz do repositório (o diretório que contém `deploy/` e `docs/`), e execute os comandos de host
-como `root`. Este procedimento não modifica configurações do host automaticamente.
+> **Alternativa rootful (implementada, mantida).**
+
+Receita manual para RHEL 9.8, Podman 5.8.2 e Quadlet. Execute os comandos em Bash, a partir da raiz
+do repositório (o diretório que contém `deploy/` e `docs/`), e execute os comandos de host como
+`root`. Este procedimento não modifica configurações do host automaticamente.
 
 ## 1. Objetivo e limites
 
@@ -49,20 +51,20 @@ Podman, publicação de porta 53, alterações de firewall ou alterações de SE
 
 | Arquivo | Função |
 | --- | --- |
-| [deploy/gateway/v1/Containerfile](deploy/gateway/v1/Containerfile) | Imagem com bases upstream fixadas por digest e pacotes Debian de snapshot imutável |
-| [deploy/gateway/v1/entrypoint.sh](deploy/gateway/v1/entrypoint.sh) | Valida configs e reinicia processos individualmente |
-| [deploy/gateway/v1/healthcheck.sh](deploy/gateway/v1/healthcheck.sh) | Verifica processos supervisionados e o healthcheck oficial do Headplane |
-| [deploy/gateway/v1/config/headscale.yaml](deploy/gateway/v1/config/headscale.yaml) | Headscale, SQLite persistente e split DNS |
-| [deploy/gateway/v1/config/headplane.yaml](deploy/gateway/v1/config/headplane.yaml) | Headplane local, sem integração com socket |
-| [deploy/gateway/v1/config/nginx.conf](deploy/gateway/v1/config/nginx.conf) | TLS, proxy HTTPS e restrição de Headplane à VPN |
-| [deploy/gateway/v1/quadlet/gateway.container](deploy/gateway/v1/quadlet/gateway.container) | Container Quadlet na rede padrão `podman` |
-| [deploy/gateway/v1/host/gateway-vpn-return-route.service](deploy/gateway/v1/host/gateway-vpn-return-route.service) | Rota de retorno vinculada ao serviço Quadlet |
-| [deploy/gateway/v1/host/gateway-vpn-return-route.env.example](deploy/gateway/v1/host/gateway-vpn-return-route.env.example) | Prefixo VPN, IP do Gateway e interface bridge |
-| [deploy/scripts/install-file.sh](deploy/scripts/install-file.sh) | Instalação atômica e segura de arquivos sem sobrescrita |
-| [deploy/scripts/prepare-headplane-candidate.sh](deploy/scripts/prepare-headplane-candidate.sh) | Preparação de diretório de staging para configuração e segredo de 32 hex do Headplane |
-| [deploy/scripts/validate-headplane-config.sh](deploy/scripts/validate-headplane-config.sh) | Validação isolada da configuração do Headplane via container descartável e healthcheck |
-| [deploy/scripts/enroll-gateway.sh](deploy/scripts/enroll-gateway.sh) | Descoberta e validação de CIDR IPv4 Podman único, inscrição Tailscale sem SNAT e descarte seguro de chave |
-| [docs/recipes/gateway-cockpit-tls.md](docs/recipes/gateway-cockpit-tls.md) | Geração de certificado TLS de servidor unificado para Cockpit e Gateway |
+| [deploy/gateway/v1/Containerfile](../../deploy/gateway/v1/Containerfile) | Imagem com bases upstream fixadas por digest e pacotes Debian de snapshot imutável |
+| [deploy/gateway/v1/entrypoint.sh](../../deploy/gateway/v1/entrypoint.sh) | Valida configs e reinicia processos individualmente |
+| [deploy/gateway/v1/healthcheck.sh](../../deploy/gateway/v1/healthcheck.sh) | Verifica processos supervisionados e o healthcheck oficial do Headplane |
+| [deploy/gateway/v1/config/headscale.yaml](../../deploy/gateway/v1/config/headscale.yaml) | Headscale, SQLite persistente e split DNS |
+| [deploy/gateway/v1/config/headplane.yaml](../../deploy/gateway/v1/config/headplane.yaml) | Headplane local, sem integração com socket |
+| [deploy/gateway/v1/config/nginx.conf](../../deploy/gateway/v1/config/nginx.conf) | TLS, proxy HTTPS e restrição de Headplane à VPN |
+| [deploy/gateway/v1/quadlet/gateway.container](../../deploy/gateway/v1/quadlet/gateway.container) | Container Quadlet na rede padrão `podman` |
+| [deploy/gateway/v1/host/gateway-vpn-return-route.service](../../deploy/gateway/v1/host/gateway-vpn-return-route.service) | Rota de retorno vinculada ao serviço Quadlet |
+| [deploy/gateway/v1/host/gateway-vpn-return-route.env.example](../../deploy/gateway/v1/host/gateway-vpn-return-route.env.example) | Prefixo VPN, IP do Gateway e interface bridge |
+| [deploy/scripts/install-file.sh](../../deploy/scripts/install-file.sh) | Instalação atômica e segura de arquivos sem sobrescrita |
+| [deploy/scripts/prepare-headplane-candidate.sh](../../deploy/scripts/prepare-headplane-candidate.sh) | Preparação de diretório de staging para configuração e segredo de 32 hex do Headplane |
+| [deploy/scripts/validate-headplane-config.sh](../../deploy/scripts/validate-headplane-config.sh) | Validação isolada da configuração do Headplane via container descartável e healthcheck |
+| [deploy/scripts/enroll-gateway.sh](../../deploy/scripts/enroll-gateway.sh) | Descoberta e validação de CIDR IPv4 Podman único, inscrição Tailscale sem SNAT e descarte seguro de chave |
+| [docs/recipes/gateway-tls.md](gateway-tls.md) | Geração de certificado TLS de servidor unificado para Cockpit e Gateway |
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
@@ -165,8 +167,8 @@ O servidor necessita de um certificado TLS confiável cujo SAN (*Subject Alterna
 
 É possível e recomendado utilizar o **mesmo certificado de servidor TLS** para o Cockpit do host (porta 9090)
 e para o Gateway VPN. Para o procedimento completo de geração da chave, inclusão dos SANs unificados,
-assinatura e instalação/replicação dos arquivos para o Cockpit e o Gateway, consulte a receita
-[docs/recipes/gateway-cockpit-tls.md](docs/recipes/gateway-cockpit-tls.md).
+assinatura e instalação/replicação dos arquivos para o Cockpit e o Gateway, consulte
+[gateway-tls.md](gateway-tls.md).
 
 Não inicie a seção 4 até confirmar todos esses requisitos no host-alvo autorizado. Se algum estado
 for inválido, ausente ou desconhecido, pare sem executar comandos que alterem o host. Não use a
@@ -188,10 +190,10 @@ O diretório candidato fica em `/tmp` com acesso restrito (modo `0700`) e pode s
 
 ### 4.1 Preparar staging da candidata do Headplane
 
-O script [deploy/scripts/prepare-headplane-candidate.sh](deploy/scripts/prepare-headplane-candidate.sh) cria um diretório seguro em `/tmp`, copia o template padrão e gera um segredo criptográfico aleatório de 32 caracteres hexadecimais:
+O script [deploy/scripts/prepare-headplane-candidate.sh](../../deploy/scripts/prepare-headplane-candidate.sh) cria um diretório seguro em `/tmp`, copia o template padrão e gera um segredo criptográfico aleatório de 32 caracteres hexadecimais:
 
 - **Uso**: `deploy/scripts/prepare-headplane-candidate.sh [candidate_dir] [template_file]`
-- **Argumentos**: ambos opcionais. Por padrão cria `gateway-headplane.XXXXXX` em `/tmp` e utiliza [deploy/gateway/v1/config/headplane.yaml](deploy/gateway/v1/config/headplane.yaml).
+- **Argumentos**: ambos opcionais. Por padrão cria `gateway-headplane.XXXXXX` em `/tmp` e utiliza [deploy/gateway/v1/config/headplane.yaml](../../deploy/gateway/v1/config/headplane.yaml).
 - **Resultado esperado**: imprime o caminho do diretório em stdout e instruções em stderr.
 
 ```bash
@@ -213,7 +215,7 @@ suportado é iniciar o servidor na imagem fixada: `loadConfig()` lê o YAML e o 
 valida o schema e encerra com erro quando a configuração é inválida. O healthcheck oficial
 confirma que a inicialização chegou ao listener.
 
-O script [deploy/scripts/validate-headplane-config.sh](deploy/scripts/validate-headplane-config.sh) executa essa validação em container temporário isolado (`--network none`) e remove o container automaticamente na saída:
+O script [deploy/scripts/validate-headplane-config.sh](../../deploy/scripts/validate-headplane-config.sh) executa essa validação em container temporário isolado (`--network none`) e remove o container automaticamente na saída:
 
 - **Uso**: `deploy/scripts/validate-headplane-config.sh <candidate_config> <candidate_secret> [containerfile_or_image]`
 - **Argumentos**: caminho do YAML candidato, caminho do segredo de 32 hex e, opcionalmente, o Containerfile de onde extrair a imagem fixada.
@@ -228,7 +230,7 @@ Não continue para instalação se a validação falhar. Corrija o YAML candidat
 
 ### 4.3 Instalar arquivos de configuração no host
 
-Após a validação, instale os arquivos de configuração. O script [deploy/scripts/install-file.sh](deploy/scripts/install-file.sh) realiza a instalação segura e atômica: cria arquivo temporário no mesmo diretório de destino via `mktemp`, ajusta permissões, proprietário e grupo, e move o arquivo com `mv -T --no-clobber`, recusando substituir destinos pré-existentes.
+Após a validação, instale os arquivos de configuração. O script [deploy/scripts/install-file.sh](../../deploy/scripts/install-file.sh) realiza a instalação segura e atômica: cria arquivo temporário no mesmo diretório de destino via `mktemp`, ajusta permissões, proprietário e grupo, e move o arquivo com `mv -T --no-clobber`, recusando substituir destinos pré-existentes.
 
 - **Uso**: `deploy/scripts/install-file.sh <source_path|-> <target_path> <mode> <owner> <group>`
 - **Argumentos**: caminho de origem (ou `-` para entrada padrão), caminho de destino absoluto, modo octal, proprietário e grupo.
@@ -248,13 +250,14 @@ do host nem um endereço já ocupado ou reservado pelo IPAM. Defina um prefixo I
 da faixa suportada `100.64.0.0/10`; confirme que ele não conflita com o CIDR Podman, rotas do host,
 LAN e redes corporativas. O prefixo VPN não é o CIDR anunciado.
 
-Edite somente as cópias em `/etc/gateway-vpn`, exceto `headplane.yaml`, que já foi validado:
+Edite somente as cópias em `/etc/gateway-vpn`. Edite `headplane.yaml` na candidata da seção 4 e
+instale-a somente após a validação bem-sucedida:
 
 - Em `headscale.yaml`, defina `server_url` com `<HEADSCALE_FQDN>`, escolha prefixo IPv4 VPN sem
   conflito e substitua `192.0.2.53` pelo endereço da bridge do host informado pela inspeção. Esse
   endereço é o resolver Aardvark, não o IP do container Gateway.
-- Não altere `headplane.yaml` depois da validação. Se precisar alterá-lo, atualize a candidata e
-  repita a validação antes de substituir o arquivo instalado.
+- Para alterar `headplane.yaml`, atualize a candidata e repita a validação antes de substituir
+  o arquivo instalado.
 - Mantenha `grpc_listen_addr` em `127.0.0.1`; `grpc_allow_insecure` atende somente a CLI local
   dentro do container. Não exponha essa interface.
 - Em `nginx.conf`, substitua `headscale.example.invalid` pelo FQDN público e alinhe
@@ -264,22 +267,23 @@ Edite somente as cópias em `/etc/gateway-vpn`, exceto `headplane.yaml`, que já
 
 Instale o certificado fornecido pela infraestrutura (não versione arquivos de chave privada).
 Caso tenha gerado o certificado unificado para o servidor seguindo a receita
-[docs/recipes/gateway-cockpit-tls.md](docs/recipes/gateway-cockpit-tls.md), utilize os caminhos
-dos arquivos gerados no host (por exemplo, `/etc/gateway/tls/gateway.cert` e `/etc/gateway/tls/gateway.key`):
+[gateway-tls.md](gateway-tls.md), utilize os caminhos dos arquivos gerados no host
+(por exemplo, `/etc/gateway/tls/gateway.cert` e `/etc/gateway/tls/gateway.key`):
 
 ```bash
 deploy/scripts/install-file.sh "<CAMINHO_CERTIFICADO_PEM>" /etc/gateway-vpn/tls/fullchain.pem 0644 root root
 deploy/scripts/install-file.sh "<CAMINHO_CHAVE_PRIVADA_PEM>" /etc/gateway-vpn/tls/privkey.pem 0600 root root
 ```
 
-Instale o segredo de cookie do Headplane validado anteriormente. O UID/GID `20002` pertence ao usuário Headplane dentro da imagem:
+Após validar a candidata pela seção 4, instale o segredo de cookie do Headplane. O UID/GID `20002`
+pertence ao usuário Headplane dentro da imagem:
 
 ```bash
 deploy/scripts/install-file.sh "${headplane_candidate_secret}" \
   /etc/gateway-vpn/secrets/headplane-cookie-secret 0440 root 20002
 ```
 
-Edite [deploy/gateway/v1/quadlet/gateway.container](deploy/gateway/v1/quadlet/gateway.container) antes de instalá-lo. Substitua
+Edite [deploy/gateway/v1/quadlet/gateway.container](../../deploy/gateway/v1/quadlet/gateway.container) antes de instalá-lo. Substitua
 `CHANGE_ME_GATEWAY_IPV4` pelo IP estático escolhido. Instale o arquivo de ambiente da rota de retorno a partir do exemplo:
 
 ```bash
@@ -324,7 +328,7 @@ rm -rf -- "${candidate_dir}"
 
 ## 5. Instalar unidades e iniciar
 
-Instale as unidades Quadlet e systemd usando [deploy/scripts/install-file.sh](deploy/scripts/install-file.sh). O script garante proteção contra sobrescrita com staging no diretório de destino e rename atômico sem sobrescrita (`mv -T --no-clobber`). O arquivo de rota já criado e preenchido na seção 4 não é reinstalado aqui.
+Instale as unidades Quadlet e systemd usando [deploy/scripts/install-file.sh](../../deploy/scripts/install-file.sh). O script garante proteção contra sobrescrita com staging no diretório de destino e rename atômico sem sobrescrita (`mv -T --no-clobber`). O arquivo de rota já criado e preenchido na seção 4 não é reinstalado aqui.
 
 ```bash
 mkdir -p /etc/containers/systemd /etc/systemd/system /etc/sysconfig
@@ -380,7 +384,7 @@ podman exec gateway sh -ec \
   'test ! -e /run/tailscale-auth/authkey; umask 077; headscale preauthkeys create --user USER_ID --expiration 1h > /run/tailscale-auth/authkey'
 ```
 
-Inscreva o próprio Gateway executando o script [deploy/scripts/enroll-gateway.sh](deploy/scripts/enroll-gateway.sh):
+Inscreva o próprio Gateway executando o script [deploy/scripts/enroll-gateway.sh](../../deploy/scripts/enroll-gateway.sh):
 
 - **Uso**: `deploy/scripts/enroll-gateway.sh <headscale_fqdn> [container_name] [network_name] [authkey_path]`
 - **Argumentos**: FQDN público do Headscale (obrigatório). Parâmetros adicionais são opcionais e assumem por padrão o container `gateway`, a rede `podman` e o caminho interno `/run/tailscale-auth/authkey`.
@@ -391,7 +395,7 @@ Inscreva o próprio Gateway executando o script [deploy/scripts/enroll-gateway.s
 deploy/scripts/enroll-gateway.sh "<HEADSCALE_FQDN>"
 ```
 
-A chave foi criada como não reutilizável e expira após uma hora. O script remove o arquivo mesmo se o
+Use uma chave de uso único, com expiração de uma hora. O script remove o arquivo mesmo se o
 comando falhar; crie outra chave para uma nova tentativa se necessário.
 
 No bootstrap local, aprove somente a rota IPv4 do Podman para o nó Gateway:
@@ -407,7 +411,7 @@ estático do Gateway. Não altere a rota default do host ou cliente.
 Depois de conectar um cliente inscrito, abra `https://dev-gateway.dev.anatel/admin`. A resolução
 deve ocorrer pelo split DNS `dev.anatel` encaminhado ao Aardvark. Gere uma chave de API Headscale
 com validade compatível com a política operacional. Salve a chave em arquivo root-only através do
-script [deploy/scripts/install-file.sh](deploy/scripts/install-file.sh), lendo diretamente da entrada padrão sem exibi-la em terminal compartilhado ou argumento de processo:
+script [deploy/scripts/install-file.sh](../../deploy/scripts/install-file.sh), lendo diretamente da entrada padrão sem exibi-la em terminal compartilhado ou argumento de processo:
 
 ```bash
 podman exec gateway headscale apikeys create --expiration 90d | \
@@ -427,7 +431,7 @@ local após transferi-la e expire a chave no Headscale quando deixar de ser nece
 
 ## 7. Testes funcionais
 
-> **Aviso de status de teste**: Procedimento testado em verificação descartável no Debian 13.6 (trixie) com Podman 5.4.2; a qualificação-alvo da infraestrutura permanece RHEL 9.8 com Podman rootful 5.8.2. Não apresente estes procedimentos como homologados no host alvo antes da validação final no ambiente RHEL autorizado.
+> **Qualificação:** Execute os testes no host RHEL autorizado. Não declare o alvo qualificado antes da validação final em RHEL 9.8 com Podman rootful 5.8.2.
 
 1. Com VPN desconectada, confirme que `<HEADSCALE_FQDN>` resolve externamente e que HTTPS valida a
    cadeia e o SAN do certificado.

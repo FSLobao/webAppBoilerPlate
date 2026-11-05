@@ -7,8 +7,6 @@
         <li><a href="#recursos-para-reuso">Recursos para reuso</a></li>
         <li><a href="#licenças-imagens-e-marcas">Licenças, imagens e marcas</a></li>
         <li><a href="#acessibilidade-e-validação">Acessibilidade e validação</a></li>
-        <li><a href="#fluxo-para-agentes">Fluxo para agentes</a></li>
-        <li><a href="#verificação-e-limitações">Verificação e limitações</a></li>
     </ol>
 </details>
 
@@ -17,7 +15,7 @@
 ## Objetivo e escopo
 
 Esta referência orienta pessoas desenvolvedoras e revisoras na aplicação do
-[Design System GOV.BR](https://www.gov.br/ds/home), com fontes consultadas em **2026-10-31**.
+[Design System GOV.BR](https://www.gov.br/ds/home).
 As [instruções para agentes](../../.github/instructions/govbrDesignSystemGuide.instructions.md)
 definem o fluxo de trabalho do repositório. As regras oficiais abaixo têm suas fontes vinculadas;
 as recomendações locais estão identificadas como decisões deste projeto.
@@ -56,8 +54,8 @@ usa incrementos de 8 px para layout e de 4 px para ajustes de textos e ícones.
 Exemplos: `--spacing-scale-base` = 8 px, `--spacing-scale-2x` = 16 px,
 `--spacing-scale-3x` = 24 px e `--spacing-scale-half` = 4 px.
 
-A [tipografia oficial](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/fundamentos-visuais/tipografia/tipografia.md),
-consultada em **2026-10-31**, referencia Rawline, tamanho-base de 14 px e peso
+A [tipografia oficial](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/fundamentos-visuais/tipografia/tipografia.md)
+referencia Rawline, tamanho-base de 14 px e peso
 regular 400, com escala relativa.
 Consulte `--font-family-base`, `--font-size-scale-base`, `--font-size-scale-up-01`,
 `--font-weight-regular` e `--font-weight-semi-bold` no CSS da release.
@@ -151,9 +149,7 @@ O rodapé exibe os logotipos da Anatel e do gov.br, com uso
 interno autorizado pelo responsável do projeto. Os arquivos estão em
 webapp/frontend/assets/brand/ e a origem está em [LICENSES.md](../../LICENSES.md).
 
-O cabeçalho usa `.br-header.compact` do Core 3.7.0. A cópia e as páginas oficiais
-de Header e Tipografia citadas abaixo foram consultadas em **2026-10-31**; seus
-valores não foram rechecados nesta rodada. A regra define
+O cabeçalho usa `.br-header.compact` do Core 3.7.0. A regra define
 `--header-padding: var(--header-padding-small)`; `.br-header` define
 `--header-padding-small: var(--spacing-scale-base)` (8 px) e aplica
 `padding: var(--header-padding) 0`. O seletor
@@ -166,19 +162,17 @@ recomenda ajustar o título aos breakpoints; a escala de tamanhos consta na
 e os valores acima são definidos pelos seletores e tokens do CSS Core 3.7.0. O CSS
 local, por decisão do app, exibe o subtítulo a partir de 576 px e o oculta abaixo
 desse limite. O hamburger usa
-`.br-button.circle`. Na cópia Core 3.7.0 consultada em **2026-10-31**, a regra
+`.br-button.circle`. Na release Core 3.7.0, a regra
 `.br-button` define `--button-medium: 40px`,
 `--button-size: var(--button-medium)` e `height: var(--button-size)`; a regra
 `.br-button.circle` define `width: var(--button-size)`. Assim, o hamburger tem
-dimensões declaradas de 40 × 40 px na densidade padrão. A página oficial de
+dimensões declaradas de 40 × 40 px na densidade padrão. Consulte a página oficial de
 [Button](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/componentes/button/button.md)
-foi consultada na mesma data; a renderização e as dimensões computadas não foram
-verificadas no navegador.
+e valide a renderização na aplicação.
 
 O [footer oficial](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/componentes/footer/footer.md)
-consultado em **2026-10-31** descreve, para alta densidade, padding vertical de
-8 px e largura mínima de 102 px para o logo; esses valores oficiais não foram
-rechecados nesta rodada. O rodapé local usa
+descreve, para alta densidade, padding vertical de 8 px e largura mínima de 102 px
+para o logo. O rodapé local usa
 `padding: var(--spacing-scale-base) 0`, equivalente a 8 px verticais no Core
 3.7.0. Os wrappers dos logos usam `padding: 0 var(--spacing-scale-half)`,
 equivalente a 4 px horizontais e 0 px verticais. O app escolhe altura de `3em`
@@ -209,7 +203,7 @@ naturalmente em telas estreitas.
 ## Recursos para reuso
 
 A [configuração pública do portal](https://www.gov.br/ds/assets/config.json) anuncia Core **3.7.0**.
-Essa versão foi encontrada e verificada; não é uma afirmação sobre a versão mais recente.
+Esse valor identifica a versão declarada pelo portal, não a versão mais recente disponível.
 Os links abaixo identificam as fontes dos recursos e alternativas para consulta.
 
 | Recurso | Link | Uso e cuidado |
@@ -240,9 +234,7 @@ Os links abaixo identificam as fontes dos recursos e alternativas para consulta.
 | [Logotipo da Anatel](../../webapp/frontend/assets/brand/Anatel_Logo.svg) | Origem: [docs/images/Anatel_Logo.svg](../../docs/images/Anatel_Logo.svg); uso interno autorizado pelo responsável do projeto; [LICENSES.md](../../LICENSES.md) |
 | [Logotipo gov.br](../../webapp/frontend/assets/brand/Gov.br_logo.svg) | Origem: [docs/images/Gov.br_logo.svg](../../docs/images/Gov.br_logo.svg); uso interno autorizado pelo responsável do projeto; [LICENSES.md](../../LICENSES.md) |
 
-Os ícones Font Awesome Free são de Dave Gandy e colaboradores. `chevron-left.svg` e
-`chevron-right.svg` foram comparados aos arquivos da Font Awesome Free 5.11.2; a única
-diferença observada foi o newline final. Os demais SVGs locais, sem hash verificado, são
+Os ícones Font Awesome Free são de Dave Gandy e colaboradores. Os demais SVGs locais são
 `bars.svg`, `file-alt.svg`, `handshake.svg`, `pen.svg`, `plus.svg`,
 `question-circle.svg`, `times.svg`, `trash-alt.svg` e `users.svg`.
 O CSS local ajusta a cor de apresentação de alguns ícones. A atribuição obrigatória sob
@@ -323,7 +315,7 @@ vincula [eMAG](https://emag.governoeletronico.gov.br/) e [WCAG 2.1](https://www.
 Consulte também o [guia WAI-ARIA](https://www.gov.br/ds/guias/wai-aria).
 A diretriz de cores referencia contraste AA de 4,5:1 para texto normal e 3:1 para texto grande.
 
-Checklist local para cada implementação ou alteração; não substitui os testes registrados abaixo:
+Checklist local para cada implementação ou alteração:
 
 - [ ] Fontes, versões completas, licenças e atribuições registradas.
 - [ ] Grid verificada imediatamente antes e depois de 576, 992, 1280 e 1600 px, sem perder conteúdo ou controles.
@@ -334,84 +326,6 @@ Checklist local para cada implementação ou alteração; não substitui os test
 - [ ] CSS, JavaScript, fontes e imagens resolvem sob `/webapp/`, sem erros ou dependências externas inadvertidas.
 - [ ] Contratos da API, validação, autenticação e autorização preservados.
 - [ ] Nenhuma alegação de vínculo oficial ou certificação baseada somente na aparência.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Fluxo para agentes
-
-1. Leia o contrato do projeto, as instruções GOV.BR e as fontes dos componentes necessários.
-2. Delimite telas, comportamento a preservar e critérios de aceitação.
-3. Escolha integração compatível com a arquitetura; registre release, origem, dependências e licenças.
-4. Em tarefa específica de implementação, incorpore apenas os recursos necessários.
-   Para o frontend estático atual, avalie arquivos locais com caminhos relativos e avisos de licença preservados.
-5. Inicialize componentes conforme a release; valide os fluxos e atualize a documentação afetada.
-6. Relate evidências, desvios, limitações e procedimento de atualização ou reversão.
-
-A orientação oficial de integração documenta dependências externas antes dos arquivos DS.
-O [pacote Core 3.7.0](https://registry.npmjs.org/@govbr-ds/core/-/core-3.7.0.tgz)
-declara Popper e Flatpickr; audite o distributivo antes de presumir que um arquivo isolado basta.
-O componente visual Sign-in não implementa autenticação GOV.BR nem substitui a segurança do backend.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Verificação e limitações
-
-As fontes oficiais e URLs externas não foram rechecadas nesta rodada; os registros
-abaixo pertencem à pesquisa original de **2026-10-31**.
-A pesquisa consultou somente conteúdo público externo; nenhum código do projeto foi enviado a serviços externos.
-Foram lidos os fundamentos, guias, configuração pública e arquivos distribuídos citados.
-Core 3.7.0, CSS/JS versionados, CSS Rawline e CSS Font Awesome 5.11.2 responderam HTTP 200.
-
-- Os logotipos da Anatel e do gov.br foram usados com autorização do responsável do projeto;
-  a verificação do manual da marca gov.br segue pendente de confirmação da versão vigente.
-- O pacote oficial de ilustrações 1.0.0 foi inspecionado; 248 PNGs 1x foram copiados.
-  Versões 2x/3x e arquivos-fonte Adobe Illustrator não foram incluídos.
-- O ZIP não contém arquivo de licença; a política de licenças GOV.BR-DS e o repositório oficial
-  `govbr-ds-assets-de-design/LICENSE-CC0` identificam CC0 para os assets de design.
-- CDNFonts respondeu 403; a licença Rawline foi verificada no ZIP oficial.
-- Links Figma do catálogo responderam 202 sem conteúdo legível; seus arquivos não foram inspecionados.
-- A iconografia menciona Font Awesome 5.10.2, o guia Core usa 5.11.2 e o exemplo CDN WBC usa 5.15.4.
-  Escolha as dependências da release auditada, não uma mistura de exemplos.
-- O guia Core desaconselha o CDN antigo do DS; o guia WBC recomenda jsDelivr. São serviços distintos.
-- O texto “WCAG 2.1” da diretriz de cores aponta a WCAG 2.0; use o endereço W3C 2.1 vinculado acima.
-- A página Secom foi consultada; seu PDF, arquivos de marca e permissões específicas não foram auditados.
-- Os testes estáticos de header/footer verificam HTML e CSS; o teste de header
-  também lê o CSS Core. O teste estático de menu verifica HTML, CSS local, CSS
-  Core e `navigation.mjs`; o teste de page-header verifica apenas HTML.
-- `css-scanner.test.mjs` testa explicitamente, via `node --test`, o subconjunto
-  CSS documentado em `webapp/frontend/tests/helpers/css-scanner.mjs`; o scanner
-  não é um parser CSS completo.
-- Os testes comportamentais executam `navigation.mjs` e o `app.js` real com DOM,
-  APIs de diálogo, media query e `fetch` simulados. `dialog-accessibility.test.mjs`
-  testa isoladamente `dialog-accessibility.mjs` com alvos de foco simulados.
-  Nenhuma validação em Chromium/Electron ou renderização real foi executada;
-  os testes não comprovam estilos computados, dimensões, integração com APIs
-  nativas do navegador, serviço de rede ou comportamento com leitor de tela.
-- Os SVGs dos logotipos da Anatel e do gov.br declaram proporção intrínseca nos
-  atributos `width` e `height`, não têm atributo `viewBox`, e sua renderização
-  no navegador não foi verificada.
-- A validação automatizada do frontend foi executada em Linux, Bash 5.1.8
-  (shell com expansão de glob) e Node.js v24.21.0. Essa é uma versão testada,
-  não uma versão mínima declarada. Os comandos explícitos, sem glob, estão na
-  [receita CRUD](./webapp-crud.md#desenvolver).
-- A validação visual em navegador e dos estilos computados ainda está pendente.
-- As verificações não incluem auditoria completa com leitor de tela nem certificação de acessibilidade.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

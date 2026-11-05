@@ -4,6 +4,7 @@
         <li><a href="#visão-geral">Visão geral</a></li>
         <li><a href="#início-rápido">Início rápido</a></li>
         <li><a href="#estrutura">Estrutura</a></li>
+        <li><a href="#mapa-das-variantes">Mapa das variantes</a></li>
         <li><a href="#documentação">Documentação</a></li>
     </ol>
 </details>
@@ -12,9 +13,10 @@
 
 ## Visão geral
 
-Boilerplate de aplicação web em containers Podman, gerenciados por Quadlet na rede padrão `podman`.
-A aplicação de exemplo é uma SPA CRUD de usuários com nome, email, localização e imagem de perfil.
-Ela usa FastAPI, PostgreSQL 18 e um NGINX compartilhado publicado na porta 8080 do host.
+Boilerplate de aplicação web em containers Podman. O alvo é rootless, com Quadlet na rede
+`gateway-vpn` (`10.90.0.0/24`); a variante rootful implementada e mantida usa a rede padrão
+`podman`. A aplicação de exemplo é uma SPA CRUD de usuários com nome, email, localização e imagem
+de perfil. Ela usa FastAPI, PostgreSQL 18 e um NGINX compartilhado publicado na porta 8080 do host.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -28,6 +30,41 @@ Ela usa FastAPI, PostgreSQL 18 e um NGINX compartilhado publicado na porta 8080 
 
 ## Início rápido
 
+O alvo de implantação tem duas etapas. Consulte a [receita rootless do Gateway](docs/recipes/gateway-headscale-podman-rootless.md)
+para pré-requisitos, configuração da conta e passos completos.
+
+### Etapa 1 — Preparar o host (root)
+
+Em RHEL 9, na raiz do checkout, execute uma vez por host. Primeiro confira o estado; aplique a
+preparação somente após revisar o resultado:
+
+```bash
+sudo deploy/scripts/prepare-rootless-host.sh --check
+```
+
+```bash
+sudo deploy/scripts/prepare-rootless-host.sh
+```
+
+O script configura `net.ipv4.ip_unprivileged_port_start=443`, desativa `firewalld` e `nftables`
+quando instalados e define `SELINUX=disabled` em `/etc/selinux/config`. O código de saída `3`
+indica que é necessário reiniciar o host antes de continuar.
+
+### Etapa 2 — Implantar como `podman_user` (rootless)
+
+Siga a receita do Gateway rootless. Para a webapp, como `root`, prepare `<DIR>` com `mkdir -p <DIR>`,
+extraia `git archive HEAD | tar -x -C <DIR>` e ajuste a propriedade com
+`chown -R podman_user:podman_user <DIR>`. Depois, execute como `podman_user`:
+
+```bash
+deploy/scripts/deploy-webapp-rootless.sh --source <DIR>
+```
+
+Depois, abra `http://localhost:8080/webapp/index.html`.
+A documentação da API fica em `http://localhost:8080/webapp/api/docs`.
+
+### Alternativa rootful (implementada, mantida)
+
 Em um host Linux com Podman 5, como `root`:
 
 ```bash
@@ -35,23 +72,7 @@ sudo deploy/scripts/deploy-webapp.sh
 deploy/scripts/smoke-test-webapp.sh
 ```
 
-Depois, abra `http://localhost:8080/webapp/index.html`.
-A documentação da API fica em `http://localhost:8080/webapp/api/docs`.
-
-### Alternativa rootless
-
-**Experimental, test-only e somente para laboratório.** Exige a rede `gateway-vpn` (`10.90.0.0/24`, DNS ativo) da receita rootless.
-
-O comando rootful acima continua sendo o padrão. Como `root`, na raiz do checkout, crie `<DIR>` com
-`mkdir -p <DIR>`, extraia `git archive HEAD | tar -x -C <DIR>` e ajuste a propriedade com
-`chown -R podman_user:podman_user <DIR>`.
-Depois, execute como `podman_user`:
-
-```bash
-deploy/scripts/deploy-webapp-rootless.sh --source <DIR>
-```
-
-Consulte a [receita do Gateway rootless](docs/recipes/gateway-headscale-podman-rootless.md).
+O fluxo rootful usa a rede padrão `podman` e permanece disponível como alternativa.
 
 Para desenvolver o backend:
 
@@ -94,10 +115,38 @@ uv run pytest
   <br><br>
 </div>
 
+## Mapa das variantes
+
+| Variante | Caminho | Papel |
+| --- | --- | --- |
+| Alternativa rootful | `deploy/gateway/v1/**` (exceto o `Containerfile`, compartilhado abaixo) | Arquivos da variante rootful implementada e mantida |
+| Alternativa rootful | `deploy/scripts/deploy-webapp.sh` | Deploy da webapp rootful |
+| Alternativa rootful | `deploy/scripts/enroll-gateway.sh` | Inscrição prevista para a variante rootful; integração rootless permanece pendente |
+| Alternativa rootful | `deploy/webapp/**` (exceto os YAML de `kube/`, compartilhados abaixo) | Quadlet e configuração do deploy rootful |
+| Alternativa rootful | `docs/recipes/gateway-headscale-podman-rootfull.md` | Receita rootful implementada e mantida |
+| Alvo rootless | `deploy/scripts/prepare-rootless-host.sh` | Etapa 1 rootful de preparação do host para o alvo rootless |
+| Alvo rootless | `deploy/scripts/deploy-webapp-rootless.sh` | Deploy rootless da webapp |
+| Alvo rootless | `docs/recipes/gateway-headscale-podman-rootless.md` | Receita do Gateway rootless |
+| Compartilhado | `webapp/**` | Código-fonte da aplicação |
+| Compartilhado | `deploy/webapp/kube/*.yaml` | YAML usado pelas duas variantes e lido pelo script rootless |
+| Compartilhado | `webapp/Containerfile` | Imagem da webapp |
+| Compartilhado | `deploy/gateway/v1/Containerfile` | Imagem do Gateway usada pelas duas variantes |
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
 ## Documentação
 
 - [Contrato de arquitetura](docs/contracts/ARCHITECTURE.md)
 - [Plano da aplicação CRUD](docs/plans/webapp-crud.md)
+- [Histórico de execuções de laboratório](docs/plans/historico-execucoes-laboratorio.md)
 - [Receita de implantação e operação](docs/recipes/webapp-crud.md)
 - [Referências e reuso do Design System GOV.BR](docs/recipes/govbr-design-system.md)
 - [Instruções GOV.BR para agentes de frontend](.github/instructions/govbrDesignSystemGuide.instructions.md)

@@ -1,10 +1,11 @@
 <details id="top">
     <summary>Índice</summary>
     <ol>
+        <li><a href="#configuração-do-host-etapa-1-root">Configuração do host (etapa 1, root)</a></li>
         <li><a href="#1-objetivo-status-e-limites">Objetivo, status e limites</a></li>
         <li><a href="#2-inventário">Inventário</a></li>
         <li><a href="#3-pré-requisitos-e-descoberta">Pré-requisitos e descoberta</a></li>
-        <li><a href="#4-preparar-o-host">Preparar o host</a></li>
+        <li><a href="#4-preparar-a-conta-rootless-root">Preparar a conta rootless (root)</a></li>
         <li><a href="#5-prova-de-conceito-descartável">Prova de conceito descartável</a></li>
         <li><a href="#6-preparar-configurações">Preparar configurações</a></li>
         <li><a href="#7-rede-rootless-e-rota-de-retorno">Rede rootless e rota de retorno</a></li>
@@ -12,49 +13,80 @@
         <li><a href="#9-inscrever-o-gateway-e-acessar-o-headplane">Inscrever o Gateway e acessar o Headplane</a></li>
         <li><a href="#10-testes-funcionais-e-gates">Testes funcionais e gates</a></li>
         <li><a href="#11-rollback-e-limpeza">Rollback e limpeza</a></li>
-        <li><a href="#12-decisões-e-resultados-do-teste">Decisões e resultados do teste</a></li>
-        <li><a href="#webapp-rootless-em-gateway-vpn">Webapp rootless em gateway-vpn</a></li>
-        <li><a href="#desvios-de-teste-temporários">Desvios de teste temporários</a></li>
-        <li><a href="#13-fontes-oficiais">Fontes oficiais</a></li>
+        <li><a href="#12-fontes-oficiais">Fontes oficiais</a></li>
     </ol>
 </details>
 
-> **Status — variante temporária e experimental.** Testada em 2026-10-29 no RHEL 9.8 / Podman 5.8.2 com cliente Debian 13 / Tailscale 1.104.4. G0, G2–G3 e G5–G7: PASS; G1: PASS na 2ª tentativa válida de 2026-11-05 (a 1ª tentativa foi inválida por erro de desenho do teste). G4: confirmado somente pelo runtime integrado em G5; `validate-headplane-config.sh` isolado não monta a configuração Headscale e usa `--network none`. G8: PASS parcial (LAN por :8443); endpoint público pré-VPN e TCP 443 externo não testados. G9: reboot do host passou em 2026-11-05; linger e unidades ativos, rota `100.96.0.0/24 via 10.90.0.2 dev podman1`, nós Headscale 2 (`gateway-router`) e 3 (`containerhost`) online e cliente reconectado. O build G3 foi executado a partir de uma cópia temporária em `/home/podman_user`. G10 permanece pendente. Esta receita fica fora do contrato de [ARCHITECTURE.md](../contracts/ARCHITECTURE.md), que continua exigindo Podman rootful e a rede padrão `podman`. A receita rootful continua sendo a referência e o fallback. Adoção definitiva exige revisão separada do contrato.
+# Gateway VPN com Headscale, Headplane e Tailscale — alvo rootless
 
-# Gateway VPN com Headscale, Headplane e Tailscale — variante rootless experimental
+> **Alvo rootless.** A alternativa rootful está implementada e mantida na [receita rootful](gateway-headscale-podman-rootfull.md).
+
+## Configuração do host (etapa 1, root)
+
+Execute como `root`, uma vez por host, a partir da raiz do repositório. Confira primeiro o plano;
+aplique a preparação somente depois de revisar a saída:
+
+```bash
+sudo deploy/scripts/prepare-rootless-host.sh --check
+```
+
+```bash
+sudo deploy/scripts/prepare-rootless-host.sh
+```
+
+O script instala `net.ipv4.ip_unprivileged_port_start=443` em
+`/etc/sysctl.d/90-rootless-ports.conf` e aplica o valor. Assim, qualquer usuário não privilegiado
+pode vincular portas TCP/UDP 443 a 1023; portas abaixo de 443 continuam privilegiadas. Este sysctl
+global é o mecanismo aprovado.
+
+O mesmo script desativa `firewalld` e `nftables` quando presentes e define `SELINUX=disabled` em
+`/etc/selinux/config`. Isso altera o firewall e a política do host. O código de saída `3` indica
+que é necessário reiniciar; conclua o reboot antes da etapa rootless. A exposição de Cockpit na
+LAN e o efeito global do sysctl estão registrados como riscos aceitos em [TODO.md](../TODO.md).
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
 
 ## 1. Objetivo, status e limites
 
-Esta receita descreve uma instalação **nova e descartável** do Gateway como usuário local dedicado `<GATEWAY_USER>` com Podman rootless, Quadlet e a bridge exclusiva `gateway-vpn`. Sugestão de conta: `podman_user`. Use Bash a partir da raiz do repositório, com as ferramentas indicadas em cada etapa.
+Esta receita descreve uma instalação **nova** do Gateway como usuário local dedicado `<GATEWAY_USER>` com Podman rootless, Quadlet e a bridge exclusiva `gateway-vpn`. Sugestão de conta: `podman_user`. Use Bash a partir da raiz do repositório, com as ferramentas indicadas em cada etapa.
 
 | Placeholder | Descrição | Como obter | Exemplo |
 | --- | --- | --- | --- |
 | `<GATEWAY_USER>` | Conta local dedicada ao Podman rootless | Defina a conta aprovada e use o mesmo valor em `GATEWAY_USER` | `podman_user` |
 | `<GATEWAY_HOME>` | Caminho absoluto da home da conta | Leia o sexto campo de `getent passwd "$GATEWAY_USER"` | `/home/podman_user` |
 | `SUBUID_RANGE`, `SUBGID_RANGE` | Faixas exclusivas alocadas à conta | Inspecione `/etc/subuid` e `/etc/subgid`; escolha intervalos sem sobreposição | `200000-265535` |
-| `<ROOTLESS_SUBNET>` | Subnet dedicada da bridge rootless | Planeje sem sobreposição com rotas, LAN, VPN e redes corporativas | `10.91.0.0/24` |
-| `<ROOTLESS_BRIDGE_IP>` | Gateway da bridge e resolver Aardvark | Escolha dentro de `<ROOTLESS_SUBNET>` e confirme com `podman network inspect` | `10.91.0.1` |
+| `<ROOTLESS_SUBNET>` | Subnet dedicada da bridge rootless | Planeje sem sobreposição com rotas, LAN, VPN e redes corporativas | `10.90.0.0/24` |
+| `<ROOTLESS_BRIDGE_IP>` | Gateway da bridge e resolver Aardvark | Escolha dentro de `<ROOTLESS_SUBNET>` e confirme com `podman network inspect` | `10.90.0.1` |
 | `<ROOTLESS_BRIDGE_IFACE>` | Interface da bridge dentro da namespace rootless | `podman unshare --rootless-netns /usr/sbin/ip -4 addr` | `podman1` |
-| `<GATEWAY_IP>` | IP estático do container Gateway | Escolha livre dentro de `<ROOTLESS_SUBNET>`, diferente do bridge | `10.91.0.2` |
+| `<GATEWAY_IP>` | IP estático do container Gateway | Escolha livre dentro de `<ROOTLESS_SUBNET>`, diferente do bridge | `10.90.0.2` |
 | `<VPN_PREFIX>` | Prefixo VPN anunciado e usado na rota de retorno | Defina dentro do prefixo Headscale e sem sobreposição | `100.96.0.0/24` |
-| `<HTTPS_HOST_PORT>` | Porta não privilegiada publicada no host | Escolha porta livre; infraestrutura encaminha TCP externo 443 | `8443` |
-| `<HEADSCALE_FQDN>` | FQDN público do endpoint Headscale | Obtenha da infraestrutura e valide DNS/TLS | `headscale.example.com` |
+| `<HEADSCALE_FQDN>` | FQDN público do endpoint Headscale | Obtenha da infraestrutura e valide DNS/TLS | `headscale.dev.anatel` |
+| `<GATEWAY_LAN_IP>` | Endereço LAN do host Gateway usado para verificar o acesso Headplane pela LAN | Obtenha do operador | — |
 | `<APP_ALIAS>` | Alias DNS do container de aplicação | Leia `NetworkAlias` ou configuração da aplicação | `webapp.dev.anatel` |
+| `<AUTH_KEY_FILE>` | Arquivo local, fora do repositório, para a chave de re-inscrição do cliente | Receba por canal seguro e remova após o uso | `/home/ana/.config/tailscale/auth-key` |
 | `<TLS_STAGE>` | Diretório seguro com certificado e chave entregues à conta | Combine com a infraestrutura; use caminho absoluto legível pela conta | `/home/podman_user/tls-stage` |
 | `<ID_DO_USUÁRIO>` | ID do usuário Headscale | Consulte a saída de `podman exec gateway headscale users list` | ID retornado pela listagem |
 | `<ID_DO_NÓ>` | ID do nó Tailscale registrado | Execute `podman exec gateway headscale nodes list` | ID retornado pela listagem |
 
 A variante mantém Headscale, Headplane, `tailscaled` e NGINX no container Debian `gateway`. O anúncio usa `--snat-subnet-routes=false` e deve preservar o IP VPN original visto pela aplicação. O Gateway anuncia somente `<ROOTLESS_SUBNET>`; não anuncie rota default nem use o Gateway como exit node.
 
-| Tema | Receita rootful de referência | Variante temporária rootless |
+| Tema | Alternativa rootful (implementada, mantida) | Alvo rootless |
 | --- | --- | --- |
 | Conta de execução | Serviço do sistema e Podman rootful | Conta local dedicada `<GATEWAY_USER>` e Podman rootless |
 | Quadlet | `/etc/containers/systemd/`, `systemctl` do sistema | `~/.config/containers/systemd/`, `systemctl --user` |
 | Rede anunciada | Rede padrão rootful `podman` | Bridge rootless dedicada `gateway-vpn` |
 | Rota de retorno | Serviço de host na namespace de rede do host | Rota dentro de `podman unshare --rootless-netns` |
-| HTTPS | TCP 443 publicado diretamente pelo container | TCP `<HTTPS_HOST_PORT>` no host; infraestrutura encaminha TCP externo 443 para ele |
+| HTTPS | TCP 443 publicado diretamente pelo container | TCP 443 publicado diretamente no host pelo `rootlessport` |
 | Armazenamento | Store rootful e volumes do rootful | Store e volumes independentes do usuário rootless |
-| Referência e suporte | Receita rootful e contrato | Experimental; sem suporte Portainer rootless e sem migração de dados |
+| Referência e suporte | Alternativa rootful mantida | Alvo rootless; sem suporte Portainer rootless e sem migração de dados |
 
 ```mermaid
 flowchart LR
@@ -68,7 +100,7 @@ flowchart LR
 
 A bridge existe na namespace de rede rootless e não é diretamente alcançável pela namespace de rede do host. Não publique DNS TCP/UDP 53 no host; os clientes VPN consultam o Aardvark pelo split DNS e pela rota anunciada. O tráfego de retorno ao cliente depende da rota instalada nessa namespace. Todos os containers de aplicação que precisem ser anunciados devem entrar na mesma bridge e usar aliases DNS nela.
 
-Não altere a [receita rootful](gateway-headscale-podman-rootfull%20copy.md), o contrato, arquivos em `deploy/` ou o Gateway rootful ativo. O Gateway rootful não pode anunciar ao mesmo tempo rotas iguais ou sobrepostas às desta variante. Não migre volumes rootful: o store rootless é separado. Portainer está fora do escopo e não é oficialmente suportado nesta topologia rootless.
+Mantenha a [alternativa rootful](gateway-headscale-podman-rootfull.md) e seus volumes. Não execute as duas variantes no mesmo host nem anuncie rotas iguais ou sobrepostas. O store rootless é separado; não migre volumes rootful. Portainer não é oficialmente suportado nesta topologia rootless.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -149,7 +181,7 @@ grep -E "^$(id -un):[0-9]+:[0-9]+$" /etc/subuid /etc/subgid
 
 Exija SELinux `Disabled`, dispositivo `/dev/net/tun` presente, `Linger=yes`, ranges subuid/subgid, e home em disco local. A home não pode estar em NFS nem montada com `noexec` ou `nodev`. `rpm -q` pode usar nomes de pacote diferentes no repositório RHEL; confirme os executáveis efetivos em vez de ignorar ausência de Netavark/Aardvark/pasta.
 
-Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN planejado e CIDR rootful `podman` fornecido pela infraestrutura. `<ROOTLESS_SUBNET>` não pode sobrepor nenhum deles. Escolha `<ROOTLESS_BRIDGE_IP>` dentro dessa rede e `<GATEWAY_IP>` livre, diferente do bridge; escolha `<VPN_PREFIX>` sem sobreposição e dentro do prefixo configurado no Headscale. Escolha `<HTTPS_HOST_PORT>` não privilegiada, por padrão `8443`.
+Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN e CIDR da alternativa rootful `podman`. O alvo rootless usa `gateway-vpn` (`10.90.0.0/24`), resolver `10.90.0.1`, Gateway `10.90.0.2` e prefixo Headscale `100.96.0.0/24`; confirme que não há sobreposição. A publicação do endpoint é TCP 443 direto no host.
 
 **Critério G0:** todas as verificações e os dados de rede estão disponíveis e não se sobrepõem. **Se falhar: pare.** Não tente contornar SELinux, user namespaces, home remota ou falta de dependências nesta receita.
 
@@ -163,7 +195,7 @@ Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN planejado e 
   <br><br>
 </div>
 
-## 4. Preparar o host
+## 4. Preparar a conta rootless (root)
 
 Execute esta preparação como `root` ou entre com `sudo -i`. Reserve ranges subuid e subgid livres, sem sobrepor as ranges já alocadas em `/etc/subuid` e `/etc/subgid`. Não use os valores de exemplo de outra conta.
 
@@ -218,14 +250,7 @@ sudo usermod --add-subuids "$SUBUID_RANGE" --add-subgids "$SUBGID_RANGE" "$GATEW
 sudo loginctl enable-linger "$GATEWAY_USER"
 ```
 
-A publicação padrão usa `<HTTPS_HOST_PORT>` e encaminhamento externo TCP `443` para host TCP `<HTTPS_HOST_PORT>` pela infraestrutura autorizada. **Alternativa somente com aprovação explícita:** `net.ipv4.ip_unprivileged_port_start=443` permite que qualquer usuário não privilegiado do host tente bind em portas a partir de 443. É uma mudança global de política, não restrita ao Gateway. Registre o valor anterior e só então avalie a alteração temporária:
-
-```bash
-/usr/sbin/sysctl -n net.ipv4.ip_unprivileged_port_start
-sudo /usr/sbin/sysctl -w net.ipv4.ip_unprivileged_port_start=443
-```
-
-Não persista o sysctl nesta receita. Restaure o valor anterior aprovado no rollback. Não altere firewall nem encaminhamento de portas sem autorização da infraestrutura.
+A publicação rootless usa TCP 443 diretamente no host. O sysctl global da etapa 1 permite o bind por `rootlessport`; não configure encaminhamento de TCP 443 para 8443.
 
 Depois da preparação, como `root`, abra uma sessão de `<GATEWAY_USER>`:
 
@@ -366,9 +391,9 @@ Edite somente `headplane_candidate_config`: defina `headscale.public_url` como `
 deploy/scripts/validate-headplane-config.sh "$headplane_candidate_config" "$headplane_candidate_secret"
 ```
 
-O helper executa Headplane com `--network none` e monta somente o YAML Headplane e o cookie secret. O candidato desta receita também referencia `/etc/headscale/config.yaml` e a API Headscale; o helper pode falhar com configuração válida porque omite esse arquivo e não alcança o serviço. **Gate G4:** não trate erro de dependência do helper como validação aprovada nem como YAML inválido. Confirme schema/secret e mantenha G4 aberto até G5: a unidade completa deve ficar `healthy`, ler configurações/secrets nos UIDs corretos e iniciar Headplane sem erro. **Se o runtime completo falhar, pare antes da inscrição.** O resultado medido está na seção 10.
+O helper executa Headplane com `--network none` e monta somente o YAML Headplane e o cookie secret. O candidato desta receita também referencia `/etc/headscale/config.yaml` e a API Headscale; o helper pode falhar com configuração válida porque omite esse arquivo e não alcança o serviço. **Gate G4:** não trate erro de dependência do helper como validação aprovada nem como YAML inválido. Confirme schema/secret e mantenha G4 aberto até G5: a unidade completa deve ficar `healthy`, ler configurações/secrets nos UIDs corretos e iniciar Headplane sem erro. **Se o runtime completo falhar, pare antes da inscrição.**
 
-Instale/adapte cópias dos arquivos existentes no diretório rootless. Revise primeiro os destinos e preserve qualquer arquivo preexistente. Ajuste `headscale.yaml`: `server_url` para `https://<HEADSCALE_FQDN>`, `prefixes.v4` para `<VPN_PREFIX>` e o nameserver de `dns.nameservers.split.dev.anatel` de `192.0.2.53` para `<ROOTLESS_BRIDGE_IP>` — o endereço do resolver Aardvark, não o IP do container Gateway. Em `nginx.conf`, substitua o FQDN de exemplo e alinhe `allow 100.64.0.0/10` ao prefixo VPN efetivo. Não altere a regra `deny all` sem revisão.
+Instale/adapte cópias dos arquivos existentes no diretório rootless. Revise primeiro os destinos e preserve qualquer arquivo preexistente. Ajuste `headscale.yaml`: `server_url` para `https://<HEADSCALE_FQDN>`, `prefixes.v4` para `<VPN_PREFIX>` e o nameserver de `dns.nameservers.split.dev.anatel` de `192.0.2.53` para `<ROOTLESS_BRIDGE_IP>` — o endereço do resolver Aardvark, não o IP do container Gateway. Em `nginx.conf`, defina `allow` com o prefixo IPv4 Headscale exato, atualmente `100.96.0.0/24`; nunca permita `10.90.0.0/24`. Mantenha `deny all`.
 
 ```bash
 gateway_config_dir="$HOME/.config/gateway-vpn"
@@ -469,7 +494,7 @@ ExecStartPost="/usr/bin/podman" unshare --rootless-netns "/usr/bin/bash" -c "/us
 ExecStartPost="/usr/bin/podman" unshare --rootless-netns "/usr/bin/bash" -c "/usr/sbin/iptables -t nat -C POSTROUTING -s <ROOTLESS_SUBNET> -d <VPN_PREFIX> -j ACCEPT || /usr/sbin/iptables -t nat -I POSTROUTING 1 -s <ROOTLESS_SUBNET> -d <VPN_PREFIX> -j ACCEPT"
 ```
 
-`ExecStartPost` roda depois de cada início do Gateway. Ele configura forwarding na namespace rootless, reaplica a rota e instala regras estreitas de `FORWARD` e `POSTROUTING`. As exceções permitem o retorno da bridge ao prefixo VPN e evitam SNAT por regras padrão do Netavark. No teste, as duas regras foram removidas juntas e o TCP do cliente para o app expirou; as duas foram restauradas. O teste não comprovou a necessidade individual de cada regra. Os comandos são idempotentes. Não use `route add`. O exemplo não contém `%`; escape qualquer `%` literal como `%%` para o systemd. Esse mecanismo é experimental e precisa passar G2 após reinício do serviço na seção 8. Se todos os containers forem parados, a namespace rootless pode desaparecer e a rota junto com ela; o próximo start do Gateway deve instalá-la novamente.
+`ExecStartPost` roda depois de cada início do Gateway. Ele configura forwarding na namespace rootless, reaplica a rota e instala regras estreitas de `FORWARD` e `POSTROUTING`. As exceções permitem o retorno da bridge ao prefixo VPN e evitam SNAT por regras padrão do Netavark. Os comandos são idempotentes. Não use `route add`. O exemplo não contém `%`; escape qualquer `%` literal como `%%` para o systemd. Esse mecanismo é experimental e precisa passar G2 após reinício do serviço na seção 8. Se todos os containers forem parados, a namespace rootless pode desaparecer e a rota junto com ela; o próximo start do Gateway deve instalá-la novamente.
 
 Se `ExecStartPost` falhar, o systemd marca a inicialização da unidade como falha e interrompe o container; trate isso como falha G2/G5.
 
@@ -504,7 +529,7 @@ Aplique estas mudanças exatas na cópia:
 | `Wants=network-online.target` | Remova. |
 | `Network=podman` | `Network=gateway-vpn` |
 | `IP=CHANGE_ME_GATEWAY_IPV4` | `IP=<GATEWAY_IP>` |
-| `PublishPort=443:443/tcp` | `PublishPort=<HTTPS_HOST_PORT>:443/tcp` |
+| `PublishPort=443:443/tcp` | Mantenha; publicação direta da TCP 443 |
 | `Volume=/etc/gateway-vpn/headscale.yaml:/etc/headscale/config.yaml:ro` | `Volume=<GATEWAY_HOME>/.config/gateway-vpn/headscale.yaml:/etc/headscale/config.yaml:ro` |
 | `Volume=/etc/gateway-vpn/headplane.yaml:/etc/headplane/config.yaml:ro` | `Volume=<GATEWAY_HOME>/.config/gateway-vpn/headplane.yaml:/etc/headplane/config.yaml:ro` |
 | `Volume=/etc/gateway-vpn/nginx.conf:/etc/nginx/nginx.conf:ro` | `Volume=<GATEWAY_HOME>/.config/gateway-vpn/nginx.conf:/etc/nginx/nginx.conf:ro` |
@@ -515,7 +540,7 @@ Aplique estas mudanças exatas na cópia:
 
 Obtenha a home absoluta com `getent passwd "$GATEWAY_USER"` e substitua `<GATEWAY_HOME>` pelo sexto campo, por exemplo `/home/podman_user`. Não use `~` nem `<GATEWAY_USER>` nas linhas `Volume=`. Mantenha `NetworkAlias=dev-gateway.dev.anatel`, os três volumes nomeados, `AddCapability=NET_ADMIN`, `/dev/net/tun` e `Sysctl=net.ipv4.ip_forward=1`. Os volumes nomeados pertencem ao store rootless, não ao rootful. Não adicione `User=`, `Group=` ou `DynamicUser=`; Quadlet não os suporta para executar como usuário não-root. Também não use `--privileged`, socket Podman ou networking Tailscale userspace.
 
-Confirme `<HTTPS_HOST_PORT>` na unidade e instale o drop-in de rota da seção 7. A infraestrutura externa deve encaminhar TCP público `443` para essa porta do host. O encaminhador rootless padrão (`rootlessport`) não preserva o IP de origem do cliente no listener público Headscale. O encaminhador `pasta` é experimental e não deve ser presumido. Teste a regra VPN-only do Headplane contra o endereço de origem que o NGINX realmente recebe.
+Mantenha `PublishPort=443:443/tcp` na unidade e instale o drop-in de rota da seção 7. O endpoint Headscale e o tráfego VPN usam diretamente TCP 443 no host. O encaminhador rootless padrão (`rootlessport`) não preserva o IP de origem do cliente no listener público Headscale. O encaminhador `pasta` é experimental e não deve ser presumido. Teste a regra VPN-only do Headplane contra o endereço de origem que o NGINX realmente recebe.
 
 **Gate G5 — bloqueante.** Recarregue o generator Quadlet e inicie a unidade. O generator processa `[Install] WantedBy=default.target` no `daemon-reload`; unidades geradas não aceitam o comando tradicional de habilitação. Confirme o autostart (`generated`), o target, o linger, os processos e as permissões:
 
@@ -602,13 +627,73 @@ podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; he
 deploy/scripts/enroll-gateway.sh "<HEADSCALE_FQDN>" gateway gateway-vpn
 ```
 
-Execute `enroll-gateway.sh` como `<GATEWAY_USER>`. Ele inspeciona `gateway-vpn` no store rootless do usuário, exige um CIDR IPv4 único, chama `tailscale up` com `--snat-subnet-routes=false`, sem exit node e sem aceitar DNS/rotas, e remove o arquivo de auth key. Confirme que anuncia **somente** `<ROOTLESS_SUBNET>`; aprove essa rota no Headscale. O script não consulta o store rootful.
+Execute `enroll-gateway.sh` manualmente como `<GATEWAY_USER>`, com o container `gateway` e a rede
+`gateway-vpn`. Assim, o helper usa o store Podman dessa conta rootless. Ele exige um CIDR IPv4
+único, chama `tailscale up` com `--snat-subnet-routes=false`, sem exit node e sem aceitar DNS/rotas,
+e remove o arquivo de auth key. Confirme que anuncia **somente** `<ROOTLESS_SUBNET>`; aprove essa
+rota no Headscale. O helper é classificado como alternativa rootful; a integração de inscrição
+rootless permanece pendente em [TODO.md](../TODO.md).
 
 ```bash
 NODE_ID='<ID_DO_NÓ>'
 podman exec gateway headscale nodes approve-routes --identifier "$NODE_ID" --routes '<ROOTLESS_SUBNET>'
 podman exec gateway tailscale status
 ```
+
+### Corte do endpoint para TCP 443
+
+Use esta sequência para migrar uma instalação existente de TCP 8443. **Não remova 8443 antes de
+reinscrever o nó Tailscale do Gateway em `https://headscale.dev.anatel`; removê-la antes disso
+deixa o Gateway offline.**
+
+1. Publique TCP 443 junto com TCP 8443 na cópia Quadlet e reinicie `gateway.service`:
+
+```ini
+PublishPort=8443:443/tcp
+PublishPort=443:443/tcp
+```
+
+2. Defina `server_url` em `headscale.yaml` como `https://headscale.dev.anatel`. Reinicie o Gateway
+e confirme o listener TCP 443 antes de reautenticar.
+
+3. Gere uma nova chave individual, de uso único e curta validade para o Gateway. Repita o comando
+de criação acima e grave a chave em `/run/tailscale-auth/authkey`, sem exibi-la nem reutilizar a
+chave anterior. Reinscreva com os mesmos flags de anúncio e roteamento, mais `--force-reauth`:
+
+```bash
+podman exec gateway tailscale up --login-server=https://headscale.dev.anatel \
+  --auth-key=file:/run/tailscale-auth/authkey --advertise-routes='<ROOTLESS_SUBNET>' \
+  --snat-subnet-routes=false --advertise-exit-node=false --exit-node= \
+  --accept-dns=false --accept-routes=false --force-reauth
+```
+
+Remova o arquivo de chave após a tentativa; se a tentativa falhar, emita outra chave de uso único.
+
+```bash
+podman exec gateway rm -f -- /run/tailscale-auth/authkey
+```
+
+4. Reinscreva o cliente Linux com uma chave própria, lida por `file:` e removida após o uso:
+
+```bash
+sudo tailscale up --login-server=https://headscale.dev.anatel \
+  --auth-key="file:<AUTH_KEY_FILE>" --accept-routes=true --accept-dns=true --force-reauth
+rm -- "<AUTH_KEY_FILE>"
+```
+
+5. Confirme que Gateway e cliente estão online nos endereços atribuídos pelo Headscale. Aprove a
+rota `<ROOTLESS_SUBNET>`; não remova 8443 antes dessa verificação:
+
+```bash
+podman exec gateway headscale nodes list
+podman exec gateway tailscale status
+tailscale status
+NODE_ID='<ID_DO_NÓ>'
+podman exec gateway headscale nodes approve-routes --identifier "$NODE_ID" --routes '<ROOTLESS_SUBNET>'
+```
+
+6. Só depois de confirmar a identidade e o estado online dos nós e a rota aprovada, remova a
+   publicação 8443 e reinicie o Gateway. Mantenha somente `PublishPort=443:443/tcp`.
 
 **Gate G6 — crítico, bloqueante.** A rota de retorno precisa estar presente no netns rootless. Acesse um listener descartável em container de aplicação por um cliente VPN e confira no log do listener o peer original, que deve ser o IP VPN do cliente, não o IP do Gateway/bridge. Não aceite só uma captura no Gateway como prova de ausência de SNAT.
 
@@ -628,7 +713,7 @@ dig +tcp @'<ROOTLESS_BRIDGE_IP>' '<APP_ALIAS>' A
 
 **Critério G7:** UDP e TCP resolvem o alias do Gateway e um alias de aplicação para seus IPs rootless. **Se falhar: pare** e revise rota, split DNS, bridge e aliases.
 
-**Gate G8 — bloqueante.** De dentro da VPN, acesse `https://dev-gateway.dev.anatel/admin`; de um cliente fora da VPN, tente o mesmo virtual host e confirme negação. Antes da VPN, valide o endpoint Headscale público por TLS através do encaminhamento externo TCP 443 para `<HTTPS_HOST_PORT>`:
+**Gate G8 — bloqueante.** O endpoint de controle e VPN atende diretamente em TCP 443 no host, tanto pela LAN como pela VPN; não encaminhe 443 para 8443. Acesse `https://dev-gateway.dev.anatel/admin` pela VPN e de um cliente LAN sem VPN:
 
 ```bash
 curl --fail --show-error "https://<HEADSCALE_FQDN>/health"
@@ -636,7 +721,7 @@ curl --fail --show-error https://dev-gateway.dev.anatel/admin
 curl -sS -o /dev/null -w '%{http_code}\n' https://dev-gateway.dev.anatel/admin
 ```
 
-Confie no certificado pela CA aprovada; não use `curl -k`. Execute a segunda consulta dentro da VPN e a terceira fora dela; a terceira deve retornar `403`. Se o nome não resolver fora da VPN, use o mecanismo aprovado de resolução do ambiente de teste, sem alterar DNS de produção. **Critério G8:** Headplane acessível somente pela VPN e Headscale acessível no endpoint público antes da VPN. Verifique logs NGINX e `$remote_addr`: `rootlessport` pode ocultar o IP cliente e afetar a regra `allow`/`deny`. **Se falhar: pare.** Não enfraqueça a regra nem declare o endpoint seguro sem teste externo controlado.
+Confie no certificado pela CA aprovada; não use `curl -k`. A consulta `/admin` pela VPN deve retornar `302`; fixe o destino LAN em `<GATEWAY_LAN_IP>` e confirme `403`. Preserve `allow 100.96.0.0/24` e `deny all`, sem permitir `10.90.0.0/24`. **Critério G8:** Headplane autorizado somente pelo prefixo Headscale e Headscale acessível antes da VPN em TCP 443. Não use testes pela LAN como evidência de acesso WAN/perímetro externo. **Se falhar: pare.** Não enfraqueça a regra.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -662,9 +747,9 @@ Execute os gates na ordem indicada. Qualquer falha interrompe a receita. Comando
 | G5 | Inicialização | `is-enabled` (`generated`), `[Install] WantedBy=default.target`, linger, healthcheck, leitura como UIDs `20001`/`20002`, logs e restart | Unidade ativa; `default.target`; permissões e rota confirmadas | Pare antes da inscrição |
 | G6 | VPN/L3 | Listener de app registra peer; rota VPN no netns | IP VPN original chega à aplicação, sem SNAT, com retorno | Pare; não anuncie rota |
 | G7 | DNS | `dig` UDP e TCP para `<ROOTLESS_BRIDGE_IP>` | Gateway e alias de app resolvem do cliente VPN | Pare; revise rede/DNS |
-| G8 | Acesso | `curl` dentro/fora da VPN e endpoint público pré-VPN; logs NGINX | Headplane só pela VPN; Headscale público alcançável antes da VPN | Pare; não relaxe controles |
+| G8 | Acesso | `/admin` e `/health` em TCP 443 pela LAN e VPN; logs NGINX | Headplane retorna 302 pela VPN e 403 pela LAN; Headscale acessível antes da VPN; não infira acesso WAN pelos testes LAN | Pare; não relaxe controles |
 | G9 | Autostart e reboot | Conferir linger, unidades, rota de retorno, nós Headscale e reconexão do cliente após reinício do user manager e reboot do host | Unidades ativas, rota restaurada, nós online e cliente reconectado | Pare; G9 não aprovado |
-| G10 | Adoção | Revisão separada de `ARCHITECTURE.md` | Contrato alterado/aprovado separadamente; esta receita não concede aprovação | Não declarar adoção definitiva |
+| G10 | Alvo | Conferir aprovação rootless e contrato vigente | Contrato identifica rootless como alvo e rootful como alternativa; pendências de implementação constam em `docs/TODO.md` | Pare se o contrato ou a aprovação não corresponder |
 
 **Gate G9 — crítico, bloqueante.** Não reinicie o host durante este teste. Como `root`, defina `GATEWAY_USER` para a conta aprovada e reinicie seu manager com linger:
 
@@ -695,34 +780,6 @@ ip -4 route show default
 curl --fail --show-error http://<APP_ALIAS>/
 curl --fail --show-error https://dev-gateway.dev.anatel/admin
 ```
-
-**Resultado do reinício do user manager (2026-10-29):** o encerramento da sessão e stop/start do user manager reiniciaram o Gateway por linger; a rota reapareceu e o cliente manteve a inscrição. **Reboot do host (2026-11-05): PASS.** Linger e unidades permaneceram ativos, a rota `100.96.0.0/24 via 10.90.0.2 dev podman1` voltou, os nós 2 (`gateway-router`) e 3 (`containerhost`) ficaram online e o cliente reconectou. O nó 1 (cliente de teste) foi removido e o Gateway recebeu o ID 2.
-
-**Gate G10 — adoção definitiva.** Exige revisão e aprovação separadas do contrato arquitetural. Não faz parte desta receita nem modifica `ARCHITECTURE.md`.
-
-
-
-### Resultados dos testes (2026-10-29 e 2026-11-05)
-
-Teste realizado no servidor `rhel9host.hv` — RHEL 9.8, Podman 5.8.2 — e cliente `ContainerHost.hv` — Debian 13, Tailscale 1.104.4. Ambiente descartável. Resultados não aprovam adoção nem substituem revisão de `ARCHITECTURE.md`.
-
-| Gate | Resultado | Evidência medida |
-| --- | --- | --- |
-| G0 | PASS | Rootless `true`, cgroups v2, linger `yes`, SELinux `Disabled`, TUN presente, home XFS local e dependências presentes. |
-| G1 | PASS | **2026-11-05, 1ª tentativa — INVÁLIDA:** probe A reutilizou o alias `dev-gateway.dev.anatel`, que o Gateway já usa; a resposta incluiu `10.90.0.2` e o IP do probe `10.90.0.16`. Motivo: erro de desenho do teste. **2026-11-05, 2ª tentativa:** `g1-probe-a` (`g1-a.dev.anatel`) = `10.90.0.18`; `g1-probe-b` (`g1-b.dev.anatel`) = `10.90.0.19`. De `g1-probe-a` e `g1-probe-b`: `g1-a.dev.anatel` → `10.90.0.18` somente; `g1-b.dev.anatel` → `10.90.0.19` somente; `dev-gateway.dev.anatel` → `10.90.0.2` somente. **PASS:** critério atendido. **2026-10-29 (registro anterior):** layout diferente, dois aliases em um container; não comprova o critério de um container por alias. |
-| G2 | PASS | Namespace rootless `ip_forward=1`; rota `100.96.0.0/24 via 10.90.0.2 dev podman1` reaplicada no restart. |
-| G3 | PASS | Build `localhost/gateway:1.0.0` concluído a partir de cópia temporária em `/home/podman_user`; probe `NET_ADMIN`, `/dev/net/tun` e `ip_forward=1` retornou `0`. |
-| G4 | PASS no runtime G5 | O validador isolado retornou erro: não monta `/etc/headscale/config.yaml` e usa `--network none`; com o arquivo montado, Headplane respondeu `500` porque Headscale não estava acessível. O Gateway completo passou healthcheck e leitura dos arquivos como UIDs `20001`/`20002`; essa limitação do helper não foi alterada em `deploy/`. |
-| G5 | PASS | Quadlet `.container.d` entrou no unit gerado; health `healthy`; modos observados `644 0:0`, `644 0:0`, `600 0:0`; rota reapareceu após restart. |
-| G6 | PASS | Cliente `100.96.0.2` alcançou o app por IP e alias; NGINX registrou peer `100.96.0.2`, sem SNAT. Remover as regras estreitas de `FORWARD`/`POSTROUTING` causou timeout; regras restauradas. |
-| G7 | PASS | UDP e TCP para `10.90.0.1:53` resolveram Gateway `10.90.0.2` e app `10.90.0.3`; split DNS do cliente funcionou. |
-| G8 | PASS parcial (LAN por :8443); endpoint público pré-VPN e TCP 443 externo não testados | Headscale `/health` retornou `200` por LAN em `:8443`; Headplane pela VPN retornou `302`; acesso LAN fora da rota VPN retornou `403`. NGINX viu `100.96.0.2` na VPN e `10.90.0.2` em pedidos encaminhados por `rootlessport`. |
-| G9 | PASS; reboot do host PASS em 2026-11-05 | Linger e unidades ativos; rota `100.96.0.0/24 via 10.90.0.2 dev podman1`; nós Headscale 2 (`gateway-router`) e 3 (`containerhost`) online; cliente reconectado sem reinscrição. |
-| G10 | PENDENTE | Revisão do contrato arquitetural não faz parte deste teste. |
-
-O endpoint `443` foi emulado acessando diretamente `192.168.7.160:8443`; nenhum DNAT, firewall ou rota default do host foi alterado. O `server_url` de teste usa `https://headscale.dev.anatel:8443`. A regra VPN-only do Headplane negou acesso LAN mesmo com a tradução de origem de `rootlessport`.
-
-O helper G4 é uma pré-checagem isolada, não uma verificação completa deste YAML. Para este modelo, feche G4 somente quando o healthcheck do Gateway completo passar em G5.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -768,7 +825,7 @@ Remova também os outros containers rootless ligados a `gateway-vpn` por suas un
 podman network rm gateway-vpn
 ```
 
-Mantenha os volumes, a conta, as faixas subuid/gid e os arquivos de configuração até revisar backups e acesso. Não execute `podman volume rm`, `podman volume prune` ou `userdel` como parte deste rollback. Restaure o sysctl somente se a alternativa privilegiada foi aprovada, usando exatamente o valor anterior registrado. A receita rootful e seus volumes permanecem intocados como fallback; não opere os dois Gateways anunciando rotas sobrepostas.
+Mantenha os volumes, a conta, as faixas subuid/gid e os arquivos de configuração até revisar backups e acesso. Não execute `podman volume rm`, `podman volume prune` ou `userdel` como parte deste rollback. Não restaure o sysctl durante o rollback da aplicação: a configuração global TCP 443 pertence à preparação do host e afeta qualquer usuário não privilegiado. A receita rootful e seus volumes permanecem intocados como fallback; não opere os dois Gateways anunciando rotas sobrepostas.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -780,144 +837,7 @@ Mantenha os volumes, a conta, as faixas subuid/gid e os arquivos de configuraç�
   <br><br>
 </div>
 
-## 12. Decisões e resultados do teste
-
-A tabela existente registra aprovações feitas antes do teste. A tabela seguinte registra valores medidos; os não aprovados continuam experimentais:
-
-| Título da Decisão | Estado / input necessário | Decisão  |
-| --- | --- | --- |
-| Nome e home da conta | Aprovar `<GATEWAY_USER>` (sugestão `podman_user`) e confirmar home local sem NFS, `noexec` ou `nodev`. | Confirmado. Criar usuário e registrar senha inicial em variável .env. Usar `su podman_user` para operações com este usuário a partir da conta principal. |
-| HTTPS privilegiado | Preferir encaminhamento externo 443 para `<HTTPS_HOST_PORT>`; qualquer sysctl exige aprovação explícita e análise do efeito global. | Confirmado. Usar encaminhamento externo 443 |
-| IP cliente no endpoint público | Medir o efeito `rootlessport`; avaliar `pasta` somente em experimento aprovado, sem assumir preservação de origem. | Confirmado. Medir efeito `rootlessport` |
-| Proprietário de secrets/config | Validar `podman unshare chown` para UID `20001`/`20002`, leitura pelo processo e fluxo seguro de edição/backup. | Confirmado. Validar `podman unshare chown` |
-| Mecanismo de rota | Validar drop-in `ExecStartPost` versus unidade de usuário separada, incluindo restart e recriação do netns. | Confirmado. Usar drop-in `ExecStartPost` |
-| Risco residual não verificado | Suporte a drop-in `.container.d` no Podman 5.8.2 do alvo. | Confirmado. Verificar suporte no Podman 5.8.2 |
-| Subnet e endereços | Definir `<ROOTLESS_SUBNET>`, `<ROOTLESS_BRIDGE_IP>`, `<GATEWAY_IP>`, `<ROOTLESS_BRIDGE_IFACE>` e `<VPN_PREFIX>` sem sobreposição. | Confirmado. Definir sem sobreposição |
-| VM de teste | Aprovar VM descartável RHEL 9.8 / Podman 5.8.2, snapshots e janela de reboot/rollback. | Confirmado. VM disponível é descartável |
-| Adoção | Revisar o contrato arquitetural separadamente antes de qualquer implantação definitiva. | Não confirmado. Contrato arquitetural deve ser revisado apenas após encerrados todos os testes funcionais |
-
-### Decisões tomadas durante o teste
-
-A tabela registra as decisões e os valores confirmados durante o teste de 2026-10-29.
-
-| Decisão | Justificativa | Valor medido ou adotado |
-| --- | --- | --- |
-| D1 — papéis de máquina | Confirmados por hostname, SO e IP; esta sessão roda no servidor descartável. | Servidor `rhel9host.hv`, RHEL 9.8, `192.168.7.160`; cliente `ContainerHost.hv`, Debian 13, `192.168.7.148`. |
-| D2 — limpeza rootful | Inventário rootful sem containers/imagens/volumes; unidade antiga falha e foi preservada, não apagada. | Backup `/root/legacy-gateway-backup-20261029-165429/gateway.container`; `/etc/gateway`, `/var/lib/gateway` e rede `podman` preservados. |
-| D3 — conta e senha inicial | Conta dedicada já existia; home local XFS; senha aleatória foi definida sem exibição e armazenada somente no `.env` ignorado. | `podman_user`, UID `1001`, `/home/podman_user`; `.env` modo `0600`, `git check-ignore .env` confirmou exclusão. |
-| D4 — HTTPS de teste | Não alterar firewall nem rota do host; encaminhamento público real não estava disponível. | Acesso LAN direto a `192.168.7.160:8443`; `server_url=https://headscale.dev.anatel:8443`. Encaminhamento externo 443 não testado. |
-| D5 — nomes e TLS | Certificado de laboratório com SAN para os dois endpoints; mecanismo de confiança não registrado. | `headscale.dev.anatel`, `dev-gateway.dev.anatel`; CA `GWVPN Lab CA 2026`; arquivo público da CA presente no cliente; TLS em TCP 8443 validado contra a CA do laboratório. |
-| D6 — faixas | Sem sobreposição com LAN, rede rootful, bridge Podman do cliente ou prefixo VPN. | Bridge `10.90.0.0/24`, resolver `10.90.0.1`, Gateway `10.90.0.2`, app `10.90.0.3`, VPN `100.96.0.0/24`; LAN `192.168.7.0/24`, rootful `10.88.0.0/16`, cliente `10.89.0.0/24`. |
-| D7 — sessão rootless | `su -` mais runtime explícito forneceu user bus e Podman rootless. O checkout sob `/home/lobao` era inacessível; fontes foram copiadas temporariamente para home `podman_user`. | `XDG_RUNTIME_DIR=/run/user/1001`; staging temporário removido após build/validação. |
-| D8 — `ip_forward` | Valor `1` necessário na namespace rootless; persistir no drop-in, sem sysctl global. | `podman unshare --rootless-netns /usr/sbin/sysctl -w net.ipv4.ip_forward=1`. |
-| D9 — Quadlet/forwarding | Drop-in `.container.d` foi mesclado no unit gerado. Teste sem exceções de firewall causou timeout TCP. | `10-return-route.conf`: sysctl, rota, `FORWARD` ACCEPT e `POSTROUTING` ACCEPT idempotentes e limitados às faixas testadas. |
-| D10 — autostart | Reinício do user manager passou com linger; reboot do host passou em 2026-11-05. | `loginctl terminate-user podman_user`, stop/start `user@1001.service`; unidades ativas, rota restaurada, nós 2 e 3 online e cliente reconectado. |
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Webapp rootless em gateway-vpn
-
-No laboratório, os pods da webapp usam a rede `gateway-vpn` (`10.90.0.0/24`) com endereços fixos:
-
-| Container | Endereço | Alias de desenvolvimento |
-| --- | --- | --- |
-| `webapp-db` | `10.90.0.10` | `webapp-db.dev.anatel` |
-| `webapp` (API) | `10.90.0.11` | `webapp.dev.anatel` |
-| `app-proxy` | `10.90.0.12` | `app-proxy.dev.anatel` |
-
-Os nomes internos `webapp-db`, `webapp` e `app-proxy` permanecem inalterados. O deployment rootless
-da aplicação está em [deploy/scripts/deploy-webapp-rootless.sh](../../deploy/scripts/deploy-webapp-rootless.sh).
-O deploy rootful e os requisitos de topologia do contrato permanecem inalterados; G10 continua pendente.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Desvios de teste temporários
-
-Os desvios abaixo foram usados somente no laboratório rootless; os arquivos compartilhados do repositório permaneceram inalterados.
-
-### (a) Healthcheck compatível com UIDs rootless
-
-- **O que é arquivo/drop-in:** `/home/podman_user/.config/gateway-vpn/gateway-healthcheck-rootless.sh` montado sobre `/usr/local/sbin/gateway-healthcheck` pelo drop-in `30-healthcheck-rootless.conf`; usa `setpriv` para ler `/proc/<pid>/exe` como Headscale UID `20001` e Headplane UID `20002`.
-- **Motivo:** o healthcheck compartilhado lê `/proc/<pid>/exe` de outro UID, operação negada no modo rootless.
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** corrigir o healthcheck compartilhado para fazer leituras de executáveis compatíveis com o UID de cada serviço.
-
-### (b) Diretório de runtime do Headscale
-
-- **O que é arquivo/drop-in:** `20-headscale-runtime.conf` vincula `/home/podman_user/.local/share/gateway-headscale-runtime` a `/run/headscale` com escrita.
-- **Motivo:** `/var/run` aponta para `/run`, pertencente a root e sem escrita pelo UID `20001`.
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** definir `/run/headscale` e suas permissões na imagem ou no Quadlet.
-
-### (c) Bundle de CA do laboratório
-
-- **O que é arquivo/drop-in:** `50-lab-ca-bundle.conf` monta `/home/podman_user/.config/gateway-vpn/trust/ca-bundle.crt` sobre `/etc/ssl/certs/ca-certificates.crt`; o bundle combina as CAs da imagem e a CA pública do laboratório.
-- **Motivo:** o container não confiava na CA do laboratório (verify code 21).
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** fornecer aos containers a CA aprovada pela infraestrutura.
-
-### (d) Nome do control server no container
-
-- **O que é arquivo/drop-in:** `40-control-host.conf` adiciona `AddHost=headscale.dev.anatel:192.168.7.160`.
-- **Motivo:** o container não tinha resolução DNS para o control server.
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** usar um nome DNS estável do Headscale, fornecido pela infraestrutura.
-
-### (e) Ownership dos arquivos Headscale
-
-- **O que é arquivo/drop-in:** `/var/lib/headscale/noise_private.key` e `/var/lib/headscale/db.sqlite` no volume Headscale foram ajustados para `20001:20001`; a receita não define regra de ownership para eles.
-- **Motivo:** os arquivos estavam pertencentes a root dentro do volume.
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** declarar uma regra de ownership reproduzível no provisionamento do volume e validá-la para UID `20001`.
-
-### (f) Porta não padrão na inscrição
-
-- **O que é arquivo/drop-in:** inscrição de laboratório usou `https://headscale.dev.anatel:8443`; `deploy/scripts/enroll-gateway.sh` monta a URL de controle sem porta.
-- **Motivo:** o endpoint de teste estava em TCP `8443` e o script não inclui uma porta não padrão.
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** usar o endpoint estável de produção em TCP `443`; se uma porta não padrão for necessária, atualizar e testar o fluxo de inscrição antes de adotá-lo.
-
-### (g) Volume da imagem webapp
-
-- **O que é arquivo/drop-in:** volume da imagem criado com `--opt o=uid=10001,gid=10001` no fluxo `deploy/scripts/deploy-webapp-rootless.sh`.
-- **Motivo:** a primeira montagem de um volume vazio copia o proprietário do ponto de montagem.
-- **Escopo:** rootless-only, test-only.
-- **Substituição:** definir e validar ownership no mecanismo oficial de criação do volume, sem depender da cópia inicial do proprietário.
-
-### (h) Chave privada da CA de desenvolvimento
-
-- **O que é arquivo/drop-in:** `/root/gateway-cockpit-ca/gateway-dev-ca.key` ainda existe no servidor.
-- **Motivo:** chave temporária de desenvolvimento mantida durante a estabilização da solução.
-- **Escopo:** rootless-only, test-only e dev-only.
-- **Substituição:** depois que a solução estiver estável, gerar novas chaves seguindo estritamente a receita; não documentar nem compartilhar o conteúdo da chave existente.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## 13. Fontes oficiais
+## 12. Fontes oficiais
 
 - [Podman rootless](https://docs.podman.io/en/latest/markdown/podman-rootless.1.html)
 - [Podman rootless tutorial](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md)
