@@ -351,6 +351,11 @@ expansão de glob) e Node.js v24.21.0, verificado por `node --version`. Essa é 
 não uma versão mínima declarada. Os comandos explícitos, sem glob, estão na
 [receita CRUD](../../docs/recipes/webapp-crud.md#desenvolver).
 
+Em 2026-11-06, gate G1 (fundamentos CSS da tabela de usuários), arquivo
+`webapp/frontend/styles.css`: duas revisões independentes, com correções aplicadas.
+Validação: css-scanner 4/4 PASS, navegação 46/46 PASS e `git diff --check` limpo.
+O Reviewer não tinha shell; o Coder executou os testes.
+
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>

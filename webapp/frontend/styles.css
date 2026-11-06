@@ -478,6 +478,183 @@ h1 {
   text-align: center;
 }
 
+.table-sort-indicator {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+}
+
+.table-card-label-row {
+  display: none;
+}
+
+.table-sort-triangle-up,
+.table-sort-triangle-down {
+  display: block;
+  width: 0;
+  height: 0;
+  border-right: var(--spacing-scale-half) solid transparent;
+  border-left: var(--spacing-scale-half) solid transparent;
+}
+
+.table-sort-triangle-up {
+  border-bottom: var(--spacing-scale-half) solid var(--gray-40);
+}
+
+.table-sort-triangle-down {
+  border-top: var(--spacing-scale-half) solid var(--gray-40);
+}
+
+.table-sort-indicator.is-ascending .table-sort-triangle-up {
+  border-bottom-color: var(--blue-warm-vivid-80);
+}
+
+.table-sort-indicator.is-descending .table-sort-triangle-down {
+  border-top-color: var(--blue-warm-vivid-80);
+}
+
+@media (min-width: 768px) {
+  th[aria-sort="ascending"],
+  th[aria-sort="descending"] {
+    color: var(--blue-warm-vivid-80);
+    background: rgba(var(--blue-warm-vivid-80-rgb), var(--surface-opacity-xs));
+  }
+}
+
+.table-loading-spinner {
+  display: inline-block;
+  width: var(--spacing-scale-3x);
+  height: var(--spacing-scale-3x);
+  border: 1px solid var(--blue-warm-vivid-70);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: table-loading-rotate 0.8s linear infinite;
+}
+
+.table-loading-spinner[hidden] {
+  display: none;
+}
+
+.table-scroll[aria-busy="true"] {
+  opacity: 0.75;
+}
+
+@keyframes table-loading-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-loading-spinner {
+    animation: table-loading-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes table-loading-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.4;
+    }
+  }
+}
+
+.table-search-chip.br-button {
+  gap: var(--spacing-scale-half);
+  overflow: visible;
+  padding-right: var(--spacing-scale-base);
+  padding-left: var(--spacing-scale-base);
+}
+
+.table-search-chip-remove {
+  flex: 0 0 auto;
+  font-weight: var(--font-weight-bold);
+}
+
+.table-menu-anchor {
+  position: relative;
+}
+
+.table-sort-menu {
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  right: 0;
+  width: max-content;
+  max-width: calc(100vw - var(--spacing-scale-3x));
+  border: 1px solid var(--gray-20);
+  padding: var(--spacing-scale-half);
+  color: var(--gray-80);
+  background: var(--pure-0);
+  box-shadow: var(--surface-shadow-sm);
+}
+
+.table-sort-menu-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.table-sort-menu-item.br-button {
+  width: 100%;
+  justify-content: flex-start;
+  overflow: visible;
+  border-left: var(--spacing-scale-half) solid transparent;
+  border-radius: 0;
+}
+
+.table-sort-menu-item.is-active,
+.table-sort-menu-item[aria-current="true"] {
+  border-left: var(--spacing-scale-half) solid var(--blue-warm-vivid-70);
+  background: var(--blue-warm-vivid-10);
+  font-weight: var(--font-weight-bold);
+}
+
+.table-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-scale-base) var(--spacing-scale-2x);
+  border-top: 1px solid var(--gray-20);
+  padding: var(--spacing-scale-base) var(--spacing-scale-2x);
+}
+
+.table-pagination-left,
+.table-pagination-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-scale-base);
+}
+
+.table-pagination select {
+  max-width: 100%;
+  border: 1px solid var(--gray-40);
+  padding: var(--spacing-scale-half) var(--spacing-scale-base);
+  color: var(--gray-80);
+  background: var(--pure-0);
+  font: inherit;
+}
+
+.table-pagination-counter {
+  color: var(--gray-70);
+}
+
+.table-cap-banner {
+  margin: 0;
+  border-left: var(--spacing-scale-half) solid var(--blue-warm-vivid-70);
+  padding: var(--spacing-scale-base) var(--spacing-scale-2x);
+  color: var(--gray-80);
+  background: var(--blue-warm-vivid-10);
+}
+
 .empty-illustration {
   display: block;
   width: 120px;
@@ -724,6 +901,13 @@ h1 {
 }
 
 @media (max-width: 767.98px) {
+  .table-card-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    white-space: normal;
+  }
+
   .table-scroll table,
   .table-scroll tbody {
     display: block;
@@ -786,6 +970,10 @@ h1 {
     display: block;
     margin-bottom: var(--spacing-scale-half);
     font-weight: var(--font-weight-bold);
+  }
+
+  .table-scroll tbody td[data-label].table-card-cell::before {
+    content: none;
   }
 
   .table-scroll .actions-cell {
