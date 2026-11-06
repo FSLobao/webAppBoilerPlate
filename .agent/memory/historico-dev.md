@@ -20,7 +20,7 @@ e resultados ausentes nos registros permanecem desconhecidos; não os infira.
 Registros de 2026-10-29 e 2026-11-05. Fonte: conteúdo não versionado de
 `docs/recipes/gateway-headscale-podman-rootless.md`; essa versão não possui revisão Git própria.
 O servidor era `rhel9host.hv` — RHEL 9.8, Podman 5.8.2 — e o cliente `ContainerHost.hv` — Debian 13,
-Tailscale 1.104.4. Pendências e riscos remanescentes constam em [TODO.md](../TODO.md).
+Tailscale 1.104.4. Pendências e riscos remanescentes constam em [TODO.md](../plans/TODO.md).
 
 O conteúdo não versionado de `docs/recipes/gateway-headscale-podman-rootless.md` também classificava
 o uso de `enroll-gateway.sh` na inscrição rootless como workaround de laboratório, enquanto a
@@ -40,6 +40,12 @@ linger e unidades permaneceram ativos, a rota
 (`containerhost`) ficaram online e o cliente reconectou. O nó 1 (cliente de teste) foi removido e
 o Gateway recebeu o ID 2.
 
+### Registros de build
+
+- `apt-get` no build atingiu cerca de 16 GB de RSS e foi morto pelo OOM killer em 2026-11-04.
+- Uma indisponibilidade do mirror Debian snapshot causou uma falha de build.
+- O script de deploy rootless do Gateway não foi criado; o Gateway foi construído manualmente. Ele é distinto de `deploy/scripts/deploy-webapp-rootless.sh`.
+
 ### Resultados dos testes (2026-10-29 e 2026-11-05)
 
 | Gate | Resultado | Evidência medida |
@@ -52,29 +58,23 @@ o Gateway recebeu o ID 2.
 | G5 | PASS | Quadlet `.container.d` entrou no unit gerado; health `healthy`; modos observados `644 0:0`, `644 0:0`, `600 0:0`; rota reapareceu após restart. |
 | G6 | PASS | Cliente `100.96.0.2` alcançou o app por IP e alias; NGINX registrou peer `100.96.0.2`, sem SNAT. Remover as regras estreitas de `FORWARD`/`POSTROUTING` causou timeout; regras restauradas. |
 | G7 | PASS | UDP e TCP para `10.90.0.1:53` resolveram Gateway `10.90.0.2` e app `10.90.0.3`; split DNS do cliente funcionou. |
-| G8 | PASS em TCP 443 pela LAN e VPN; WAN não testada | Headplane `/admin` retornou `302` pela VPN e `403` pela LAN com destino fixado em `192.168.7.160`; NGINX recebeu `100.96.0.2` pela VPN e `10.90.0.2` pela LAN via `rootlessport`. Headscale usa `https://headscale.dev.anatel` em TCP 443. |
+| G8 | PASS em TCP 443 pela LAN e VPN; WAN não testada | Resultados de `/admin` constam em [Cliente VPN](#cliente-vpn); NGINX recebeu `100.96.0.2` pela VPN e `10.90.0.2` pela LAN via `rootlessport`. Headscale usa `https://headscale.dev.anatel` em TCP 443. |
 | G9 | PASS; reboot do host PASS em 2026-11-05 | Linger e unidades ativos; rota `100.96.0.0/24 via 10.90.0.2 dev podman1`; nós Headscale 2 (`gateway-router`) e 3 (`containerhost`) online; cliente reconectado sem reinscrição. |
-| G10 | ALVO APROVADO | `ARCHITECTURE.md` define rootless como alvo; o deploy rootless do Gateway como código permanece pendente em `docs/TODO.md`. |
+| G10 | ALVO APROVADO | `ARCHITECTURE.md` define rootless como alvo; o deploy rootless do Gateway como código permanece pendente em `.agent/plans/TODO.md`. |
 
 Na migração, TCP 443 foi publicado junto com TCP 8443; `server_url` mudou para
 `https://headscale.dev.anatel`, Gateway e cliente reautenticaram com `--force-reauth`, mantiveram
 IDs 2 e 3 e IPs `100.96.0.1` e `100.96.0.2`, e a rota `10.90.0.0/24` foi aprovada antes da
 remoção de 8443. Remover 8443 antes de reinscrever o Gateway deixou seu nó offline; o serviço foi
-recuperado. Ping do cliente: 30/30, 0% de perda; webapp VPN: HTTP 200; webapp LAN TCP 8080:
-HTTP 200. A regra VPN-only negou `/admin` na LAN mesmo com a origem traduzida de `rootlessport`.
-O acesso WAN/perímetro externo não foi testado.
-
-O ping do cliente ao Gateway teve 30/30 pacotes (0% de perda); a webapp pela VPN respondeu HTTP
-200; a webapp pela LAN em TCP 8080 respondeu HTTP 200. `/admin` pela VPN retornou 302; pela LAN
-retornou 403.
+recuperado.
 
 O helper G4 é uma pré-checagem isolada, não uma verificação completa deste YAML. Para este modelo,
 G4 foi fechado somente após o healthcheck do Gateway completo passar em G5.
 
 ### Decisões e valores registrados
 
-A primeira tabela registra aprovações feitas antes do teste. A segunda registra decisões e valores
-confirmados durante o teste de 2026-10-29.
+As aprovações ocorreram antes do teste; os valores operacionais foram confirmados no laboratório em
+2026-10-29.
 
 | Título da Decisão | Estado / input necessário | Decisão |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ confirmados durante o teste de 2026-10-29.
 | Risco residual não verificado | Suporte a drop-in `.container.d` no Podman 5.8.2 do alvo. | Confirmado. Verificar suporte no Podman 5.8.2 |
 | Subnet e endereços | Definir `<ROOTLESS_SUBNET>`, `<ROOTLESS_BRIDGE_IP>`, `<GATEWAY_IP>`, `<ROOTLESS_BRIDGE_IFACE>` e `<VPN_PREFIX>` sem sobreposição. | Confirmado. Definir sem sobreposição |
 | VM de teste | Aprovar VM descartável RHEL 9.8 / Podman 5.8.2, snapshots e janela de reboot/rollback. | Confirmado. VM disponível é descartável |
-| Adoção | Rootless como alvo; rootful mantido como alternativa. | Aprovado; deploy do Gateway como código continua pendente em `docs/TODO.md` |
+| Adoção | Rootless como alvo; rootful mantido como alternativa. | Aprovado; deploy do Gateway como código continua pendente em `.agent/plans/TODO.md` |
 
 | Decisão | Justificativa | Valor medido ou adotado |
 | --- | --- | --- |
@@ -100,6 +100,17 @@ confirmados durante o teste de 2026-10-29.
 | D8 — `ip_forward` | Valor `1` necessário na namespace rootless; persistir no drop-in, sem sysctl global. | `podman unshare --rootless-netns /usr/sbin/sysctl -w net.ipv4.ip_forward=1`. |
 | D9 — Quadlet/forwarding | Drop-in `.container.d` foi mesclado no unit gerado. Teste sem exceções de firewall causou timeout TCP. | `10-return-route.conf`: sysctl, rota, `FORWARD` ACCEPT e `POSTROUTING` ACCEPT idempotentes e limitados às faixas testadas. |
 | D10 — autostart | Reinício do user manager passou com linger; reboot do host passou em 2026-11-05. | `loginctl terminate-user podman_user`, stop/start `user@1001.service`; unidades ativas, rota restaurada, nós 2 e 3 online e cliente reconectado. |
+
+### Diferenças do contrato registradas na G10
+
+- **Rede e modo do Podman — histórico:** um texto do contrato, sem data registrada, exigia a rede padrão rootful `podman`; os testes usaram `gateway-vpn` (`10.90.0.0/24`). O contrato vigente define rootless como alvo e rootful como alternativa.
+- **Endereços de aplicações — histórico:** uma cláusula de endereçamento do contrato, sem data registrada, tratava IPs como não permanentes; o contrato vigente fixa `10.90.0.10` (`webapp-db`), `10.90.0.11` (`webapp`) e `10.90.0.12` (`app-proxy`).
+- **Emulador de identidade:** permanece a implementar, fora do escopo atual; consulte [ARCHITECTURE.md](../contracts/ARCHITECTURE.md) e a pendência em [TODO.md](../plans/TODO.md).
+- **SSH em containers:** SSH/VS Code continuam a implementar e fora do escopo atual (§11 e critérios de aceitação); consulte [ARCHITECTURE.md](../contracts/ARCHITECTURE.md) e a pendência em [TODO.md](../plans/TODO.md).
+- **Firewall do host — histórico:** `firewalld` estava ativo antes da preparação; o script da etapa 1 desativa `firewalld` e `nftables` quando presentes, e ambos estão desativados no host testado.
+- **G8 — histórico:** Headscale foi testado inicialmente em `:8443`; Headplane e o endpoint de controle/VPN foram depois testados em TCP 443 pela LAN e VPN. O ingresso WAN/perímetro externo continua sem teste.
+
+A revisão G10 alinhou no contrato os caminhos HTTP `/webapp/` e `/webapp/api/`.
 
 ### Endereços da webapp no laboratório
 
@@ -116,7 +127,7 @@ Os nomes internos `webapp-db`, `webapp` e `app-proxy` permaneceram inalterados. 
 rootless da aplicação está em
 [deploy/scripts/deploy-webapp-rootless.sh](../../deploy/scripts/deploy-webapp-rootless.sh).
 O deploy rootful permanece como alternativa implementada e mantida. O alvo rootless foi aprovado;
-a implementação do deploy do Gateway como código continua pendente em [TODO.md](../TODO.md).
+a implementação do deploy do Gateway como código continua pendente em [TODO.md](../plans/TODO.md).
 
 ### Desvios temporários usados no teste
 
@@ -179,13 +190,22 @@ repositório permaneceram inalterados.
 - **Escopo:** rootless-only, test-only e dev-only.
 - **Substituição:** depois que a solução estiver estável, gerar novas chaves seguindo estritamente a receita; não documentar nem compartilhar o conteúdo da chave existente.
 
-**Status registrado:** G0, G1, G2, G3, G5, G6, G7, G8 e G9 passaram; G4 foi confirmado pelo runtime integrado em G5, pois o validador isolado não monta a configuração Headscale e usa `--network none`. G8 em TCP 443: `/admin` retornou 302 pela VPN e 403 pela LAN. O ingresso WAN/perímetro externo não foi testado. G9: reboot do host passou; rota `100.96.0.0/24 via 10.90.0.2 dev podman1`, Gateway ID 2 (`gateway-router`, `100.96.0.1`) e cliente ID 3 (`containerhost`, `100.96.0.2`) online. O build G3 foi executado de cópia temporária em `/home/podman_user`. A adoção do rootless como alvo foi aprovada; o deploy do Gateway como código continua pendente em [TODO.md](../TODO.md).
+**Status registrado:** G0, G1, G2, G3, G5, G6, G7, G8 e G9 passaram; G4 foi confirmado pelo runtime integrado em G5, pois o validador isolado não monta a configuração Headscale e usa `--network none`. G8 em TCP 443: `/admin` retornou 302 pela VPN e 403 pela LAN. O ingresso WAN/perímetro externo não foi testado. G9: reboot do host passou; rota `100.96.0.0/24 via 10.90.0.2 dev podman1`, Gateway ID 2 (`gateway-router`, `100.96.0.1`) e cliente ID 3 (`containerhost`, `100.96.0.2`) online. O build G3 foi executado de cópia temporária em `/home/podman_user`. A adoção do rootless como alvo foi aprovada; o deploy do Gateway como código continua pendente em [TODO.md](../plans/TODO.md).
+
+### Observações complementares registradas
+
+As datas das observações abaixo não foram especificadas, exceto quando indicadas.
+
+- **Nome do nó Gateway:** `tailscale status` no cliente em 2026-11-05 mostrou a mudança de `554ad3114093` para `35085f0529a0` após recriação/reinício do container.
+- **Transporte UDP/DERP:** o nó Gateway conecta pelo relay DERP de Madrid; UDP direto não foi estabelecido a partir do container.
+- **Exceção de origem LAN:** `rootlessport` entrega solicitações LAN ao NGINX com origem `10.90.0.2` e oculta o cliente; o contrato exige preservação da origem somente no caminho VPN.
+- **RISCO ACEITO:** Cockpit escuta TCP 9090 pelo socket systemd e é alcançável pela LAN com o firewall desativado; o usuário decidiu manter Cockpit como está.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -229,8 +249,8 @@ Windows e macOS. Os comandos da seção de confiança na CA também não foram e
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -243,14 +263,14 @@ O arquivo `docs/recipes/gateway-headscale-podman-rootfull copy.md` em HEAD
 e Quadlet. Testado em verificação descartável no Debian 13.6 (trixie) com Podman 5.4.2; a
 qualificação-alvo permanece RHEL 9.8 / Podman rootful 5.8.2.” A receita rootful atual mantém o
 aviso de que o alvo não deve ser declarado qualificado antes da validação final no ambiente RHEL
-autorizado (seção [Testes funcionais](../recipes/gateway-headscale-podman-rootfull.md#7-testes-funcionais)).
+autorizado (seção [Testes funcionais](../../docs/recipes/gateway-headscale-podman-rootfull.md#7-testes-funcionais)).
 A fonte em HEAD não registra resultados individuais desses testes.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -301,7 +321,7 @@ O registro também compara `chevron-left.svg` e `chevron-right.svg` aos arquivos
   verificada.
 - A validação automatizada do frontend foi executada em Linux, Bash 5.1.8 (shell com expansão de
   glob) e Node.js v24.21.0. Essa é uma versão testada, não uma versão mínima declarada. Os
-  comandos explícitos, sem glob, estão na [receita CRUD](../recipes/webapp-crud.md#desenvolver).
+  comandos explícitos, sem glob, estão na [receita CRUD](../../docs/recipes/webapp-crud.md#desenvolver).
 - A validação visual em navegador e dos estilos computados ainda está pendente.
 - As verificações não incluem auditoria completa com leitor de tela nem certificação de
   acessibilidade.
@@ -309,8 +329,8 @@ O registro também compara `chevron-left.svg` e `chevron-right.svg` aos arquivos
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -319,20 +339,23 @@ O registro também compara `chevron-left.svg` e `chevron-right.svg` aos arquivos
 ## Validação da webapp
 
 Em HEAD `6fe47b29172bece1c804b7ce59d68b3d9577db80`, `docs/recipes/webapp-crud.md` dizia
-“Validado em RHEL 9.8 com Podman 5.8.2.” O plano atual, `docs/plans/webapp-crud.md`, registra: “Status:
-implementado e validado no host RHEL 9.8 com Podman 5.8.2 rootful.” Essas fontes não informam
-resultados ou argumentos específicos de testes.
+“Validado em RHEL 9.8 com Podman 5.8.2.” Em HEAD `6fe47b29172bece1c804b7ce59d68b3d9577db80`,
+`docs/plans/webapp-crud.md` registrava: “Status: implementado e validado no host RHEL 9.8 com
+Podman 5.8.2 rootful.” Essas fontes não informam resultados ou argumentos específicos de testes.
+
+O plano atual, `.agent/plans/webapp-crud.md`, registra “Status: implementação concluída” e aponta
+o registro histórico da validação para este arquivo.
 
 O ambiente registrado para a validação automatizada do frontend foi Linux, Bash 5.1.8 (shell com
 expansão de glob) e Node.js v24.21.0, verificado por `node --version`. Essa é uma versão testada,
 não uma versão mínima declarada. Os comandos explícitos, sem glob, estão na
-[receita CRUD](../recipes/webapp-crud.md#desenvolver).
+[receita CRUD](../../docs/recipes/webapp-crud.md#desenvolver).
 
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>

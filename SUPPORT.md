@@ -7,7 +7,7 @@ This repository is an architectural baseline with a minimal Python scaffold. Use
 ### Documentation
 
 - **README:** [Architecture overview and current project status](./README.md)
-- **Architecture plan:** [Technical and operational contract](./docs/contracts/ARCHITECTURE.md)
+- **Deployment procedures:** [Webapp CRUD](./docs/recipes/webapp-crud.md) and [rootless Gateway](./docs/recipes/gateway-headscale-podman-rootless.md)
 - **Contribution guide:** [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ### Reporting Issues
@@ -41,7 +41,7 @@ Check that Python 3.14 or later and UV are available, then run `uv sync` followe
 
 ### How do I deploy the application?
 
-Deployment scripts and container definitions are not available yet. Review the [architecture plan](./docs/contracts/ARCHITECTURE.md) for the intended deployment model.
+See the [webapp deployment procedure](./docs/recipes/webapp-crud.md) and the [rootless Gateway procedure](./docs/recipes/gateway-headscale-podman-rootless.md).
 
 ### Where should I report a security issue?
 

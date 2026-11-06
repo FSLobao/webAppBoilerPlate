@@ -20,7 +20,7 @@
 
 Use este procedimento para gerar, assinar e instalar o certificado TLS de servidor e a chave privada exigidos pelo host Gateway. Um único certificado unificado é emitido e compartilhado pelos dois serviços:
 
-1. **Cockpit no host:** fornece administração do host na porta TCP `9090` (acessível por túnel SSH ou rede de gerenciamento direta), conforme o [limite do Cockpit](../contracts/ARCHITECTURE.md#22-cockpit-no-host) definido no contrato de arquitetura.
+1. **Cockpit no host:** fornece administração do host na porta TCP `9090` (acessível por túnel SSH ou rede de gerenciamento direta).
 2. **Container VPN do Gateway:** encerra HTTPS na porta TCP `443` para Headscale (inscrição de
    clientes antes da VPN) e Headplane (administração dentro da VPN em
    `https://dev-gateway.dev.anatel/admin`), conforme descrito na

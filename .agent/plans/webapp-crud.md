@@ -30,14 +30,15 @@ Requisitos funcionais:
 - download de imagens servido diretamente pelo NGINX de aplicações;
 - SPA em `http://localhost:8080/webapp/index.html` e API em `http://localhost:8080/webapp/api/...`.
 
-Status: implementado e validado no host RHEL 9.8 com Podman 5.8.2 rootful.
-O procedimento operacional está em [webapp-crud](../recipes/webapp-crud.md).
+Status: implementação concluída. O registro histórico da validação está em
+[Histórico de execuções de laboratório](../memory/historico-dev.md#validação-da-webapp).
+O procedimento operacional está em [webapp-crud](../../docs/recipes/webapp-crud.md).
 
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -62,8 +63,8 @@ O procedimento operacional está em [webapp-crud](../recipes/webapp-crud.md).
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -92,8 +93,8 @@ Ordem de início, declarada nas unidades Quadlet: `webapp-db` → `webapp` → `
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -129,8 +130,8 @@ O que precisa ser codificado:
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -168,8 +169,8 @@ O arquivo recebe nome aleatório de 32 caracteres hexadecimais mais a extensão,
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -217,8 +218,8 @@ Caminhos no host criados pelo deployment:
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -239,8 +240,8 @@ Caminhos no host criados pelo deployment:
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -262,8 +263,8 @@ Caminhos no host criados pelo deployment:
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>
@@ -272,7 +273,7 @@ Caminhos no host criados pelo deployment:
 ## Fora do escopo e riscos
 
 - **Identidade HTTP.** A API ainda não autoriza por `X-User-*`. O emulador NGINX de desenvolvimento (seção 8.2) não faz parte desta entrega. Não expor em produção sem o gate de identidade.
-- **TUS.** Evolução possível: pod `tusd` com `-base-path=/webapp/uploads/`, rota no NGINX e associação do upload ao usuário pela API. Ver [file-upload-service](../recipes/file-upload-service.md).
+- **TUS.** Evolução possível: pod `tusd` com `-base-path=/webapp/uploads/`, rota no NGINX e associação do upload ao usuário pela API. Ver [file-upload-service](../../docs/recipes/file-upload-service.md).
 - **SSH nos containers, aliases `dev.anatel` e backup pgBackRest.** Previstos no contrato; não implementados aqui.
 - **Migrações.** Os scripts de init rodam só com volume vazio. Mudanças de schema futuras exigem runner de migração.
 - **Dono do volume de imagens.** Sem as opções `uid`/`gid`, o Podman volta o dono do volume para `root` quando o pod `app-proxy` monta o volume. O script de deploy cria o volume com essas opções e falha se um volume existente não as tiver.
@@ -281,8 +282,8 @@ Caminhos no host criados pelo deployment:
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
     </picture>
   </a>
   <br><br>

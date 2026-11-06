@@ -16,12 +16,11 @@
 
 Esta referência orienta pessoas desenvolvedoras e revisoras na aplicação do
 [Design System GOV.BR](https://www.gov.br/ds/home).
-As [instruções para agentes](../../.github/instructions/govbrDesignSystemGuide.instructions.md)
-definem o fluxo de trabalho do repositório. As regras oficiais abaixo têm suas fontes vinculadas;
-as recomendações locais estão identificadas como decisões deste projeto.
+As regras oficiais abaixo têm suas fontes vinculadas; as recomendações locais estão identificadas
+como decisões deste projeto.
 
 A aplicação de usuários usa CSS e assets locais do Design System, além das ilustrações copiadas.
-O frontend permanece estático, sem build, conforme o [plano da aplicação](../plans/webapp-crud.md).
+O frontend permanece estático, sem build.
 A aparência GOV.BR não comprova acessibilidade, certificação, vínculo oficial ou conformidade jurídica.
 Os responsáveis pelo serviço devem confirmar as obrigações institucionais aplicáveis.
 

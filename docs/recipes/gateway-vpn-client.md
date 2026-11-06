@@ -20,14 +20,10 @@
 
 ## 1. Objetivo e público
 
-Procedimento para desenvolvedores e operadores conectarem clientes Linux, Windows 11 e macOS
-ao Headscale auto-hospedado no Gateway. O endpoint de produção é `https://headscale.dev.anatel`,
-HTTPS TCP 443, acessível pela LAN antes da VPN e pela VPN depois da inscrição. A VPN oferece
-acesso dividido (split tunnel) ao CIDR dos containers e DNS dividido para nomes autorizados em
-`dev.anatel`; não encaminha a rota default nem transforma o Gateway em exit node.
+Procedimento para desenvolvedores e operadores conectarem clientes Linux, Windows 11 e macOS ao Headscale auto-hospedado no Gateway. A VPN oferece
+acesso dividido (split tunnel) ao CIDR dos containers e DNS dividido para nomes autorizados em `dev.anatel`; não encaminha a rota default nem transforma o Gateway em exit node.
 
-O alvo é rootless; a variante rootful continua implementada e mantida como alternativa no
-[ARCHITECTURE.md](../contracts/ARCHITECTURE.md).
+O alvo é rootless; a variante rootful continua implementada e mantida como alternativa na [receita rootful](gateway-headscale-podman-rootfull.md).
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -41,7 +37,8 @@ O alvo é rootless; a variante rootful continua implementada e mantida como alte
 
 ## 2. Visão geral e pré-requisitos
 
-O endpoint de produção é `https://headscale.dev.anatel` em TCP 443, pela LAN antes da inscrição e pela VPN depois da conexão. Não acrescente `:8443`. Depois da inscrição, o cliente usa WireGuard para chegar ao Gateway e às rotas de containers aprovadas.
+Deve-se ter acesso ao endpoint do Headscale em TCP 443. Depois da inscrição, o cliente usa a VPN para chegar ao Gateway e às rotas de containers aprovadas.
+
 O split DNS de `dev.anatel` é para a rede autorizada e não deve ser publicado na Internet.
 
 Headplane é acessível somente pela VPN por operadores autorizados, via HTTPS e com autenticação
@@ -394,12 +391,11 @@ própria. Não é um serviço de desenvolvedor.
 ## 9. Acessar containers
 
 A VPN fornece conectividade de rede, mas não autenticação dos serviços. O acesso SSH aos containers,
-inclusive por VS Code, está **a implementar** e fora do escopo atual; acompanhe
-[docs/TODO.md](../TODO.md). A referência de chaves permanece
-[Chaves SSH de acesso ao Gateway e aos containers](ssh-key.md).
+inclusive por VS Code, está **a implementar** e fora do escopo atual. A referência de chaves
+permanece [Chaves SSH de acesso ao Gateway e aos containers](ssh-key.md).
 
-O emulador de identidade está **a implementar** e fora do escopo atual; acompanhe
-[docs/TODO.md](../TODO.md). Use o proxy de aplicação autorizado para acesso HTTP de desenvolvimento.
+O emulador de identidade está **a implementar** e fora do escopo atual. Use o proxy de aplicação
+autorizado para acesso HTTP de desenvolvimento.
 
 ### HTTP de desenvolvimento
 

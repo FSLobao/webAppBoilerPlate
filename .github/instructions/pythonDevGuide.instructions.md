@@ -6,8 +6,9 @@ documentation, testing and package management.
 **Scope and precedence**
 
 - Project requirements (behavior, architecture, security, API design, deployment) are
-  defined in the project contract and the reference documents under `docs/`. Read them
-  before implementing. They are not repeated here.
+  defined in contracts under `.agent/contracts/` and user-facing references under `docs/`.
+  Read them before implementing. Durable decisions and completed development history are
+  recorded in `.agent/memory/`. They are not repeated here.
 - This file covers only general Python conventions. If a contract or reference document
   conflicts with this file, the contract wins for behavior; this file wins for style
   and tooling.
@@ -141,8 +142,9 @@ def move_to_archive(path: Path, *, overwrite: bool = False) -> Path:
 ### 3.3 Project documentation
 
 - Keep the README accurate for setup, run and test instructions when you change them.
-- Keep design decisions in `docs/`, not in code comments. When behavior changes,
-  update the affected documentation in the same change.
+- Keep normative design decisions in `.agent/contracts/` and durable decisions/history in
+  `.agent/memory/`. Keep setup and usage guidance for people in `docs/`, not in code comments.
+  When behavior changes, update the affected authoritative documentation in the same change.
 - If the project exposes an HTTP API, keep its generated OpenAPI documentation accurate
   by giving routes and models clear summaries, descriptions and response types rather
   than maintaining separate hand-written API docs.
@@ -284,7 +286,8 @@ uv run ruff format --check .   # CI check, no changes
 ## 6. Working method
 
 **Before coding**
-- Read the relevant contract sections and reference documents, and state which ones
+- Read relevant contract sections under `.agent/contracts/`, user-facing references under
+  `docs/`, and durable prior decisions/history under `.agent/memory/`; state which requirements
   you are implementing.
 - Look at neighboring code and follow established local patterns unless they conflict
   with this file. Do not copy outdated patterns from older code (old typing imports,

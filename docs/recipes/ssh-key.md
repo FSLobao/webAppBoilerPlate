@@ -24,8 +24,7 @@ de aplicação.
 
 Gere uma chave Ed25519 individual no computador cliente, instale somente a chave pública no
 arquivo `authorized_keys` do destino e confirme o acesso. A chave privada permanece no
-cliente e nunca é compartilhada, conforme a
-[seção 11.3 da arquitetura](../contracts/ARCHITECTURE.md#113-credenciais-dos-destinos).
+cliente e nunca é compartilhada.
 
 Os destinos usam os seguintes arquivos no host Gateway:
 
@@ -52,7 +51,7 @@ os demais.
 - Cliente com Windows 11 e PowerShell, macOS e Terminal, ou Linux com Bash.
 - Cliente OpenSSH instalado no computador cliente, incluindo `ssh-keygen` e `ssh`.
 - Para containers de aplicação: VPN ativa com o cliente Tailscale inscrito no Headscale do
-  Gateway, conforme a [seção 11 da arquitetura](../contracts/ARCHITECTURE.md).
+  Gateway, conforme a [receita do cliente VPN](gateway-vpn-client.md).
 - Nome DNS ou endereço do destino, conta SSH autorizada e porta SSH configurada.
 - Sessão administrativa no host Gateway, com permissão para executar `sudo`, `nano` e
   `ssh-keygen`. Essa sessão é necessária apenas para instalar a chave pública.

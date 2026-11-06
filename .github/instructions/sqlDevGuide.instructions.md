@@ -168,7 +168,7 @@ The example illustrates syntax and documentation, not an approved application sc
 PostgreSQL defines identifier behavior and SQL semantics, not a mandatory business naming style. Naming preferences and documentation scope above are repository conventions. Consult version-specific documentation for the deployed major version.
 
 - Organizational source: "Padrão de estruturas de dados da Anatel", supplied by the project owner. Applicable rules and approved PostgreSQL adaptations are recorded in this guide so execution does not depend on the attachment or corporate modeling tools.
-- [Repository architecture contract](../../docs/contracts/ARCHITECTURE.md)
+- [Repository architecture contract](../../.agent/contracts/ARCHITECTURE.md)
 - [PostgreSQL lexical structure and identifiers](https://www.postgresql.org/docs/18/sql-syntax-lexical.html)
 - [Object descriptions with COMMENT](https://www.postgresql.org/docs/18/sql-comment.html)
 - [Constraints](https://www.postgresql.org/docs/18/ddl-constraints.html)

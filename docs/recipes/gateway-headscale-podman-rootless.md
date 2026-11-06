@@ -41,8 +41,7 @@ global é o mecanismo aprovado.
 
 O mesmo script desativa `firewalld` e `nftables` quando presentes e define `SELINUX=disabled` em
 `/etc/selinux/config`. Isso altera o firewall e a política do host. O código de saída `3` indica
-que é necessário reiniciar; conclua o reboot antes da etapa rootless. A exposição de Cockpit na
-LAN e o efeito global do sysctl estão registrados como riscos aceitos em [TODO.md](../TODO.md).
+que é necessário reiniciar; conclua o reboot antes da etapa rootless.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -238,7 +237,7 @@ fi
 unset GWVPN_INITIAL_PASSWORD
 ```
 
-Este .env contém credencial inicial; remova-o ou mova-o depois de armazenar a credencial (pendência em docs/TODO.md).
+Este .env contém credencial inicial; remova-o ou mova-o depois de armazenar a credencial.
 
 Se houver qualquer faixa da conta em `/etc/subuid` ou `/etc/subgid`, pule `usermod` e confirme que ambas as alocações existentes são adequadas; se faltar uma faixa, pare e planeje uma alteração aprovada separada. Somente se nenhum arquivo já contiver faixa para a conta, compare os intervalos propostos com todas as faixas listadas e confirme que não há sobreposição antes de atribuí-los. Ative linger para a conta:
 
@@ -348,7 +347,7 @@ podman run --rm --network gateway-vpn --cap-add NET_ADMIN \
   --entrypoint /bin/bash localhost/gateway:1.0.0 -ec 'test -c /dev/net/tun; /usr/sbin/ip tuntap add dev tun-poc mode tun; /usr/sbin/ip link del dev tun-poc; test "$(cat /proc/sys/net/ipv4/ip_forward)" = 1'
 ```
 
-**Critério G3:** comando retorna `0`, abre/remove interface TUN e lê `ip_forward=1`. **Se falhar: pare.** Não use `--privileged`, socket Podman nem `--tun=userspace-networking` como substituto; essa alternativa não cumpre o contrato L3 sem SNAT.
+**Critério G3:** comando retorna `0`, abre/remove interface TUN e lê `ip_forward=1`. **Se falhar: pare.** Não use `--privileged`, socket Podman nem `--tun=userspace-networking` como substituto.
 
 Remova apenas os probes depois dos gates. Mantenha a rede para a instalação, mas remova/recrie-a se os parâmetros precisarem mudar:
 
@@ -632,7 +631,7 @@ Execute `enroll-gateway.sh` manualmente como `<GATEWAY_USER>`, com o container `
 único, chama `tailscale up` com `--snat-subnet-routes=false`, sem exit node e sem aceitar DNS/rotas,
 e remove o arquivo de auth key. Confirme que anuncia **somente** `<ROOTLESS_SUBNET>`; aprove essa
 rota no Headscale. O helper é classificado como alternativa rootful; a integração de inscrição
-rootless permanece pendente em [TODO.md](../TODO.md).
+rootless permanece pendente.
 
 ```bash
 NODE_ID='<ID_DO_NÓ>'
@@ -749,7 +748,7 @@ Execute os gates na ordem indicada. Qualquer falha interrompe a receita. Comando
 | G7 | DNS | `dig` UDP e TCP para `<ROOTLESS_BRIDGE_IP>` | Gateway e alias de app resolvem do cliente VPN | Pare; revise rede/DNS |
 | G8 | Acesso | `/admin` e `/health` em TCP 443 pela LAN e VPN; logs NGINX | Headplane retorna 302 pela VPN e 403 pela LAN; Headscale acessível antes da VPN; não infira acesso WAN pelos testes LAN | Pare; não relaxe controles |
 | G9 | Autostart e reboot | Conferir linger, unidades, rota de retorno, nós Headscale e reconexão do cliente após reinício do user manager e reboot do host | Unidades ativas, rota restaurada, nós online e cliente reconectado | Pare; G9 não aprovado |
-| G10 | Alvo | Conferir aprovação rootless e contrato vigente | Contrato identifica rootless como alvo e rootful como alternativa; pendências de implementação constam em `docs/TODO.md` | Pare se o contrato ou a aprovação não corresponder |
+| G10 | Modo e escopo | Conferir `podman info` para `<GATEWAY_USER>` | O runtime informa `rootless: true`; esta receita valida somente a execução rootless, não a variante rootful | Pare se o runtime não informar rootless |
 
 **Gate G9 — crítico, bloqueante.** Não reinicie o host durante este teste. Como `root`, defina `GATEWAY_USER` para a conta aprovada e reinicie seu manager com linger:
 
@@ -864,7 +863,6 @@ Mantenha os volumes, a conta, as faixas subuid/gid e os arquivos de configuraç�
 - [Tailscale containers oficiais](https://tailscale.com/kb/1282/docker)
 - [Portainer com Podman — limites de plataforma](https://docs.portainer.io/start/install-ce/server/podman/linux)
 - [Receita TLS local](gateway-tls.md)
-- [Contrato arquitetural](../contracts/ARCHITECTURE.md)
 
 <div>
   <a href="#top" title="De volta ao topo da página">

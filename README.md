@@ -6,6 +6,7 @@
         <li><a href="#estrutura">Estrutura</a></li>
         <li><a href="#mapa-das-variantes">Mapa das variantes</a></li>
         <li><a href="#documentação">Documentação</a></li>
+        <li><a href="#desenvolvimento-assistido-por-agentes">Desenvolvimento assistido por agentes</a></li>
     </ol>
 </details>
 
@@ -144,12 +145,27 @@ uv run pytest
 
 ## Documentação
 
-- [Contrato de arquitetura](docs/contracts/ARCHITECTURE.md)
-- [Plano da aplicação CRUD](docs/plans/webapp-crud.md)
-- [Histórico de execuções de laboratório](docs/plans/historico-execucoes-laboratorio.md)
 - [Receita de implantação e operação](docs/recipes/webapp-crud.md)
+- [Receita do Gateway rootless](docs/recipes/gateway-headscale-podman-rootless.md)
+- [Receita do cliente VPN](docs/recipes/gateway-vpn-client.md)
 - [Referências e reuso do Design System GOV.BR](docs/recipes/govbr-design-system.md)
-- [Instruções GOV.BR para agentes de frontend](.github/instructions/govbrDesignSystemGuide.instructions.md)
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
+## Desenvolvimento assistido por agentes
+
+O diretório [`.agent/`](.agent/) reúne contratos, planos e memória interna de desenvolvimento.
+O diretório [`.github/`](.github/) reúne papéis de agentes, instruções e skills do repositório.
+Consulte esses materiais ao usar agentes neste projeto; use `docs/` para procedimentos destinados
+a pessoas desenvolvedoras e operadoras.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

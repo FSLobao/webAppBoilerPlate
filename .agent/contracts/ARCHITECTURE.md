@@ -23,7 +23,7 @@
         <li><a href="#20-desenvolvimento-versus-produção">Desenvolvimento versus produção</a></li>
         <li><a href="#21-princípios-de-segurança">Princípios de segurança</a></li>
         <li><a href="#22-decisões-arquiteturais-já-estabelecidas">Decisões arquiteturais já estabelecidas</a></li>
-        <li><a href="#23-inputs-e-gates-de-implementação">Inputs e gates de implementação</a></li>
+        <li><a href="#23-restrições-de-implementação">Restrições de implementação</a></li>
         <li><a href="#24-critérios-de-aceitação-arquitetural">Critérios de aceitação arquitetural</a></li>
         <li><a href="#25-regra-de-evolução">Regra de evolução</a></li>
     </ol>
@@ -37,7 +37,7 @@
 **Revisão do acesso remoto:** Headscale, Headplane e `tailscaled` no Gateway constituem a única
 solução aprovada para conectividade de desenvolvedores. O alvo de runtime é Podman rootless com
 Quadlet; a variante rootful permanece implementada e mantida como alternativa. O deploy do Gateway
-rootless como código continua pendente em [TODO.md](../TODO.md).
+rootless como código continua pendente em [TODO.md](../plans/TODO.md).
 **Revisão da rede de containers:** o alvo rootless usa exclusivamente a bridge `gateway-vpn`,
 `10.90.0.0/24`, com Netavark e Aardvark DNS, resolver `10.90.0.1` e Gateway `10.90.0.2`. A rede
 padrão rootful `podman` permanece como alternativa. Não haverá redes por aplicação; preserve o IP
@@ -73,8 +73,8 @@ O boilerplate deve privilegiar:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -135,8 +135,8 @@ Referência: [instalação e execução do Cockpit no RHEL](https://cockpit-proj
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -211,8 +211,8 @@ Responsável por executar.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -260,8 +260,8 @@ e limites de ambos estão na seção 8.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -394,8 +394,8 @@ explícitas; indisponibilidade do Headplane não interrompe tráfego VPN já aut
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -426,8 +426,8 @@ RHEL não determina a distribuição dos containers.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -459,8 +459,8 @@ suportados pelo runtime atual.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -493,7 +493,7 @@ TUS. Compartilhamento básico de arquivos é opcional e somente para leitura.
 
 ## 8.2 Emulador de proxy autenticado para desenvolvimento
 
-**Status:** a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
+**Status:** a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md).
 
 Este segundo NGINX existe exclusivamente para desenvolvimento e testes. Ele escuta TCP `80` no
 container, não publica nem vincula porta no host e recebe chamadas pela rede Podman, inclusive
@@ -515,14 +515,14 @@ publicado no host nem substituir o perímetro em produção.
 Serviços não HTTP destinados a usuários usam publicação direta, com bind, protocolo e portas
 declarados, além de autenticação própria. O acesso de desenvolvimento pela VPN não depende de
 portas de aplicação publicadas no host; quando implementado, o acesso HTTP de desenvolvimento usa
-o emulador da seção 8.2, a implementar e fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
+o emulador da seção 8.2, a implementar e fora do escopo atual; consulte [TODO.md](../plans/TODO.md).
 
 ---
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -649,8 +649,8 @@ sua própria autenticação e autorização.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -687,20 +687,20 @@ e [inspeção da rede](https://docs.podman.io/en/latest/markdown/podman-network-
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
 # 11. Acesso aos containers e VS Code
 
 O desenvolvedor estabelece primeiro a VPN com o cliente Tailscale inscrito no Headscale do Gateway.
-SSH e VS Code nos containers estão a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
+SSH e VS Code nos containers estão a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md).
 Depois utiliza o DNS e as rotas distribuídos para acessar diretamente os serviços dos containers (SSH, SFTP, HTTP, ODBC etc.)
 
 ## 11.1 VS Code Remote - SSH
 
-**Status:** a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md).
+**Status:** a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md).
 
 O VS Code conecta-se ao nome DNS do container de destino pela rede VPN, sem salto intermediário
 de autenticação no Gateway e sem publicar a porta do serviço no host.
@@ -742,8 +742,8 @@ da autenticação VPN.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -767,8 +767,8 @@ O boilerplate deve documentar claramente quais volumes são obrigatórios.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -860,8 +860,8 @@ Essa integração não faz parte do boilerplate inicial.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -877,8 +877,8 @@ O repositório deve conter scripts para:
 6. conectar containers rootless somente a `gateway-vpn`, reservando `10.90.0.2` para o Gateway;
 7. declarar nomes e aliases conforme a seção 9;
 8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente `10.90.0.0/24` e instalar a rota de retorno na namespace rootless sem SNAT;
-9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080; o emulador de desenvolvimento está a implementar, fora do escopo atual, conforme [docs/TODO.md](../TODO.md);
-10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados; SSH está a implementar, fora do escopo atual, conforme [docs/TODO.md](../TODO.md);
+9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080; o emulador de desenvolvimento está a implementar, fora do escopo atual, conforme [TODO.md](../plans/TODO.md);
+10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados; SSH está a implementar, fora do escopo atual, conforme [TODO.md](../plans/TODO.md);
 11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
 12. apresentar estado, logs, recursos alterados e instruções de recuperação;
 13. agendar no host full mensal e incremental semanal por PostgreSQL; executar pgBackRest no container como `postgres`, publicar somente gerações completas verificadas em volume host separado e fornecer restore manual validado.
@@ -907,8 +907,8 @@ As chaves públicas serão lidas de arquivos fora do Git, com propriedade e perm
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -922,7 +922,7 @@ Ferramentas principais:
 
 - Portainer para inspeção, logs e operações de containers compatíveis com Quadlet;
 - Headplane para administração da VPN;
-- SSH aos containers de aplicação pela VPN (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
+- SSH aos containers de aplicação pela VPN (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
 - VS Code;
 - logs dos containers;
 - ferramentas de diagnóstico de rede.
@@ -940,8 +940,8 @@ Acesso direto ao host deve ficar reservado a:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -981,8 +981,8 @@ O objetivo é permitir responder rapidamente:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1012,8 +1012,8 @@ Integrações futuras podem incluir:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1023,17 +1023,26 @@ A estrutura final deverá separar claramente:
 
 ```text
 repository/
-├── backend/
-├── frontend/
-├── gateway/
-│   ├── development/
-│   └── application/
-├── database/
 ├── deploy/
-│   └── quadlet/
-├── config/
+│   ├── gateway/
+│   ├── scripts/
+│   └── webapp/
+├── webapp/
+│   ├── backend/
+│   ├── database/
+│   └── frontend/
 ├── docs/
-├── scripts/
+│   ├── images/
+│   └── recipes/       # Procedimentos para pessoas
+├── .agent/
+│   ├── README.md
+│   ├── contracts/     # Requisitos normativos e critérios de aceitação
+│   ├── memory/        # Memória durável e histórico de execução concluída
+│   └── plans/         # Planos de implementação e validação planejada/ativa
+└── .github/
+    ├── agents/
+    ├── instructions/
+    └── skills/
 ```
 
 A estrutura exata poderá ser ajustada durante a implementação, mas as responsabilidades devem permanecer separadas.
@@ -1042,8 +1051,8 @@ A estrutura exata poderá ser ajustada durante a implementação, mas as respons
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1068,8 +1077,8 @@ O desenvolvedor não deve precisar reproduzir manualmente a infraestrutura de pr
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1099,8 +1108,8 @@ Não devem variar:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1131,8 +1140,8 @@ Mesmo com o controle de acesso externo, devem ser mantidos os seguintes princíp
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1165,11 +1174,11 @@ As seguintes decisões são consideradas parte do contrato:
 | Endpoint de controle e VPN | TCP 443 publicado diretamente no host; Headscale e VPN usam o mesmo endpoint LAN |
 | Headplane | Interface administrativa VPN dentro do Gateway, restrita a operadores |
 | Daemon VPN | `tailscaled` no Gateway em modo kernel, atuando como subnet router |
-| Proxy HTTP | NGINX compartilhado obrigatório; emulador exclusivo de desenvolvimento a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
-| Configuração mínima | Host, Gateway, Portainer e NGINX compartilhado; emulador de desenvolvimento a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
+| Proxy HTTP | NGINX compartilhado obrigatório; emulador exclusivo de desenvolvimento a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
+| Configuração mínima | Host, Gateway, Portainer e NGINX compartilhado; emulador de desenvolvimento a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
 | Porta do proxy de aplicações | Bind selecionado `0.0.0.0:8080`, mapeado ao TCP 8080 do container NGINX compartilhado |
-| Emulador de autenticação | Container NGINX exclusivo para desenvolvimento, listener TCP 80 sem bind no host, encaminhando ao proxy compartilhado em TCP 8080; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
-| Identidade HTTP | Perímetro real autentica em produção; emulador de headers sintéticos a implementar, fora do escopo atual; aplicação autoriza; consulte [docs/TODO.md](../TODO.md) |
+| Emulador de autenticação | Container NGINX exclusivo para desenvolvimento, listener TCP 80 sem bind no host, encaminhando ao proxy compartilhado em TCP 8080; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
+| Identidade HTTP | Perímetro real autentica em produção; emulador de headers sintéticos a implementar, fora do escopo atual; aplicação autoriza; consulte [TODO.md](../plans/TODO.md) |
 | Autorização HTTP | Gate de deployment exige restrição efetiva ao perímetro confiável ou proveniência verificada; lista exata de campos e mecanismo permanecem pré-requisitos |
 | DNS e nomes | Requisitos internos e externos, incluindo split DNS, definidos na seção 9 |
 | Rede de containers | Somente `gateway-vpn` (`10.90.0.0/24`) no alvo rootless; rede padrão `podman` na alternativa rootful |
@@ -1182,15 +1191,15 @@ As seguintes decisões são consideradas parte do contrato:
 | Inscrição | Headplane gerencia usuários/dispositivos e tokens de uso único; chaves privadas geradas nos clientes; OIDC corporativo opcional |
 | Retorno da VPN | `--snat-subnet-routes=false` e rota determinística ao prefixo VPN na namespace rootless |
 | Egress de containers | Saída normal do Podman rootless pelo host; alternativa rootful pode usar masquerading |
-| SSH para aplicações | Conexão direta ao destino pela VPN para VS Code; autenticação no container, sem bastion; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
+| SSH para aplicações | Conexão direta ao destino pela VPN para VS Code; autenticação no container, sem bastion; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
 | Administração do Gateway | Headplane para VPN e Portainer para gestão do container pela VPN; sem listener de shell para desenvolvedores |
 | Bind de gestão | Headplane atrás de frontend HTTPS no Gateway; Portainer HTTPS no container dedicado, sem publicação no host; ingresso restrito à VPN e a operadores |
-| Chaves SSH dos destinos | Individuais por desenvolvedor, privadas somente no cliente, públicas provisionadas por destino; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
+| Chaves SSH dos destinos | Individuais por desenvolvedor, privadas somente no cliente, públicas provisionadas por destino; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
 | Controle de acesso | Perímetro externo mais inscrição e política Headscale; autenticação de serviço independente |
 | Podman API | Socket Unix local exclusivo do Portainer; acesso de alto privilégio, sem exposição TCP |
 | Acesso diário ao host | Não |
 | Deployment | Scripts versionados e Quadlet; preflight comum e verificações específicas por serviço |
-| SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo; a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md) |
+| SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
 | Backup PostgreSQL | pgBackRest versionado na imagem; full mensal/incremental semanal por timers host; repositório de trabalho e exportações concluídas em volumes distintos; publicação de geração completa verificada; restore manual com drill; plano, não implementado |
 | TUS e file sharing | Serviços opcionais; limite de arquivo de 1 GB por padrão; file sharing NGINX somente leitura |
 | Serviços não HTTP para usuários | Publicação direta por bind de host, protocolo e portas explicitamente declarados; autenticação do serviço e perímetro próprios |
@@ -1206,37 +1215,29 @@ As seguintes decisões são consideradas parte do contrato:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
-# 23. Inputs e gates de implementação
+# 23. Restrições de implementação
 
-As decisões de topologia confirmadas estão registradas na seção 28. Os valores operacionais e testes abaixo permanecem como inputs de deployment:
+As decisões de topologia confirmadas estão registradas na seção 22. Os inputs operacionais e as
+verificações planejadas ficam no [plano de inputs e gates de implementação](../plans/architecture-implementation.md).
+Os critérios normativos de aceitação permanecem na seção 24 e nas demais seções aplicáveis do contrato.
 
-1. Inspecionar CIDR, bridge e IPAM da rede padrão conforme a seção 9; validar endereço estável do Gateway e conflitos com prefixo VPN e rotas relevantes do host, LAN e ambiente corporativo.
-2. Definir URL HTTPS, DNS de bootstrap, certificados, binds e portas do Headscale, conectividade direta e infraestrutura DERP/STUN autorizada.
-3. Fixar versões compatíveis de Headscale, Headplane e Tailscale; validar runtime Headplane, supervisão conjunta, `/dev/net/tun`, capabilities e volumes persistentes no Gateway.
-4. Desativar SNAT do subnet router, validar retorno determinístico pelo host e determinar por teste se policy routing adicional é necessário.
-5. Validar capabilities, rotas, reinício, DNS e egress no host descartável autorizado RHEL 9.8 / Podman 5.8.2.
-6. Definir operadores autorizados de produção, UIDs/GIDs e identidades de processo; validar os três locais de PostgreSQL (`PGDATA`, repositório pgBackRest de trabalho e mount de exportação concluída), capacidade/permissões, snapshot consistente, staging de publicação e restore drill.
-7. Definir a lista permitida dos campos de identidade `X-USER` e o mecanismo verificável de proveniência perímetro-aplicação antes de expor rotas protegidas. Não escolher nomes de campos adicionais ou tratar CIDR/header bruto como autenticação.
-8. Definir a versão Node.js suportada, o storage e a conta do TUS. O limite de arquivo padrão é 1 GB e é configurável.
-9. Implementar e validar os requisitos DNS e os testes de clientes descritos na seção 9.
-10. Definir prefixo IPv4 da VPN, política de acesso, aprovação de rotas e restrição dos endpoints Headplane/Portainer a operadores. Validar inscrição pelo endpoint HTTPS antes da VPN.
-11. Implementar bootstrap administrativo e fluxo Headplane de tokens de uso único, expiração/revogação por dispositivo, auditoria sem segredos, backup e recuperação sem reinscrição. OIDC exige decisão e configuração separadas.
-12. Decidir separadamente quando converter a receita Debian do File Gateway em uma implantação containerizada.
-13. Adequar schema, runtime, configuração, testes e documentação operacional aos contratos de acesso único, rede padrão única e DNS Podman nativo, sem preservar inventário de redes por aplicação ou transportes alternativos. Não presumir suporte aos novos campos no validador atual; manter compatibilidade das seções não relacionadas e definir validação explícita das entradas substituídas.
-14. Selecionar edição/versão Portainer compatível, validar RHEL 9.8 / Podman 5.8.2 pela API compatível com Docker e comprovar acesso local ao socket sem `--privileged`. Testar HTTPS, restrição de ingresso pela VPN e pela bridge, bootstrap, backup/restore de `/data` e operações sem conflito com Quadlet. Falha de compatibilidade bloqueia aceitação.
-15. A infraestrutura deve instalar e habilitar Cockpit no host RHEL, definir endereço/bind e certificado HTTPS, autenticação corporativa e autorização de privilégios. Validar restrição de ingresso, gestão de serviços/logs/armazenamento e acesso administrativo com o Gateway parado, sem depender da VPN de desenvolvimento nem instalar `cockpit-podman`.
+A identidade de rotas protegidas exige campos `X-USER` aprovados e proveniência perímetro-aplicação
+verificável. Não adicionar nomes de campos nem tratar CIDR ou header bruto como autenticação.
+Mudanças de schema e configuração devem preservar compatibilidade das seções não relacionadas e
+validar explicitamente campos substituídos; não presumir suporte do validador atual a campos novos.
 
-SELinux desativado é uma decisão de segurança explícita. O deployment valida o estado, mas não altera a política do host.
+SELinux desativado é uma decisão de segurança explícita. O deployment valida o estado, mas não
+altera a política do host.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1252,11 +1253,11 @@ Uma implementação do boilerplate será considerada aderente quando:
 - deployment e testes de DNS em `gateway-vpn` cumprirem integralmente a seção 9, sem recriar rede em uso;
 - webapp usar endereços fixos `10.90.0.10` (`webapp-db`), `10.90.0.11` (`webapp`) e `10.90.0.12` (`app-proxy`);
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
-- desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
-- o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
+- desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
+- o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
 - NGINX compartilhado receber todas as aplicações por um endpoint host `0.0.0.0:8080`, mapeado ao TCP/8080 do container;
 - cada aplicação HTTP puder ser encaminhada por um prefixo de caminho, como `/app1` ou `/app2`, sem exigir outra porta publicada;
-- o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080 (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
+- o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080 (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
 - NGINX encaminhar, para a aplicação inicial, `/webapp/` e `/webapp/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
 - FastAPI servir, na aplicação inicial, a SPA em `/webapp/` e a API em `/webapp/api/` no único listener TCP `8000`;
 - o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
@@ -1276,10 +1277,10 @@ Uma implementação do boilerplate será considerada aderente quando:
 - não haver DHCP para clientes VPN, extensão Ethernet da rede de containers aos clientes ou TAP;
 - egress rootless alcançar destinos externos pela saída normal do Podman no host; a alternativa rootful pode usar masquerading;
 - deployment rootless usar Quadlet e passar aceitação em RHEL 9.8 / Podman 5.8.2 com SELinux desativado; rootful permanece alternativa;
-- chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md));
-- chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md)); PAM permanece responsabilidade externa;
+- chaves públicas individuais puderem ser provisionadas pelo bootstrap do deployment (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
+- chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md)); PAM permanece responsabilidade externa;
 - o Gateway não oferecer listener de shell ou transporte alternativo para acesso remoto de desenvolvedores;
-- Portainer permitir as operações de containers aprovadas, via API compatível com Docker e socket local, no alvo RHEL 9.8 / Podman 5.8.2, sem `--privileged`;
+- Portainer permitir as operações de containers aprovadas, via API compatível com Docker e socket local, no alvo RHEL 9.8 / Podman 5.8.2, sem `--privileged`; falha de compatibilidade bloqueia aceitação;
 - somente Portainer receber o socket Podman, com acesso restrito a operadores confiáveis e sem exposição TCP da API;
 - Portainer não substituir Quadlet nem criar stacks ou configuração estrutural concorrente; validar efeitos das operações na política de reinício systemd;
 - dados em `/data` sobreviverem à recriação do Portainer, com backup/restore e bootstrap administrativo protegido;
@@ -1293,7 +1294,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
 - seções não relacionadas do JSON permanecerem compatíveis com `schema_version: 1`; rede, DNS e acesso remoto seguem validação definida nas seções 5.5 e 9;
-- os dois NGINX funcionarem como proxies HTTP distintos: o compartilhado obrigatório para aplicações e o emulador exclusivo para desenvolvimento (a implementar, fora do escopo atual; consulte [docs/TODO.md](../TODO.md)); nenhum deles servir tráfego administrativo;
+- os dois NGINX funcionarem como proxies HTTP distintos: o compartilhado obrigatório para aplicações e o emulador exclusivo para desenvolvimento (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md)); nenhum deles servir tráfego administrativo;
 - o acesso externo continuar controlado pela infraestrutura de segurança existente;
 - deployment puder ser repetido sem destruir dados;
 - diagnóstico básico de rede puder ser realizado sem acesso ao host RHEL;
@@ -1305,8 +1306,8 @@ Uma implementação do boilerplate será considerada aderente quando:
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
 
@@ -1345,8 +1346,7 @@ software customizado
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-    <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+    <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
   </picture></a><br><br>
 </div>
-

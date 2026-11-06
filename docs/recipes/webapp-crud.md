@@ -16,7 +16,6 @@
 ## Objetivo
 
 Esta receita implanta a SPA de cadastro de usuários em um host Podman rootful.
-O desenho e as decisões estão no [plano](../plans/webapp-crud.md).
 
 Ao final, o host atende:
 
@@ -39,7 +38,7 @@ Ao final, o host atende:
 - Linux com systemd e Podman 5 com Quadlet.
 - Execução como `root`.
 - Rede padrão `podman` com DNS habilitado. Confira com `podman network inspect podman --format '{{.DNSEnabled}}'`.
-- SELinux `Disabled`, conforme o [contrato de arquitetura](../contracts/ARCHITECTURE.md).
+- SELinux `Disabled`.
 - Porta TCP 8080 livre no host.
 - Acesso às imagens `docker.io/library/postgres:18-trixie`, `docker.io/library/nginx:1.28-alpine`, `docker.io/library/python:3.13-slim-trixie` e `ghcr.io/astral-sh/uv:0.9-python3.13-trixie-slim`.
 - `curl` e `jq` para o teste ponta a ponta.

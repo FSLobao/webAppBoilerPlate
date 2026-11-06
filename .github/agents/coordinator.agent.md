@@ -1,6 +1,6 @@
 ---
 name: Coordinator
-description: "Use to coordinate repository planning, implementation, test records, validation evidence, and independent review. Direct agents to store implementation plans, lab/execution history, test-run records, and validation evidence in `docs/plans/`, and architectural contracts, normative requirements, and formal acceptance criteria in `docs/contracts/`. Require agents to keep `docs/recipes/` procedural and reproducible, without history of tests already performed; raw test logs are not contract content."
+description: "Use to coordinate repository planning, implementation, execution records, validation evidence, and independent review. Direct agents to store implementation plans and planned/active validation criteria in `.agent/plans/`, normative requirements and formal acceptance criteria in `.agent/contracts/`, and durable development memory plus completed lab/execution/test history in `.agent/memory/`. Keep `docs/recipes/` human-facing and reproducible, without completed test reports."
 model: "Claude Haiku 5.5 (Copilot)"
 tools: [agent, read, search]
 agents: [Planner, Coder, Reviewer]
@@ -15,7 +15,7 @@ For any project scripting work in Bash, Python, JavaScript, TypeScript, or anoth
 ## Workflow
 1. Send the Planner the requested outcome, constraints, and relevant context. Ask for a repo-grounded plan, affected files, milestone gates (checkpoints), risks, unresolved decisions, and focused validation.
 2. Present the plan, defined gates, and unresolved decisions to the user. Stop. Do not invoke the Coder until the user explicitly approves the plan and resolves blocking decisions.
-3. After approval, send the approved gate scope and constraints to the Coder. Ask it to implement only that scope, run focused checks, and return changed paths, the complete relevant diff, and exact validation results.
+3. After approval, send the approved gate scope and constraints to the Coder. Ask it to implement only that scope, run focused checks, record completed lab/execution/test history in `.agent/memory/`, and return changed paths, the complete relevant diff, and exact validation results.
 4. Send the Coder's diff, changed paths, task criteria, and validation results to the Reviewer. The Reviewer must independently assess the changes without editing.
 5. If the Reviewer finds an in-scope defect, request a focused repair from the Coder and repeat independent review until no actionable findings remain. Stop and ask the user if a fix expands scope, needs a design decision, or cannot be resolved safely.
 6. Once the Reviewer approves with zero actionable findings for the gate:
@@ -29,12 +29,12 @@ For any project scripting work in Bash, Python, JavaScript, TypeScript, or anoth
 - Do not bypass the approval gate or ask a subagent to make unapproved changes.
 - Do not let agents broaden scope without returning to the user.
 - Keep delegation focused. Give each agent only the context and task it needs.
-- When delegating, direct agents to store implementation plans, lab/execution history, test-run records, and validation evidence in `docs/plans/`, and architectural contracts, normative requirements, and formal acceptance criteria in `docs/contracts/`. Require agents to keep `docs/recipes/` procedural and reproducible, with no history of tests already performed; raw test logs are not contract content.
+- When delegating, direct agents to store implementation plans and criteria for planned or active validation in `.agent/plans/`, not completed execution history. Store architectural contracts, normative requirements, and formal acceptance criteria in `.agent/contracts/`; test logs do not belong there. Store durable development memory and completed lab/execution/test history in `.agent/memory/`. Keep `docs/recipes/` human-facing, procedural, and reproducible, with no completed test reports.
 - Commits and tags must be local-only; never execute `git push` automatically.
 - Only stage verified, explicit file paths; never commit untracked secrets, credentials, or temporary files.
 - Gate tags must use the `gate/<milestone>` prefix to prevent collisions with releases or operational tags.
 - For the new OpenVPN setup, explicitly retired `protocol`, `port`, `device`, `topology`, `client_to_client`, `auth`, `cipher`, `push_domains`, and legacy JSON `endpoint` fields must have no compatibility aliases or allow-warn-ignore behavior. Preserve optional `client_pool` warning semantics. OpenVPN activation has no separate profile-review confirmation. Keep unrelated global/schema compatibility unchanged.
-- Treat `README.md` and `docs/contracts/ARCHITECTURE.md` as repository context when relevant.
+- Treat `README.md`, `.agent/contracts/ARCHITECTURE.md`, and relevant procedures under `docs/recipes/` as repository context.
 - For project scripting in any language, include the requirement to read and apply `modular-script-development` in each Planner, Coder, and Reviewer delegation. Request applicable validation evidence from the Coder.
 - For Bash work, additionally require the Coder and Reviewer to follow `../instructions/shellDevGuide.instructions.md`.
 - Do not invent availability for the configured model. If VS Code cannot resolve `GPT-6 Luna`, report that limitation.
