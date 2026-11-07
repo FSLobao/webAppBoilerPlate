@@ -85,7 +85,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - Menu Ellipsis-v: painel, itens, item ativo com marcador visual e foco visível, em todas as larguras (D1).
   - Barra de paginação: rodapé com "Exibir", contador, "Página" e setas (D2, D8).
   - Banner de limite com bloco informativo (R1).
-  - Seletores de estado: `.table-sort-indicator.is-ascending`, `.table-sort-indicator.is-descending`, `.table-sort-menu-item.is-active`, `.table-sort-menu-item[aria-current="true"]`, `.table-loading-spinner[hidden]` e `.table-scroll[aria-busy="true"]`; cartões de G3: `.table-card-cell` (classe aplicada pela marcação de G3 e referenciada pelo override de G1) e `.table-card-label-row`.
+  - Seletores de estado: `.table-sort-indicator.is-ascending`, `.table-sort-indicator.is-descending`, `.table-sort-menu-item.is-active`, `.table-sort-menu-item[aria-current="true"]`, `.table-loading-spinner[hidden]` e `.table-scroll[aria-busy="true"]`; `.table-card-cell` e `.table-card-label-row` são criadas por `createUserRow` em G4 e usam o override CSS de G1.
   - Tokens: usar somente custom properties definidas em `styles.css` ou em `assets/vendor/govbr-core-3.7.0/core.min.css`.
 - **ACs cobertos.** Estilos de AC-03, AC-07, AC-08, AC-09, AC-10, AC-11 e AC-12. A verificação final é feita em G5.
 - **Validação planejada.** `node --test webapp/frontend/tests/css-scanner.test.mjs`. Complemento: `node --test webapp/frontend/tests/navigation.test.mjs`, porque ele lê `styles.css`. O teste do scanner cobre somente o parser.
@@ -139,17 +139,16 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Mudanças.**
   - Barra de título com botão de lupa (SVG inline original) e campo de busca sobre a barra, com botão de fechar. Ambos ficam ocultos por padrão.
   - Search chip container next to search input; each chip uses GovBR Core `.br-button.small` modifier. Do not add a local `min-height`.
-  - Botão de reticências (SVG inline original) com `aria-haspopup="menu"` e `aria-expanded="false"`. O menu tem "Adicionar usuário" e o grupo "Ordenar" com Nome, Email e Localização. O menu começa com `hidden`.
+  - Botão de reticências (SVG inline original) com `aria-expanded="false"` e `aria-controls="users-table-menu"`. O menu tem "Adicionar usuário" e o grupo "Ordenar" com Nome, Email e Localização. O menu começa com `hidden`.
   - Cabeçalhos de Nome, Email e Localização com botão de ordenação e `aria-sort="none"`. Foto e Ações não recebem botão.
   - **G3-R1 Menu clipping.** G3 must prevent `.table-sort-menu` from being clipped by the existing `.table-card { overflow: hidden; }` in cards with 0 or 1 row. For example, allow overflow on the card and preserve rounded corners on its children. G5 must verify 0 and 1 rows at 375, 768, and 1024 px.
   - **G3-R2 Chip DOM order.** Place the remove control before the term text in the DOM. Its accessible name is `Remover <termo>`. Do not reorder with CSS.
-  - **G3-R3 Card label row.** Add class `.table-card-cell` to each card `td`. Add a `.table-card-label-row` `span` containing label text (with U+00A0 between words) and `.table-sort-indicator` with `aria-hidden="true"`. The more-specific `.table-scroll tbody td[data-label].table-card-cell::before` CSS override hides the old label without changing the existing `td[data-label]::before` rule.
   - Rodapé de paginação: seletor "Exibir" com 10, 50 e 100 (10 selecionado), contador com `aria-live="polite"`, seletor "Página" e botões de seta. Cada seta usa `<img src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg" alt="">` ou o equivalente direito, com `aria-label` ("Página anterior" e "Próxima página").
   - Banner de limite, oculto por padrão.
   - Mensagem de busca sem resultado (D9), oculta por padrão.
   - Elemento de carregamento com `role="status"`, `aria-live="polite"` e texto "Carregando usuários", oculto por padrão. O `status-region` existente mantém o uso atual.
   - Botão `#new-user-button` preservado.
-  - IDs novos, fixados aqui para G4: `users-table-search-toggle`, `users-table-search-input`, `users-table-search-close`, `users-table-chips`, `users-table-menu-button`, `users-table-menu`, `users-table-page-size`, `users-table-page`, `users-table-counter`, `users-table-cap-banner`, `users-table-empty` e `users-table-loading`.
+  - IDs novos, fixados aqui para G4: `users-table-search-toggle`, `users-table-search-field`, `users-table-search-input`, `users-table-search-close`, `users-table-chips`, `users-table-chip-template`, `users-table-menu-button`, `users-table-menu`, `users-table-menu-add`, `users-table-menu-sort-label`, `users-table-page-size`, `users-table-page`, `users-table-page-prev`, `users-table-page-next`, `users-table-counter`, `users-table-cap-banner`, `users-table-empty` e `users-table-loading` (spinner, R2).
   - Preservar todos os IDs e classes usados pelos testes: `users-table-title`, `users-table-body`, `table-card`, `new-user-button`, `status-region`, `user-dialog`, `user-form`, `user-dialog-title`, `user-dialog-error`, `user-dialog-close`, `user-dialog-cancel`, `user-name`, `user-email`, `user-location`, `user-image`, `image-preview`, `remove-image-option`, `remove-image`, `user-save-button`, `delete-dialog`, `delete-dialog-content`, `delete-dialog-message`, `delete-dialog-error`, `delete-dialog-cancel` e `delete-confirm-button`.
 - **ACs cobertos.** Estrutura de AC-03, AC-07, AC-08, AC-09, AC-10 e AC-12.
 - **Validação planejada.** `node --test webapp/frontend/tests/css-scanner.test.mjs` e `node --test webapp/frontend/tests/navigation.test.mjs`. Conferir com `grep` que cada ID da lista de preservação aparece em `index.html`.
@@ -172,12 +171,15 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Arquivos.** Somente `webapp/frontend/app.js`.
 - **Mudanças.**
   - Estado: `allUsers`, `terms`, `sort: { field, direction }`, `page` e `pageSize`. `sort.field` começa nulo (P6).
-  - Carregamento: mostra `users-table-loading` e define `aria-busy="true"` no contêiner da tabela durante `api/users` e a renderização. Remove ambos ao terminar (R2).
+  - Painéis: usar um único estado `openPanel` (`null`, busca ou menu). Abrir busca fecha menu; abrir menu fecha busca.
+  - Carregamento: mantém `users-table-loading` e seu `role="status"` no DOM; altera só o texto e a visibilidade do spinner para anunciar "Carregando usuários". Embora G3 inicie o elemento com `hidden`, G4 não oculta a região; define `aria-busy="true"` no contêiner da tabela durante `api/users` e a renderização e remove o atributo ao terminar (R2).
   - Busca: ao pressionar Enter, `parseSearchTerms` divide o texto. Cada termo novo vira chip, o campo é limpo e termos repetidos não são duplicados (P7).
   - Chips: criados com `textContent`. Remover um chip atualiza `terms` e devolve o foco a `users-table-search-input` (P5, REQ-03).
+  - O botão de remoção define `aria-label` por chip como `Remover <termo>`; não reutiliza o valor estático `Remover termo` do template.
   - Lupa: abre `users-table-search-input`. O botão de fechar oculta o campo e devolve o foco à lupa.
   - Menu: abre com clique, Enter ou Espaço no botão e atualiza `aria-expanded`. Escape ou clique fora fecha e devolve o foco ao botão. "Adicionar usuário" chama o mesmo handler de `#new-user-button`. Escolher coluna chama `cycleSort`, fecha o menu e devolve o foco ao botão.
   - Cabeçalhos: clique chama `cycleSort`. Atualiza `aria-sort` em todos os cabeçalhos ordenáveis e o estado dos triângulos dos cartões (REQ-08).
+  - Cartões: `createUserRow` adiciona `.table-card-cell` às células e `.table-card-label-row` com rótulo (U+00A0) e indicador de ordenação com `aria-hidden="true"`.
   - Renderização: linhas criadas com `createElement` e `textContent`. Destaque com nós de texto e `<mark>`, nunca com `innerHTML` (REQ-04).
   - Paginação: `users-table-page-size` altera `pageSize` e volta para página 1 (P8). `users-table-page` e as setas alteram `page`.
     - Os valores de `<select>` para página e `pageSize` são strings; converta ambos com `Number()` antes de chamar `paginate`: página não numérica vira 1, e `pageSize` string gera `RangeError`.
@@ -218,6 +220,10 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   | Spinner durante `api/users` atrasada, com `aria-busy`, texto e reduced motion emulado | Maior ou igual a 1024 px | AC-12 |
   | Sem overflow horizontal da página, com `scrollWidth` menor ou igual a `clientWidth` | 768 px e 793.98 px | AC-10 |
   | Triângulos somente em Nome, Email e Localização e destaque do cartão ativo | Abaixo de 768 px | AC-08, AC-10 |
+
+- Conferir visualmente `.table-sort-button` e `.table-page-button` em 375, 768 e 1024 px; sem regra própria, herdam `.br-button` do core.
+- Conferir o raio do cartão com `.table-search-field` aberta (`inset: 0` sobre `.top-bar`), com 0 e 1 linha.
+- Em 375 px, medir `scrollWidth` com 0 e 1 linhas, tanto com busca aberta quanto com menu aberto.
 
 - **ACs cobertos.** AC-03 a AC-12.
 - **Depende de.** G4.

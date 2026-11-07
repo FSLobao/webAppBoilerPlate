@@ -123,18 +123,104 @@
                     <div class="table-header">
                         <div class="top-bar">
                             <h2 class="table-title" id="users-table-title">Usuários cadastrados</h2>
+                            <button class="br-button circle table-search-toggle" id="users-table-search-toggle"
+                                type="button" aria-label="Buscar usuários" aria-expanded="false"
+                                aria-controls="users-table-search-field">
+                                <svg class="table-control-icon" aria-hidden="true" focusable="false"
+                                    viewBox="0 0 24 24">
+                                    <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor"
+                                        stroke-width="2"></circle>
+                                    <line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round"></line>
+                                </svg>
+                            </button>
+                            <div class="table-menu-anchor">
+                                <button class="br-button circle table-menu-button" id="users-table-menu-button"
+                                    type="button" aria-label="Mais opções da tabela" aria-expanded="false"
+                                    aria-controls="users-table-menu">
+                                    <svg class="table-control-icon" aria-hidden="true" focusable="false"
+                                        viewBox="0 0 24 24">
+                                        <circle cx="5" cy="12" r="1.5" fill="currentColor"></circle>
+                                        <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+                                        <circle cx="19" cy="12" r="1.5" fill="currentColor"></circle>
+                                    </svg>
+                                </button>
+                                <div class="table-sort-menu" id="users-table-menu"
+                                    aria-labelledby="users-table-menu-button" role="group" hidden>
+                                    <ul class="table-sort-menu-list">
+                                        <li>
+                                            <button class="table-sort-menu-item br-button" id="users-table-menu-add"
+                                                type="button">Adicionar usuário</button>
+                                        </li>
+                                        <li class="table-sort-menu-group">
+                                            <div role="group" aria-labelledby="users-table-menu-sort-label">
+                                                <span class="table-sort-menu-heading"
+                                                    id="users-table-menu-sort-label">Ordenar</span>
+                                                <ul class="table-sort-menu-list">
+                                                    <li>
+                                                        <button class="table-sort-menu-item br-button" type="button"
+                                                            data-sort-field="name">Nome</button>
+                                                    </li>
+                                                    <li>
+                                                        <button class="table-sort-menu-item br-button" type="button"
+                                                            data-sort-field="email">Email</button>
+                                                    </li>
+                                                    <li>
+                                                        <button class="table-sort-menu-item br-button" type="button"
+                                                            data-sort-field="location">Localização</button>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="table-search-field" id="users-table-search-field" hidden>
+                                <label class="sr-only" for="users-table-search-input">Buscar na tabela</label>
+                                <input class="table-search-input" id="users-table-search-input" type="search"
+                                    placeholder="Buscar na tabela">
+                                <div class="table-search-chips" id="users-table-chips"></div>
+                                <button class="br-button circle table-search-close" id="users-table-search-close"
+                                    type="button" aria-label="Fechar busca">
+                                    <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/times.svg"
+                                        alt="">
+                                </button>
+                            </div>
+                            <template id="users-table-chip-template">
+                                <span class="br-button small table-search-chip">
+                                    <button type="button" class="table-search-chip-remove" aria-label="Remover termo">
+                                        <span aria-hidden="true">×</span>
+                                    </button>
+                                    <span class="table-search-chip-text"></span>
+                                </span>
+                            </template>
+                        </div>
+                        <div class="table-loading-spinner" id="users-table-loading" role="status"
+                            aria-live="polite" hidden>
+                            <span class="table-loading-indicator" aria-hidden="true"></span>
+                            <span>Carregando usuários</span>
                         </div>
                     </div>
-                    <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários">
+                    <div class="table-scroll responsive" role="region" aria-label="Tabela de usuários"
+                        aria-busy="false">
                         <!-- Explicit roles retain table semantics when responsive CSS changes display values. -->
                         <table role="table">
                             <caption>Usuários cadastrados</caption>
                             <thead class="table-head-hidden-in-cards" role="rowgroup">
                                 <tr role="row">
                                     <th role="columnheader" scope="col">Foto</th>
-                                    <th role="columnheader" scope="col">Nome</th>
-                                    <th role="columnheader" scope="col">Email</th>
-                                    <th role="columnheader" scope="col">Localização</th>
+                                    <th role="columnheader" scope="col" aria-sort="none">
+                                        <button class="br-button table-sort-button" type="button"
+                                            data-sort-field="name">Nome</button>
+                                    </th>
+                                    <th role="columnheader" scope="col" aria-sort="none">
+                                        <button class="br-button table-sort-button" type="button"
+                                            data-sort-field="email">Email</button>
+                                    </th>
+                                    <th role="columnheader" scope="col" aria-sort="none">
+                                        <button class="br-button table-sort-button" type="button"
+                                            data-sort-field="location">Localização</button>
+                                    </th>
                                     <th class="actions-cell" role="columnheader" scope="col">Ações</th>
                                 </tr>
                             </thead>
@@ -144,6 +230,38 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <p class="table-empty-state" id="users-table-empty" role="status" aria-live="polite" hidden>
+                        Nenhum usuário encontrado para a busca informada.
+                    </p>
+                    <p class="table-cap-banner" id="users-table-cap-banner" role="status" hidden></p>
+                    <div class="table-pagination">
+                        <div class="table-pagination-left">
+                            <label for="users-table-page-size">Exibir</label>
+                            <select id="users-table-page-size">
+                                <option value="10" selected>10</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                            <span class="table-pagination-counter" id="users-table-counter"
+                                aria-live="polite">Nenhum item</span>
+                        </div>
+                        <div class="table-pagination-right">
+                            <label for="users-table-page">Página</label>
+                            <select id="users-table-page">
+                                <option value="1">1</option>
+                            </select>
+                            <button class="br-button circle table-page-button" id="users-table-page-prev"
+                                type="button" aria-label="Página anterior">
+                                <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg"
+                                    alt="">
+                            </button>
+                            <button class="br-button circle table-page-button" id="users-table-page-next"
+                                type="button" aria-label="Próxima página">
+                                <img class="button-icon" src="assets/vendor/fontawesome-5.11.2/solid/chevron-right.svg"
+                                    alt="">
+                            </button>
+                        </div>
                     </div>
                 </section>
             </main>
