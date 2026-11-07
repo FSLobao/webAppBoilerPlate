@@ -606,8 +606,20 @@ h1 {
   animation: table-loading-rotate 0.8s linear infinite;
 }
 
+.table-loading-indicator[hidden] {
+  display: none;
+}
+
 .table-loading-spinner[hidden] {
   display: none;
+}
+
+#users-table-loading:not(:has(.table-loading-indicator:not([hidden]))) {
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 .table-scroll[aria-busy="true"] {

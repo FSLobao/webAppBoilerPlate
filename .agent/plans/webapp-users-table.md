@@ -146,7 +146,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - Rodapé de paginação: seletor "Exibir" com 10, 50 e 100 (10 selecionado), contador com `aria-live="polite"`, seletor "Página" e botões de seta. Cada seta usa `<img src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg" alt="">` ou o equivalente direito, com `aria-label` ("Página anterior" e "Próxima página").
   - Banner de limite, oculto por padrão.
   - Mensagem de busca sem resultado (D9), oculta por padrão.
-  - Elemento de carregamento com `role="status"`, `aria-live="polite"` e texto "Carregando usuários", oculto por padrão. O `status-region` existente mantém o uso atual.
+  - Elemento de carregamento com `role="status"`, `aria-live="polite"` e texto "Carregando usuários". O spinner fica oculto por padrão através de `.table-loading-indicator[hidden]`. O `status-region` existente mantém o uso atual.
   - Botão `#new-user-button` preservado.
   - IDs novos, fixados aqui para G4: `users-table-search-toggle`, `users-table-search-field`, `users-table-search-input`, `users-table-search-close`, `users-table-chips`, `users-table-chip-template`, `users-table-menu-button`, `users-table-menu`, `users-table-menu-add`, `users-table-menu-sort-label`, `users-table-page-size`, `users-table-page`, `users-table-page-prev`, `users-table-page-next`, `users-table-counter`, `users-table-cap-banner`, `users-table-empty` e `users-table-loading` (spinner, R2).
   - Preservar todos os IDs e classes usados pelos testes: `users-table-title`, `users-table-body`, `table-card`, `new-user-button`, `status-region`, `user-dialog`, `user-form`, `user-dialog-title`, `user-dialog-error`, `user-dialog-close`, `user-dialog-cancel`, `user-name`, `user-email`, `user-location`, `user-image`, `image-preview`, `remove-image-option`, `remove-image`, `user-save-button`, `delete-dialog`, `delete-dialog-content`, `delete-dialog-message`, `delete-dialog-error`, `delete-dialog-cancel` e `delete-confirm-button`.
@@ -168,11 +168,13 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 ## G4 Controlador
 
 - **Escopo.** Ligação de eventos, estado e renderização. Regras de busca, ordenação, limite e paginação ficam em `table-model.mjs`.
-- **Arquivos.** Somente `webapp/frontend/app.js`.
+- **Alteração por revisão.** Este gate também alterou `webapp/frontend/index.html` (`users-table-loading` sem o atributo `hidden`) e `webapp/frontend/styles.css` (regra de zero espaço para a região de carregamento e regra `[hidden]` do spinner), por decisão de revisão.
+- M2 aberto: fechar pela lupa mantém termos e oculta chips; fechar pelo X limpa termos. Opções: A (qualquer fechamento limpa termos) ou B (painel permanece aberto enquanto houver termos). Decisão pendente do usuário.
+- **Arquivos.** Principal: `webapp/frontend/app.js`. `webapp/frontend/index.html` e `webapp/frontend/styles.css` são exceção de revisão aprovada (ver "Alteração por revisão" acima).
 - **Mudanças.**
   - Estado: `allUsers`, `terms`, `sort: { field, direction }`, `page` e `pageSize`. `sort.field` começa nulo (P6).
   - Painéis: usar um único estado `openPanel` (`null`, busca ou menu). Abrir busca fecha menu; abrir menu fecha busca.
-  - Carregamento: mantém `users-table-loading` e seu `role="status"` no DOM; altera só o texto e a visibilidade do spinner para anunciar "Carregando usuários". Embora G3 inicie o elemento com `hidden`, G4 não oculta a região; define `aria-busy="true"` no contêiner da tabela durante `api/users` e a renderização e remove o atributo ao terminar (R2).
+  - Carregamento: mantém `users-table-loading` e seu `role="status"` no DOM; altera só o texto e a visibilidade do spinner para anunciar "Carregando usuários". Embora G3 inicie o elemento com `hidden`, G4 não oculta a região; define `aria-busy="true"` no contêiner da tabela durante `api/users` e a renderização e mantém aria-busy false ao concluir (R2).
   - Busca: ao pressionar Enter, `parseSearchTerms` divide o texto. Cada termo novo vira chip, o campo é limpo e termos repetidos não são duplicados (P7).
   - Chips: criados com `textContent`. Remover um chip atualiza `terms` e devolve o foco a `users-table-search-input` (P5, REQ-03).
   - O botão de remoção define `aria-label` por chip como `Remover <termo>`; não reutiliza o valor estático `Remover termo` do template.
@@ -191,6 +193,8 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Validação planejada.** `node --check webapp/frontend/app.js` e `node --test webapp/frontend/tests/*.test.mjs`.
 - **Depende de.** G2 e G3.
 - **Commit.** `feat(webapp): wire users table controls`.
+- Residual: sem teste unitário para waitForRenderFrame e para o reset do contador no erro; cobertura manual em G5.
+- Residual: requestAnimationFrame pausa em aba oculta; render e aria-busy permanecem até a aba voltar. Aceito, sem timer por decisão do gate.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

@@ -12,6 +12,20 @@ import {
   showDialogError
 } from "./dialog-accessibility.mjs";
 import { initializeNavigation } from "./navigation.mjs";
+import {
+  DEFAULT_PAGE_SIZE,
+  RESULT_CAP,
+  SORTABLE_FIELDS,
+  counterText,
+  cycleSort,
+  filterAndCap,
+  findHighlightRanges,
+  normalizeText,
+  paginate,
+  parseSearchTerms,
+  sortRows,
+  toSearchText
+} from "./table-model.mjs";
 
 const API_USERS_URL = "api/users";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -24,6 +38,29 @@ const elements = {
   newUserButton: document.querySelector("#new-user-button"),
   statusRegion: document.querySelector("#status-region"),
   tableBody: document.querySelector("#users-table-body"),
+  tableScroll: document.querySelector(".table-scroll"),
+  searchToggle: document.querySelector("#users-table-search-toggle"),
+  searchField: document.querySelector("#users-table-search-field"),
+  searchInput: document.querySelector("#users-table-search-input"),
+  searchClose: document.querySelector("#users-table-search-close"),
+  searchChips: document.querySelector("#users-table-chips"),
+  chipTemplate: document.querySelector("#users-table-chip-template"),
+  menuButton: document.querySelector("#users-table-menu-button"),
+  menu: document.querySelector("#users-table-menu"),
+  menuAdd: document.querySelector("#users-table-menu-add"),
+  pageSize: document.querySelector("#users-table-page-size"),
+  page: document.querySelector("#users-table-page"),
+  pagePrevious: document.querySelector("#users-table-page-prev"),
+  pageNext: document.querySelector("#users-table-page-next"),
+  counter: document.querySelector("#users-table-counter"),
+  capBanner: document.querySelector("#users-table-cap-banner"),
+  emptyState: document.querySelector("#users-table-empty"),
+  loadingIndicator: document.querySelector(
+    "#users-table-loading .table-loading-indicator"
+  ),
+  loadingText: document.querySelector(
+    "#users-table-loading span:not(.table-loading-indicator)"
+  ),
   userDialog: document.querySelector("#user-dialog"),
   userForm: document.querySelector("#user-form"),
   userDialogTitle: document.querySelector("#user-dialog-title"),
@@ -47,7 +84,13 @@ const elements = {
 };
 
 const state = {
-  users: [],
+  allUsers: [],
+  terms: [],
+  sort: { field: null, direction: "asc" },
+  page: 1,
+  pageSize: DEFAULT_PAGE_SIZE,
+  totalPages: 1,
+  openPanel: null,
   currentUser: null,
   userDialogReturnUserId: null,
   deleteUserId: null,
@@ -188,14 +231,19 @@ function setBusy(isBusy) {
     ]);
   }
 
-  const buttons = document.querySelectorAll(
-    "#new-user-button, #users-table-body button, #user-dialog button, #delete-dialog button"
+  const controls = document.querySelectorAll(
+    "#new-user-button, #users-table-body button, #user-dialog button, #delete-dialog button, " +
+      "#users-table-search-toggle, #users-table-search-input, #users-table-search-close, " +
+      "#users-table-chips button, #users-table-menu-button, #users-table-menu button, " +
+      ".table-sort-button, #users-table-page-size, #users-table-page, " +
+      "#users-table-page-prev, #users-table-page-next"
   );
 
-  for (const button of buttons) {
-    button.disabled = isBusy;
+  for (const control of controls) {
+    control.disabled = isBusy;
   }
 
+  updatePaginationControls();
   elements.userSaveButton.textContent = isBusy
     ? "Salvando..."
     : state.currentUser
@@ -308,6 +356,67 @@ function createMessageRow(message, isEmpty = false) {
 }
 
 /**
+ * Create a card label and its decorative sort indicators.
+ *
+ * @param {string} label - The visible column label.
+ * @param {string} field - The field represented by this card cell.
+ * @returns {HTMLSpanElement} A label row with the current sort direction.
+ */
+function createCardLabelRow(label, field) {
+  const row = document.createElement("span");
+  const labelText = document.createElement("span");
+  const indicator = document.createElement("span");
+  const ascending = document.createElement("span");
+  const descending = document.createElement("span");
+
+  row.className = "table-card-label-row";
+  labelText.textContent = label.split(/\s+/u).join("\u00a0");
+  indicator.className = "table-sort-indicator";
+  indicator.setAttribute("aria-hidden", "true");
+  ascending.className = "table-sort-triangle-up";
+  descending.className = "table-sort-triangle-down";
+  indicator.append(ascending, descending);
+
+  if (state.sort?.field === field) {
+    indicator.classList.add(
+      state.sort.direction === "asc" ? "is-ascending" : "is-descending"
+    );
+  }
+
+  row.append(labelText, indicator);
+  return row;
+}
+
+/**
+ * Append user text as safe nodes and mark matching search ranges.
+ *
+ * @param {HTMLTableCellElement} cell - The cell receiving the text.
+ * @param {unknown} value - The API value to display.
+ */
+function appendHighlightedText(cell, value) {
+  const text = toSearchText(value);
+  const ranges = state.terms.length > 0
+    ? findHighlightRanges(text, state.terms)
+    : [];
+  let previousEnd = 0;
+
+  for (const range of ranges) {
+    if (range.start > previousEnd) {
+      cell.append(document.createTextNode(text.slice(previousEnd, range.start)));
+    }
+
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(range.start, range.end);
+    cell.append(mark);
+    previousEnd = range.end;
+  }
+
+  if (previousEnd < text.length || ranges.length === 0) {
+    cell.append(document.createTextNode(text.slice(previousEnd)));
+  }
+}
+
+/**
  * Build one user row using text nodes and DOM elements.
  *
  * @param {Object} user - The API user record to display.
@@ -323,19 +432,25 @@ function createUserRow(user) {
   const actions = document.createElement("div");
 
   row.setAttribute("role", "row");
-  photoCell.className = "photo-cell";
+  photoCell.className = "photo-cell table-card-cell";
   photoCell.setAttribute("role", "cell");
   photoCell.append(createAvatar(user));
-  nameCell.className = "name-cell";
+  nameCell.className = "name-cell table-card-cell";
+  nameCell.dataset.label = "Nome";
   nameCell.setAttribute("role", "cell");
-  nameCell.textContent = user.name;
-  emailCell.setAttribute("role", "cell");
+  nameCell.append(createCardLabelRow("Nome", "name"));
+  appendHighlightedText(nameCell, user.name);
+  emailCell.className = "table-card-cell";
   emailCell.dataset.label = "Email";
-  emailCell.textContent = user.email;
-  locationCell.setAttribute("role", "cell");
+  emailCell.setAttribute("role", "cell");
+  emailCell.append(createCardLabelRow("Email", "email"));
+  appendHighlightedText(emailCell, user.email);
+  locationCell.className = "table-card-cell";
   locationCell.dataset.label = "Localização";
-  locationCell.textContent = user.location ?? "—";
-  actionsCell.className = "actions-cell";
+  locationCell.setAttribute("role", "cell");
+  locationCell.append(createCardLabelRow("Localização", "location"));
+  appendHighlightedText(locationCell, user.location ?? "—");
+  actionsCell.className = "actions-cell table-card-cell";
   actionsCell.setAttribute("role", "cell");
   actions.setAttribute("role", "group");
   actions.setAttribute("aria-label", `Ações para ${user.name}`);
@@ -350,20 +465,205 @@ function createUserRow(user) {
 }
 
 /**
- * Render the current user list or its empty state.
+ * Return the table's sortable header and menu buttons.
  *
- * @param {Array<Object>} users - The API user records to render.
+ * @returns {HTMLButtonElement[]} Buttons that represent supported fields.
  */
-function renderUsers(users) {
-  elements.tableBody.replaceChildren();
+function getSortButtons() {
+  return [...document.querySelectorAll("button[data-sort-field]")].filter((button) =>
+    SORTABLE_FIELDS.includes(button.dataset.sortField)
+  );
+}
 
-  if (users.length === 0) {
-    elements.tableBody.append(createMessageRow("Nenhum usuário cadastrado.", true));
+/**
+ * Update header sort semantics and the active menu item.
+ */
+function renderSortControls() {
+  for (const button of getSortButtons()) {
+    const field = button.dataset.sortField;
+    const isActive = state.sort?.field === field;
+
+    if (button.classList.contains("table-sort-menu-item")) {
+      if (isActive) {
+        button.classList.add("is-active");
+        button.setAttribute("aria-current", "true");
+      } else {
+        button.classList.remove("is-active");
+        button.removeAttribute("aria-current");
+      }
+      continue;
+    }
+
+    const header = button.closest("th");
+    header?.setAttribute(
+      "aria-sort",
+      isActive ? (state.sort.direction === "asc" ? "ascending" : "descending") : "none"
+    );
+  }
+}
+
+/**
+ * Render search chips from the static template.
+ */
+function renderSearchChips() {
+  if (!elements.searchChips || !elements.chipTemplate) {
     return;
   }
 
-  for (const user of users) {
-    elements.tableBody.append(createUserRow(user));
+  elements.searchChips.replaceChildren();
+  for (const term of state.terms) {
+    const chip = elements.chipTemplate.content.cloneNode(true);
+    const removeButton = chip.querySelector(".table-search-chip-remove");
+    const text = chip.querySelector(".table-search-chip-text");
+
+    removeButton.setAttribute("aria-label", `Remover ${term}`);
+    removeButton.disabled = state.isBusy;
+    text.textContent = term;
+    removeButton.addEventListener("click", () => {
+      void removeSearchTerm(term);
+    });
+    elements.searchChips.append(chip);
+  }
+}
+
+/**
+ * Toggle the table loading status and its busy region without removing either node.
+ *
+ * @param {boolean} isLoading - Whether data is being fetched or rendered.
+ */
+function setTableLoading(isLoading) {
+  if (elements.loadingIndicator) {
+    elements.loadingIndicator.hidden = !isLoading;
+  }
+  if (elements.loadingText) {
+    elements.loadingText.textContent = isLoading ? "Carregando usuários" : "";
+  }
+  elements.tableScroll?.setAttribute("aria-busy", String(isLoading));
+}
+
+/**
+ * Let the browser paint the loading indicator before synchronous rendering.
+ */
+function waitForRenderFrame() {
+  if (typeof requestAnimationFrame !== "function") {
+    return null;
+  }
+
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+/**
+ * Rebuild the page selector for the current result count.
+ *
+ * @param {number} totalPages - The number of valid pages.
+ * @param {number} selectedPage - The page to select.
+ */
+function updatePageOptions(totalPages, selectedPage) {
+  if (!elements.page) {
+    return;
+  }
+
+  const options = [];
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+    const option = document.createElement("option");
+    option.value = String(pageNumber);
+    option.textContent = String(pageNumber);
+    options.push(option);
+  }
+  elements.page.replaceChildren(...options);
+  elements.page.value = String(selectedPage);
+}
+
+/**
+ * Keep pagination arrows disabled at boundaries and during CRUD requests.
+ */
+function updatePaginationControls() {
+  if (elements.pagePrevious) {
+    elements.pagePrevious.disabled = state.isBusy || state.page <= 1;
+  }
+  if (elements.pageNext) {
+    elements.pageNext.disabled = state.isBusy || state.page >= state.totalPages;
+  }
+}
+
+/**
+ * Render the filtered and capped users with the current sort and page state.
+ */
+async function renderUsers() {
+  setTableLoading(true);
+
+  try {
+    const renderFrame = waitForRenderFrame();
+    if (renderFrame) {
+      await renderFrame;
+    }
+    const sortedUsers = sortRows(
+      state.allUsers,
+      state.sort?.field ?? null,
+      state.sort?.direction ?? "asc"
+    );
+    const result = filterAndCap(
+      sortedUsers,
+      state.terms,
+      SORTABLE_FIELDS,
+      RESULT_CAP
+    );
+    const pageSize = Number(elements.pageSize?.value ?? state.pageSize);
+    const requestedPage = Number(elements.page?.value ?? state.page);
+    const pageResult = paginate(result.rows, requestedPage, pageSize);
+
+    state.page = pageResult.page;
+    state.pageSize = pageSize;
+    state.totalPages = pageResult.totalPages;
+    elements.tableBody.replaceChildren();
+
+    if (state.allUsers.length === 0) {
+      elements.tableBody.append(createMessageRow("Nenhum usuário cadastrado.", true));
+    } else {
+      for (const user of pageResult.items) {
+        elements.tableBody.append(createUserRow(user));
+      }
+    }
+
+    if (elements.counter) {
+      elements.counter.textContent = counterText({
+        start: pageResult.start,
+        end: pageResult.end,
+        total: result.rows.length
+      });
+    }
+    if (elements.capBanner) {
+      elements.capBanner.hidden = !result.isCapped;
+      elements.capBanner.textContent = result.isCapped
+        ? `Exibindo ${RESULT_CAP} de ${result.totalFiltered} usuários encontrados. Refine sua busca aplicando filtros.`
+        : "";
+    }
+    if (elements.emptyState) {
+      const hasNoSearchResults =
+        state.allUsers.length > 0 &&
+        state.terms.length > 0 &&
+        result.totalFiltered === 0;
+      elements.emptyState.hidden = !hasNoSearchResults;
+      elements.emptyState.textContent = hasNoSearchResults
+        ? "Nenhum usuário encontrado para a busca informada."
+        : "";
+    }
+
+    renderSearchChips();
+    renderSortControls();
+    updatePageOptions(pageResult.totalPages, pageResult.page);
+    updatePaginationControls();
+  } catch (error) {
+    if (elements.counter) {
+      elements.counter.textContent = counterText({
+        start: 0,
+        end: 0,
+        total: 0
+      });
+    }
+    throw error;
+  } finally {
+    setTableLoading(false);
   }
 }
 
@@ -374,6 +674,7 @@ function renderUsers(users) {
  * @returns {Promise<boolean>} Whether the list request succeeded.
  */
 async function refreshUsers(showLoading = false) {
+  setTableLoading(true);
   if (showLoading) {
     elements.tableBody.replaceChildren(createMessageRow("Carregando usuários..."));
   }
@@ -385,13 +686,27 @@ async function refreshUsers(showLoading = false) {
       throw new Error("A API retornou uma lista de usuários inválida.");
     }
 
-    state.users = users;
-    renderUsers(users);
+    state.allUsers = users;
+    await renderUsers();
     return true;
   } catch (error) {
     elements.tableBody.replaceChildren(
       createMessageRow("Não foi possível carregar os usuários.")
     );
+    if (elements.counter) {
+      elements.counter.textContent = counterText({
+        start: 0,
+        end: 0,
+        total: 0
+      });
+    }
+    if (elements.emptyState) {
+      elements.emptyState.hidden = true;
+    }
+    if (elements.capBanner) {
+      elements.capBanner.hidden = true;
+    }
+    setTableLoading(false);
     showStatus(formatError(error), "error");
     return false;
   }
@@ -496,10 +811,294 @@ function acceptSavedUser(user) {
 }
 
 /**
- * Handle the new-user button.
+ * Close the menu and handle the new-user action.
  */
 function onNewUserClick() {
+  closeMenu(false);
   openUserDialog();
+}
+
+/**
+ * Reset the current page before applying a new filter or sort.
+ */
+function resetTablePage() {
+  state.page = 1;
+  if (elements.page) {
+    elements.page.value = "1";
+  }
+}
+
+/**
+ * Hide the search panel and update its disclosure state.
+ */
+function hideSearchField() {
+  if (elements.searchField) {
+    elements.searchField.hidden = true;
+  }
+  elements.searchToggle?.setAttribute("aria-expanded", "false");
+  if (state.openPanel === "search") {
+    state.openPanel = null;
+  }
+}
+
+/**
+ * Close search and optionally clear its active terms.
+ *
+ * @param {boolean} clearTerms - Whether to remove active terms and clear the input.
+ */
+async function closeSearchField(clearTerms = true) {
+  hideSearchField();
+  if (clearTerms) {
+    state.terms = [];
+    if (elements.searchInput) {
+      elements.searchInput.value = "";
+    }
+  }
+  resetTablePage();
+  await renderUsers();
+  elements.searchToggle?.focus();
+}
+
+/**
+ * Toggle the search panel and keep the menu mutually exclusive.
+ */
+async function onSearchToggleClick() {
+  if (state.isBusy) {
+    return;
+  }
+
+  if (state.openPanel === "search") {
+    await closeSearchField(false);
+    return;
+  }
+
+  closeMenu(false);
+  state.openPanel = "search";
+  if (elements.searchField) {
+    elements.searchField.hidden = false;
+  }
+  elements.searchToggle?.setAttribute("aria-expanded", "true");
+  elements.searchInput?.focus();
+}
+
+/**
+ * Accept parsed search terms when Enter is pressed.
+ *
+ * @param {KeyboardEvent} event - The search input key event.
+ */
+async function onSearchInputKeydown(event) {
+  if (event.key !== "Enter" || state.isBusy) {
+    return;
+  }
+
+  event.preventDefault();
+  const parsedTerms = parseSearchTerms(elements.searchInput.value);
+  const existingTerms = new Set(state.terms.map(normalizeText));
+  for (const term of parsedTerms) {
+    const normalizedTerm = normalizeText(term);
+    if (!existingTerms.has(normalizedTerm)) {
+      state.terms.push(term);
+      existingTerms.add(normalizedTerm);
+    }
+  }
+  elements.searchInput.value = "";
+  resetTablePage();
+  await renderUsers();
+}
+
+/**
+ * Return focus to the search input after chip removal.
+ */
+function focusSearchInput() {
+  elements.searchInput?.focus();
+}
+
+/**
+ * Remove a search chip, rerender the table, and return focus to the input.
+ *
+ * @param {string} term - The term represented by the removed chip.
+ */
+async function removeSearchTerm(term) {
+  if (state.isBusy) {
+    return;
+  }
+
+  const removedIndex = state.terms.findIndex(
+    (currentTerm) => normalizeText(currentTerm) === normalizeText(term)
+  );
+  if (removedIndex === -1) {
+    return;
+  }
+
+  state.terms.splice(removedIndex, 1);
+  resetTablePage();
+  await renderUsers();
+
+  focusSearchInput();
+}
+
+/**
+ * Close the sort menu and optionally return focus to its button.
+ *
+ * @param {boolean} returnFocus - Whether to focus the menu button.
+ */
+function closeMenu(returnFocus) {
+  if (elements.menu) {
+    elements.menu.hidden = true;
+  }
+  elements.menuButton?.setAttribute("aria-expanded", "false");
+  if (state.openPanel === "menu") {
+    state.openPanel = null;
+  }
+  if (returnFocus) {
+    elements.menuButton?.focus();
+  }
+}
+
+/**
+ * Toggle the sort menu and close search when opening it.
+ */
+function onMenuButtonClick() {
+  if (state.isBusy) {
+    return;
+  }
+
+  if (state.openPanel === "menu") {
+    closeMenu(false);
+    return;
+  }
+
+  hideSearchField();
+  state.openPanel = "menu";
+  if (elements.menu) {
+    elements.menu.hidden = false;
+  }
+  elements.menuButton?.setAttribute("aria-expanded", "true");
+}
+
+/**
+ * Sort by a selected header or menu field.
+ *
+ * @param {MouseEvent} event - The sortable button click event.
+ */
+async function onSortFieldClick(event) {
+  if (state.isBusy) {
+    return;
+  }
+
+  const button = event.currentTarget;
+  const field = button.dataset.sortField;
+  if (!SORTABLE_FIELDS.includes(field)) {
+    return;
+  }
+
+  const selectedFromMenu = button.classList.contains("table-sort-menu-item");
+  state.sort = cycleSort(state.sort, field);
+  resetTablePage();
+  if (selectedFromMenu) {
+    closeMenu(false);
+  }
+  await renderUsers();
+  if (selectedFromMenu) {
+    elements.menuButton?.focus();
+  }
+}
+
+/**
+ * Open the existing new-user dialog from the table menu.
+ */
+function onMenuAddClick() {
+  closeMenu(false);
+  onNewUserClick();
+}
+
+/**
+ * Apply a page-size selection and return to the first page.
+ *
+ * @param {Event} event - The page-size change event.
+ */
+async function onPageSizeChange(event) {
+  if (state.isBusy) {
+    return;
+  }
+
+  state.pageSize = Number(event.currentTarget.value);
+  resetTablePage();
+  await renderUsers();
+}
+
+/**
+ * Apply the selected page number.
+ *
+ * @param {Event} event - The page selection event.
+ */
+async function onPageChange(event) {
+  if (state.isBusy) {
+    return;
+  }
+
+  state.page = Number(event.currentTarget.value);
+  await renderUsers();
+}
+
+/**
+ * Move one page backward when a previous page exists.
+ */
+async function onPreviousPageClick() {
+  if (state.isBusy || state.page <= 1) {
+    return;
+  }
+
+  state.page -= 1;
+  if (elements.page) {
+    elements.page.value = String(state.page);
+  }
+  await renderUsers();
+}
+
+/**
+ * Move one page forward when a next page exists.
+ */
+async function onNextPageClick() {
+  if (state.isBusy || state.page >= state.totalPages) {
+    return;
+  }
+
+  state.page += 1;
+  if (elements.page) {
+    elements.page.value = String(state.page);
+  }
+  await renderUsers();
+}
+
+/**
+ * Close the sort menu on Escape and restore focus to its button.
+ *
+ * @param {KeyboardEvent} event - The document key event.
+ */
+function onDocumentKeydown(event) {
+  if (event.key === "Escape" && state.openPanel === "menu") {
+    event.preventDefault();
+    closeMenu(true);
+  }
+}
+
+/**
+ * Close the sort menu when a click occurs outside its panel and button.
+ *
+ * @param {MouseEvent} event - The document click event.
+ */
+function onDocumentClick(event) {
+  if (state.openPanel !== "menu" || !(event.target instanceof Element)) {
+    return;
+  }
+
+  if (
+    !elements.menu?.contains(event.target) &&
+    !elements.menuButton?.contains(event.target)
+  ) {
+    closeMenu(true);
+  }
 }
 
 /**
@@ -521,7 +1120,7 @@ function onTableClick(event) {
   const userId = Number(button.dataset.userId);
   let user = null;
 
-  for (const item of state.users) {
+  for (const item of state.allUsers) {
     if (item.id === userId) {
       user = item;
       break;
@@ -778,6 +1377,22 @@ async function initialize() {
 
 elements.newUserButton.addEventListener("click", onNewUserClick);
 elements.tableBody.addEventListener("click", onTableClick);
+elements.searchToggle?.addEventListener("click", onSearchToggleClick);
+elements.searchClose?.addEventListener("click", () => {
+  void closeSearchField();
+});
+elements.searchInput?.addEventListener("keydown", onSearchInputKeydown);
+elements.menuButton?.addEventListener("click", onMenuButtonClick);
+elements.menuAdd?.addEventListener("click", onMenuAddClick);
+for (const button of getSortButtons()) {
+  button.addEventListener("click", onSortFieldClick);
+}
+elements.pageSize?.addEventListener("change", onPageSizeChange);
+elements.page?.addEventListener("change", onPageChange);
+elements.pagePrevious?.addEventListener("click", onPreviousPageClick);
+elements.pageNext?.addEventListener("click", onNextPageClick);
+document.addEventListener?.("keydown", onDocumentKeydown);
+document.addEventListener?.("click", onDocumentClick);
 elements.userForm.addEventListener("submit", onUserFormSubmit);
 elements.imageInput.addEventListener("change", onImageInputChange);
 elements.removeImageInput.addEventListener("change", onRemoveImageChange);
