@@ -105,18 +105,18 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 ## G2 Lógica pura
 
 - **Escopo.** Funções sem DOM para busca, destaque, ordenação, limite, paginação e contador. Não usar `window` nem `document`.
-- **Arquivos.** Novos: `webapp/frontend/table-model.mjs` e `webapp/frontend/tests/table-model.test.mjs`. Nenhum arquivo existente é alterado.
+- **Arquivos.** Novos: `webapp/frontend/table-model.mjs` e `webapp/frontend/tests/table-model.test.mjs`; plano e contrato usam os nomes e formatos do código.
 - **Mudanças.** Exportar:
-  - `parseSearchTerms(input)`: separa por espaço, trata frase entre aspas como termo único e descarta vazios (D4, P7).
-  - `normalizeText(value)`: normaliza Unicode em NFD, remove marcas diacríticas e converte para minúsculas (D4).
-  - `toSearchText(value)`: texto de strings; números com `String`; `Date` com `toISOString()`; `null` e `undefined` viram texto vazio (D3).
-  - `matchRow(row, terms, fields)`: combina termos com OR sobre os campos informados em `fields` (D3, D4).
+  - `parseSearchTerms(query)`: separa por espaço, trata frase entre aspas como termo único e descarta termos vazios ou que normalizam para vazio (D4, P7).
+  - `normalizeText(text)`: remove marcas diacríticas e converte para minúsculas (D4).
+  - `toSearchText(value)`: texto de strings; números com `String`; `Date` no formato pt-BR `dd/MM/yyyy, HH:mm`; `null` e `undefined` viram texto vazio (D3). A busca coincide com o texto que o usuário lê.
+  - `rowMatches(row, terms, fields)`: combina termos com OR sobre os campos informados em `fields` (D3, D4).
   - `findHighlightRanges(text, terms)`: retorna intervalos no texto original. Mapeia os índices de volta ao texto original após NFD e mescla intervalos sobrepostos (D4).
   - `sortRows(rows, field, direction)`: usa `Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" })`. Empates usam `id` em ordem crescente. Com `field` nulo, retorna cópia na ordem recebida (D6, P6).
-  - `cycleSort(state, field)`: campo diferente do atual resulta em ascendente. Mesmo campo alterna entre ascendente e descendente (D5, D1).
-  - `filterAndCap(rows, terms, fields, limit = 500)`: filtra primeiro e limita depois. Retorna `{ rows, total, capped }` (R1).
-  - `paginate(rows, page, pageSize)`: aceita `pageSize` de 10, 50 ou 100. Limita `page` ao intervalo válido e retorna itens, página atual e total de páginas (D2).
-  - `counterText(page, pageSize, total)`: retorna "1-10 de N itens" e, com `total` zero, "Nenhum item" (D8, P4).
+  - `cycleSort(current, clickedField)`: campo diferente do atual resulta em ascendente. Mesmo campo alterna entre ascendente e descendente (D5, D1).
+  - `filterAndCap(rows, terms, fields, cap = RESULT_CAP)`: filtra primeiro e limita depois. Retorna `{ rows, totalFiltered, isCapped }` (R1).
+  - `paginate(rows, page, pageSize)`: aceita `pageSize` de 10, 50 ou 100. Limita `page` ao intervalo válido e retorna `{ items, page, totalPages, start, end }` (D2).
+  - `counterText({ start, end, total })`: recebe em `total` a contagem de linhas já limitadas (`rows.length` no resultado de `filterAndCap`), não `totalFiltered`; retorna "1-10 de N itens" e, com `total` zero, "Nenhum item" (D8, P4).
 - **ACs cobertos.** AC-01, AC-02, AC-04 (intervalos), AC-05 (`cycleSort`), AC-06, AC-09 (`paginate` e `counterText`) e AC-11 (`filterAndCap`).
 - **Validação planejada.** `node --check webapp/frontend/table-model.mjs` e `node --test webapp/frontend/tests/table-model.test.mjs`.
 - **Depende de.** Nenhum gate. Pode ocorrer em paralelo com G1.
@@ -180,8 +180,9 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - Cabeçalhos: clique chama `cycleSort`. Atualiza `aria-sort` em todos os cabeçalhos ordenáveis e o estado dos triângulos dos cartões (REQ-08).
   - Renderização: linhas criadas com `createElement` e `textContent`. Destaque com nós de texto e `<mark>`, nunca com `innerHTML` (REQ-04).
   - Paginação: `users-table-page-size` altera `pageSize` e volta para página 1 (P8). `users-table-page` e as setas alteram `page`.
+    - Os valores de `<select>` para página e `pageSize` são strings; converta ambos com `Number()` antes de chamar `paginate`: página não numérica vira 1, e `pageSize` string gera `RangeError`.
   - Contador: `users-table-counter` mostra o texto de `counterText` a cada busca, ordenação ou mudança de página.
-  - Limite: `users-table-cap-banner` aparece somente quando `filterAndCap` retorna `capped` (R1).
+  - Limite: `users-table-cap-banner` aparece somente quando `filterAndCap` retorna `isCapped` (R1).
   - Vazio: `users-table-empty` aparece quando há termos e nenhuma linha corresponde (D9).
   - Após criar, editar ou excluir, recarrega `api/users`, mantém termos, ordenação e página e limita a página à última válida.
 - **ACs cobertos.** AC-03, AC-04, AC-05, AC-07, AC-08, AC-09, AC-11 e AC-12.
