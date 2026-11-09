@@ -544,7 +544,7 @@ function setTableLoading(isLoading) {
 /**
  * Let the browser paint the loading indicator before synchronous rendering.
  */
-function waitForRenderFrame() {
+export function waitForRenderFrame() {
   if (typeof requestAnimationFrame !== "function") {
     return null;
   }
@@ -842,21 +842,22 @@ function hideSearchField() {
 }
 
 /**
- * Close search and optionally clear its active terms.
+ * Close search, clear its terms, chips, and input text, and restore the full list.
  *
- * @param {boolean} clearTerms - Whether to remove active terms and clear the input.
+ * @param {boolean} returnFocus - Whether to focus the search toggle after rendering.
  */
-async function closeSearchField(clearTerms = true) {
+async function closeSearchField(returnFocus = true) {
   hideSearchField();
-  if (clearTerms) {
-    state.terms = [];
-    if (elements.searchInput) {
-      elements.searchInput.value = "";
-    }
+  state.terms = [];
+  if (elements.searchInput) {
+    elements.searchInput.value = "";
   }
   resetTablePage();
+  renderSearchChips();
   await renderUsers();
-  elements.searchToggle?.focus();
+  if (returnFocus) {
+    elements.searchToggle?.focus();
+  }
 }
 
 /**
@@ -868,7 +869,7 @@ async function onSearchToggleClick() {
   }
 
   if (state.openPanel === "search") {
-    await closeSearchField(false);
+    await closeSearchField();
     return;
   }
 
@@ -956,9 +957,9 @@ function closeMenu(returnFocus) {
 }
 
 /**
- * Toggle the sort menu and close search when opening it.
+ * Toggle the sort menu; opening it while search is open closes search and clears its terms.
  */
-function onMenuButtonClick() {
+async function onMenuButtonClick() {
   if (state.isBusy) {
     return;
   }
@@ -968,12 +969,21 @@ function onMenuButtonClick() {
     return;
   }
 
-  hideSearchField();
+  const wasSearchOpen = state.openPanel === "search";
+  // Open the menu before the awaited render so it appears without waiting for it.
   state.openPanel = "menu";
   if (elements.menu) {
     elements.menu.hidden = false;
   }
   elements.menuButton?.setAttribute("aria-expanded", "true");
+
+  if (wasSearchOpen) {
+    try {
+      await closeSearchField(false);
+    } catch (error) {
+      showStatus(formatError(error), "error");
+    }
+  }
 }
 
 /**

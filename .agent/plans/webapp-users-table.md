@@ -168,17 +168,17 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 ## G4 Controlador
 
 - **Escopo.** Ligação de eventos, estado e renderização. Regras de busca, ordenação, limite e paginação ficam em `table-model.mjs`.
-- **Alteração por revisão.** Este gate também alterou `webapp/frontend/index.html` (`users-table-loading` sem o atributo `hidden`) e `webapp/frontend/styles.css` (regra de zero espaço para a região de carregamento e regra `[hidden]` do spinner), por decisão de revisão.
-- M2 aberto: fechar pela lupa mantém termos e oculta chips; fechar pelo X limpa termos. Opções: A (qualquer fechamento limpa termos) ou B (painel permanece aberto enquanto houver termos). Decisão pendente do usuário.
+- **Alteração por revisão.** Este gate também alterou `webapp/frontend/index.html` (`users-table-loading` sem o atributo `hidden`) e `webapp/frontend/styles.css` (regra de zero espaço para a região de carregamento e regra `[hidden]` do spinner), por decisão de revisão. As alterações em `index.html` e `styles.css` já foram commitadas em 7f57c07; o commit atual deste gate altera apenas `webapp/frontend/app.js`, o novo arquivo de teste e este plano.
+- M2 resolvido: qualquer fechamento do campo de busca limpa termos, chips e texto e restaura a lista completa (decisão do usuário, opção A).
 - **Arquivos.** Principal: `webapp/frontend/app.js`. `webapp/frontend/index.html` e `webapp/frontend/styles.css` são exceção de revisão aprovada (ver "Alteração por revisão" acima).
 - **Mudanças.**
   - Estado: `allUsers`, `terms`, `sort: { field, direction }`, `page` e `pageSize`. `sort.field` começa nulo (P6).
-  - Painéis: usar um único estado `openPanel` (`null`, busca ou menu). Abrir busca fecha menu; abrir menu fecha busca.
+  - Painéis: usar um único estado `openPanel` (`null`, busca ou menu). Abrir busca fecha menu; abrir menu fecha busca. Abrir o menu com a busca aberta fecha e limpa a busca.
   - Carregamento: mantém `users-table-loading` e seu `role="status"` no DOM; altera só o texto e a visibilidade do spinner para anunciar "Carregando usuários". Embora G3 inicie o elemento com `hidden`, G4 não oculta a região; define `aria-busy="true"` no contêiner da tabela durante `api/users` e a renderização e mantém aria-busy false ao concluir (R2).
   - Busca: ao pressionar Enter, `parseSearchTerms` divide o texto. Cada termo novo vira chip, o campo é limpo e termos repetidos não são duplicados (P7).
   - Chips: criados com `textContent`. Remover um chip atualiza `terms` e devolve o foco a `users-table-search-input` (P5, REQ-03).
   - O botão de remoção define `aria-label` por chip como `Remover <termo>`; não reutiliza o valor estático `Remover termo` do template.
-  - Lupa: abre `users-table-search-input`. O botão de fechar oculta o campo e devolve o foco à lupa.
+  - Lupa: abre `users-table-search-input`. O botão de fechar oculta o campo e devolve o foco à lupa e, ao fechar, limpa termos, chips e texto, restaurando a lista completa.
   - Menu: abre com clique, Enter ou Espaço no botão e atualiza `aria-expanded`. Escape ou clique fora fecha e devolve o foco ao botão. "Adicionar usuário" chama o mesmo handler de `#new-user-button`. Escolher coluna chama `cycleSort`, fecha o menu e devolve o foco ao botão.
   - Cabeçalhos: clique chama `cycleSort`. Atualiza `aria-sort` em todos os cabeçalhos ordenáveis e o estado dos triângulos dos cartões (REQ-08).
   - Cartões: `createUserRow` adiciona `.table-card-cell` às células e `.table-card-label-row` com rótulo (U+00A0) e indicador de ordenação com `aria-hidden="true"`.
@@ -191,10 +191,12 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - Após criar, editar ou excluir, recarrega `api/users`, mantém termos, ordenação e página e limita a página à última válida.
 - **ACs cobertos.** AC-03, AC-04, AC-05, AC-07, AC-08, AC-09, AC-11 e AC-12.
 - **Validação planejada.** `node --check webapp/frontend/app.js` e `node --test webapp/frontend/tests/*.test.mjs`.
+- **Testes.** `webapp/frontend/tests/app-table-controller.test.mjs`: "waitForRenderFrame returns null when requestAnimationFrame is not a function"; "waitForRenderFrame resolves only after the second animation frame"; "failed users fetch shows the empty counter and the error status"; "lupa close clears terms, input text, and chips and restores the full list"; "X close clears terms, input text, and chips and restores the full list"; "opening the sort menu while search is open closes search and clears its terms"; "app.js selectors and sort fields exist in index.html"; "Escape closes the open menu, returns focus to its button, and keeps the current page"; "a click outside the open menu closes it and leaves the list unchanged"; "a second click on the ellipsis button closes the open menu"; "a render failure while closing search from the menu shows the error status"; "a render failure while closing search clears the chips before the table renders".
 - **Depende de.** G2 e G3.
 - **Commit.** `feat(webapp): wire users table controls`.
-- Residual: sem teste unitário para waitForRenderFrame e para o reset do contador no erro; cobertura manual em G5.
+- Residual: reset do contador no erro de renderUsers (app.js, bloco catch de renderUsers) sem teste unitário; coberto manualmente em G5.
 - Residual: requestAnimationFrame pausa em aba oculta; render e aria-busy permanecem até a aba voltar. Aceito, sem timer por decisão do gate.
+- Residual: handlers de toggle da busca, botão X, Enter no campo de busca (onSearchInputKeydown), ordenação, paginação e chips sem try/catch; erros são apenas de DOM, sem I/O de rede; mesma classe do tratamento do menu (F4).
 
 <div>
   <a href="#top" title="De volta ao topo da página">
