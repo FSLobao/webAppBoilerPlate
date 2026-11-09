@@ -487,6 +487,29 @@ h1 {
   margin-right: 0;
 }
 
+@media (max-width: 793.98px) {
+  /* Wraps only while the field is open, so the closed header keeps a single row. */
+  .top-bar:has(.table-search-field:not([hidden])) {
+    flex-wrap: wrap;
+  }
+
+  .top-bar .table-search-field {
+    position: static;
+    top: auto;
+    right: auto;
+    left: auto;
+    flex: 0 0 100%;
+    min-height: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .top-bar .table-search-chips {
+    max-height: 172px;
+    overflow-y: auto;
+  }
+}
+
 .table-control-icon {
   width: 16px;
   height: 16px;
