@@ -290,3 +290,84 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   </a>
   <br><br>
 </div>
+
+## Gate G5a: ajuste de chips e OBS-01
+
+- **Objetivo.** Trocar o critério literal de t1 e t2 por critério medido, limitar a altura da área de chips em telas estreitas e resolver OBS-01 (painel de busca sobre o topo do primeiro cartão). O gate altera somente CSS e testes. Depois, a validação G5 completa é repetida sobre o commit do gate.
+- **Decisões aprovadas pelo dono.**
+  1. Critério de aceite de t1 e t2 = critério medido (REQ-13 e AC-13). Substitui o literal de D-04 apenas para aceite. O literal permanece registrado como FAIL histórico em `.agent/memory/webapp-users-table-validation.md` e não é apagado.
+  2. Teto por breakpoint, opção B: até 480 px, `max-height` de 172 px na área de chips, com `overflow-y: auto`; acima de 480 px, mantém 120 px (REQ-14). Consequência: t2 aceita 172 ± 2 px até 480 px. Três linhas de chips longos medem 154.06 px, mais 16 px de padding, 170.06 px, que cabem no teto de 172 px.
+  3. OBS-01 resolvido pela opção recomendada: até `max-width` de 793.98 px, o campo de busca aberto entra no fluxo normal, em linha própria abaixo dos controles, sem sobrepor cartões (REQ-14). Acima de 793.98 px, mantém o comportamento atual. Não sobrepõe o menu e não quebra D-01 (reticências e menu acessíveis com a busca aberta), D-02 (campo cresce em altura) nem D-03 (alinhamento do X). Descartada: reservar 89 px fixos abaixo de painel absoluto, porque não acompanha a altura variável dos chips.
+- **Dependências.** G5 final (commit 9fc7ab2, FAIL histórico) e Revisão 2 de t1 e t2 em `.agent/memory/webapp-users-table-validation.md`. Contrato: REQ-13, REQ-14, AC-13 e AC-14.
+- **Arquivos.**
+  - Alterar: `webapp/frontend/styles.css`.
+  - Criar: `webapp/frontend/tests/table-search-breakpoint.test.mjs` e `webapp/frontend/tests/table-search-flow.test.mjs`.
+  - Criar, por decisão do Coordinator (dentro do escopo do G5a): `webapp/frontend/tests/helpers/css-cascade.mjs`, helper que resolve o valor de uma propriedade em uma largura sobre `helpers/css-scanner.mjs`, e `webapp/frontend/tests/css-cascade.test.mjs`, os testes desse helper.
+  - `webapp/frontend/index.html`: não alterar por ora. Alterar somente se a marcação existente não permitir o reflow.
+  - Não alterar `app.js`, `table-model.mjs`, `docs/`, `deploy/` nem `.github/`. A documentação do teto e do reflow fica para G6.
+- **Alterações CSS.**
+  - Teto: dentro de `@media (max-width: 480px)`, `.top-bar .table-search-chips` (`styles.css`, linha 507) recebe `max-height: 172px` e mantém `overflow-y: auto`. A regra-base `.table-search-chips` (linha 456) não muda e continua com o teto de 120 px calculado por tokens.
+  - Reflow: dentro de `@media (max-width: 793.98px)` (linha 490), `.top-bar .table-search-field` (linha 496) sai de `position: absolute` para `position: static` e entra no fluxo normal com `flex: 0 0 100%`, ou seja, em linha própria abaixo dos controles do cabeçalho. Nesse breakpoint, `top`, `right` e `left` vão para `auto` e `min-height` para `auto`. Também nesse breakpoint, `.top-bar:has(.table-search-field:not([hidden]))` (linha 492) recebe `flex-wrap: wrap`, para que o cabeçalho quebre só com o campo aberto. O padding direito reservado ao menu pode ser revisto somente se D-01 e D-03 continuarem válidos.
+  - Sem alteração: regra-base, `z-index` de `.table-search-field` (2), de `.table-menu-anchor` (3) e de `.table-sort-menu` (1). Nenhum `order` por CSS (G3-R2).
+- **Testes.**
+  - `css-cascade.test.mjs` (novo), com CSS inline, testa o helper:
+    - a regra mais específica vence a posterior menos específica, e em empate vence a posterior;
+    - `max-width` em px vale até o limite inclusive: 480 px aplica, 481 px não;
+    - rejeita com erro: `em`, `rem`, espaço antes de `)`, `or`, tipo de mídia (`print and`), feature que não é largura (`(hover: none) and`), segunda condição que não é px, e feature não-width depois de um prelúdio falso;
+    - `calc` de tokens resolve para 120 px; soma de px com número sem unidade e mistura de px com rem são rejeitados; `var()` não declarado lança `ReferenceError`;
+    - seletor-alvo: lista que contém o alvo lança; composto com `[hidden]` lança; descendente que termina no alvo casa; seletor cujo sujeito é outro elemento não casa;
+    - nome de propriedade em maiúsculas casa; regra ambígua que declara a propriedade lança, e regra ambígua que declara outra propriedade não afeta o resultado;
+    - `!important` em regra aplicável lança `SyntaxError` com a regra e o valor; seletor com `#` ou `*` que não casa e declara a propriedade lança `Error` com o seletor; `*` que declara só outra propriedade não afeta o resultado.
+  - `table-search-breakpoint.test.mjs` (novo), lê `styles.css` pelo helper:
+    - regra-base de `.table-search-chips` fora de `@media`: `max-height` resolve para 120 px pelos tokens do GOV.BR e `overflow-y` é `auto`;
+    - em 375 e 480 px: `max-height` é 172 px e `overflow-y` é `auto`;
+    - em 481, 768 e 1024 px: `max-height` resolve para 120 px e `overflow-y` é `auto`;
+    - `172px` é declarado somente dentro de `@media (max-width: 480px)`.
+  - `table-search-flow.test.mjs` (novo), lê `styles.css` pelo helper e `index.html`:
+    - reflow: `position` do campo é `static` em 375, 480, 481, 768, 793 e 793.98 px, e `absolute` em 794, 1023 e 1024 px;
+    - `flex` do campo é `0 0 100%` até 793.98 px e não é declarado acima;
+    - `flex-wrap` de `.top-bar:has(.table-search-field:not([hidden]))` é `wrap` até 793.98 px e não é declarado acima; a regra `.top-bar` não declara `flex-wrap` nas larguras testadas;
+    - `min-height` do campo não é 100% até 793.98 px, e `height` é `auto` em todas as larguras, excluindo a regra de `#users-table-loading` (ver o item de posicionamento);
+    - posicionamento: em `index.html`, `#users-table-loading` fica depois do fechamento de `.top-bar`, o que justifica a exclusão acima;
+    - z-index: `.table-menu-anchor` (3) é maior que `.table-search-field` (2) em todas as larguras, e `.table-sort-menu` tem `z-index: 1` em 1024 px;
+    - alinhamento: `align-items: center` no campo, `margin-bottom: 0` no input (D-03) e `flex: 0 0 auto` no botão X em todas as larguras;
+    - marcação: título, toggle, `.table-menu-anchor`, campo, botão X e chips aparecem nessa ordem dentro de `.top-bar`.
+  - Suíte completa: `node --test webapp/frontend/tests/*.test.mjs`, com todos os testes verdes, inclusive os três testes antigos.
+  - Executar `node --test webapp/frontend/tests/css-scanner.test.mjs` e `node --test webapp/frontend/tests/navigation.test.mjs`. Complemento: `node --test webapp/frontend/tests/table-menu-stacking.test.mjs`, porque também lê `styles.css` e cobre z-index e padding do campo.
+  - Os testes de CSS verificam declarações. Os critérios de medição ficam com a validação de navegador.
+- **Validação no host (G5a).** Sobre o commit do código, na stack em `http://localhost:8080/webapp/index.html`:
+  1. Testes da seção Testes, com resultado verde.
+  2. Integridade: `styles.css`, `index.html` e `app.js` servidos com o mesmo SHA-256 (16 primeiros caracteres) do commit.
+  3. G5 completo, checks a a w, nas larguras da G5 final (375, 768, 793 e 1024 px). i e n seguem NOT RUN em 375 px por contrato.
+  4. Remedição de t1, t2, s, t3 e t4 com 4 termos longos em 375x812, 480, 481, 768, 793, 794, 1023 e 1024x768. Em 375x812, também com 3 termos. Por largura, registrar estouro visível, linhas, `clientHeight`, `scrollHeight`, `max-height`, `overflow-y` e veredito de t2. Em 375x812 com 3 termos, t2 espera ausência de rolagem.
+  5. Sobreposição: em cada largura da remedição, com a busca aberta, a caixa de `.table-search-field` não intersecta `#users-table-body` nem o primeiro cartão. Em 768 px e 793.98 px, `scrollWidth` não excede `clientWidth` (AC-10).
+  6. Limpeza: remover por ID somente os registros semeados, usando a lista de IDs da semeadura. Contar registros antes da semeadura e após a limpeza. Os registros que existiam antes da semeadura devem permanecer inalterados.
+- **Registro.** A validação é registrada em nova seção de `.agent/memory/webapp-users-table-validation.md`, sem alterar as seções existentes. Evidência bruta fica fora do repositório, como nas rodadas anteriores.
+- **Ordem e commits.**
+  1. Commit de documentação deste contrato e plano: `docs(agent): define users table G5a contract and plan`, sem tag.
+  2. Commit do código: `fix(webapp): cap search chips and reflow open search field`, com a tag `gate/table-g5a-chip-breakpoint`.
+  3. Validação sobre o commit do código.
+  4. Commit de registro da validação: `docs(agent): record users table G5a validation`, sem tag.
+- **ACs cobertos.** AC-13 e AC-14. A validação G5 completa reexecuta AC-03 a AC-12 sobre o commit do gate.
+- **Depende de.** G5 final (9fc7ab2) e decisões 1 a 3 aprovadas pelo dono.
+- **Riscos.**
+  - O intervalo de 794 a 1023 px não tinha medição anterior. A remedição deve medi-lo. Se houver sobreposição nesse intervalo, o defeito volta a este gate e não é aceito por analogia com 793.98 px.
+  - O teto de 172 px depende da altura medida de chips longos (48.7 px por linha). Chips de altura diferente mudam quantas linhas cabem. A remedição usa os termos longos da Revisão 2.
+  - Com o campo em linha própria, o cabeçalho fica mais alto até 793.98 px e os cartões descem. A medição deve confirmar ausência de sobreposição e de rolagem horizontal da página.
+- **Dívida registrada (fora do G5a).** Migrar `table-search-close.test.mjs`, `table-menu-stacking.test.mjs` e `navigation.test.mjs` para `css-cascade.mjs`. Estado: migração pendente. Os três leem `styles.css` e `index.html` com leitura própria e não importam `css-cascade.mjs`. Motivo: escopo; esses testes já passam e não devem ser editados neste gate.
+- **Limites do helper `css-cascade.mjs` (registrados no G5a).**
+  - Propriedades são comparadas por nome exato, sem expansão de shorthand ou longhand: `flex` não cobre `flex-basis`, e `max-block-size` não é normalizado para `max-height`.
+  - `!important` em regra aplicável lança `SyntaxError`. A importância não é resolvida.
+  - Ancestrais de seletores compostos não são verificados: o matcher confere só o sujeito, como em `.top-bar .table-search-field`.
+  - Media queries aceitam somente `(min-width: Npx)` e `(max-width: Npx)` unidas por `and`. Qualquer outra forma lança `SyntaxError`.
+  - `#`, `*` e `\` em seletor que declara a propriedade pedida lançam `Error` sempre, casando ou não o alvo. A especificidade do helper não conta `#`, portanto ela não é usada para ranquear esses casos.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>

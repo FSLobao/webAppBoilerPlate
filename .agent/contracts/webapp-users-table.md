@@ -174,3 +174,37 @@ Estas premissas valem até veto. P5, P6, P7 e P8 foram definidas neste contrato 
   </a>
   <br><br>
 </div>
+
+## Requisitos normativos do Gate G5a
+
+| ID | Requisito | Origem |
+|---|---|---|
+| REQ-13 | O critério de aceite de t1 e t2 da validação de navegador deve ser o critério medido deste requisito, e não o literal de D-04. Esse critério substitui o literal de D-04 apenas para aceite. O literal permanece registrado como FAIL histórico e não deve ser apagado. Para t1, o estouro visível de cada chip é a parte da interseção entre o retângulo do chip e a área de recorte do contêiner de chips que fica fora do retângulo do campo de busca. O estouro visível deve ser de no máximo 1 px, e o contêiner de chips deve ficar dentro do campo, com tolerância de 1 px. Para t2, as linhas de chips devem ser contadas pelo topo, com tolerância de 1 px. O contêiner de chips deve ter `overflow-y: auto` e `max-height` conforme REQ-14. Quando o conteúdo excede o teto aplicável, `clientHeight` deve ficar dentro de ± 2 px desse teto. Quando o conteúdo não excede o teto, `scrollHeight` deve ser igual a `clientHeight`. | Decisão do dono (G5a, 1) |
+| REQ-14 | Em larguras de 480 px ou menos, a área de chips deve ter `max-height` de 172 px e `overflow-y: auto`. Acima de 480 px, a área de chips deve ter `max-height` de 120 px e `overflow-y: auto`. Em larguras de 793.98 px ou menos, o campo de busca aberto deve entrar no fluxo normal da página, em linha própria abaixo dos controles do cabeçalho (título, lupa e reticências), sem sobrepor os cartões nem o menu. Acima de 793.98 px, o campo de busca aberto deve manter o comportamento atual. Em todas as larguras, a busca aberta não deve quebrar D-01 (reticências e menu acessíveis), D-02 (campo cresce em altura para caber os chips) nem D-03 (botão X alinhado ao campo de texto). | Decisão do dono (G5a, 2 e 3) |
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
+## Critérios de aceitação do Gate G5a
+
+| ID | Critério verificável | Método | Requisito |
+|---|---|---|---|
+| AC-13 | Com 4 termos longos, nas larguras 375x812, 480, 481, 768, 793, 794, 1023 e 1024x768 px, o estouro visível de cada chip é de no máximo 1 px, o contêiner de chips fica dentro do campo com tolerância de 1 px, e t2 atende REQ-13 com o teto da largura medida. Em 375x812 com 3 termos longos, t2 espera `scrollHeight` igual a `clientHeight`, porque o conteúdo (cerca de 170 px) cabe no teto de 172 px. Medição com `getBoundingClientRect` e `getComputedStyle`. O literal de D-04 não é usado para aceite. | Teste de navegador (G5a) | REQ-13 |
+| AC-14 | `.table-search-chips` reporta `max-height` de 172px e `overflow-y: auto` em 480 px ou menos, e declara `max-height` como expressão que resolve a 120px pelos tokens do GOV.BR (4x, half, base); computado em 1024 px: 120px, com `overflow-y: auto` acima de 480 px. Em 793.98 px ou menos, `.table-search-field` não tem `position: absolute` e, com a busca aberta, sua caixa fica abaixo dos controles do cabeçalho e não intersecta a caixa de `#users-table-body`. Em 794 px ou mais, `.table-search-field` mantém `position: absolute`. Com a busca aberta, reticências e menu recebem clique por ponteiro, e o botão X mantém o alinhamento de D-03. | Teste de CSS (`table-search-breakpoint.test.mjs` e `table-search-flow.test.mjs`) e teste de navegador (G5a) | REQ-14 |
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../../docs/images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../../docs/images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
