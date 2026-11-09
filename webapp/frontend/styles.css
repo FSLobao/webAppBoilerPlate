@@ -426,7 +426,8 @@ h1 {
   gap: var(--spacing-scale-base);
   width: 100%;
   border-bottom: 1px solid var(--gray-20);
-  padding: 0 var(--spacing-scale-base);
+  /* Right padding reserves room for the menu button: --spacing-scale-2x (16px) + --spacing-scale-6x (48px) = 64px. */
+  padding: 0 calc(var(--spacing-scale-2x) + var(--spacing-scale-6x)) 0 var(--spacing-scale-base);
   background: var(--pure-0);
 }
 
@@ -435,7 +436,7 @@ h1 {
 }
 
 .table-search-input {
-  min-width: 0;
+  min-width: var(--spacing-scale-10x);
   flex: 1;
   border: 0;
   padding: var(--spacing-scale-half) var(--spacing-scale-base);
@@ -446,13 +447,21 @@ h1 {
 
 .table-search-chips {
   display: flex;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
+  min-width: 0;
   gap: var(--spacing-scale-half);
 }
 
 .table-search-chips[hidden] {
   display: none;
+}
+
+/* .br-button hides overflow, so min-width auto would let the close button shrink to 0. */
+.table-search-close {
+  flex: 0 0 auto;
+  min-width: var(--button-size);
 }
 
 .table-search-close .button-icon {
@@ -650,10 +659,20 @@ h1 {
 }
 
 .table-search-chip.br-button {
+  max-width: 100%;
+  /* .br-button fixes the height; wrapped text must grow the chip instead. */
+  height: auto;
+  min-height: var(--button-size);
   gap: var(--spacing-scale-half);
   overflow: visible;
   padding-right: var(--spacing-scale-base);
   padding-left: var(--spacing-scale-base);
+}
+
+/* .br-button sets nowrap; normal lets overflow-wrap break long terms inside the chip. */
+.table-search-chip-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .table-search-chip-remove {
@@ -672,8 +691,10 @@ h1 {
   cursor: pointer;
 }
 
+/* Stacks above .table-search-field so the menu button stays clickable while search is open. */
 .table-menu-anchor {
   position: relative;
+  z-index: 3;
 }
 
 .table-sort-menu {

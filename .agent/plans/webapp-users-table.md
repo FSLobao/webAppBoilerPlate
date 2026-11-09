@@ -138,11 +138,13 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Arquivos.** `webapp/frontend/index.html` e `webapp/frontend/styles.css`, somente para ajustes de layout exigidos pela estrutura.
 - **Mudanças.**
   - Barra de título com botão de lupa (SVG inline original) e campo de busca sobre a barra, com botão de fechar. Ambos ficam ocultos por padrão.
-  - Search chip container next to search input; each chip uses GovBR Core `.br-button.small` modifier. Do not add a local `min-height`.
+  - Search chip container next to search input; each chip uses GovBR Core `.br-button.small` modifier. Não adicionar `min-height` local, exceto `min-height: var(--button-size)` no chip, para manter a altura do botão pequeno com quebra de linha.
   - Botão de reticências (SVG inline original) com `aria-expanded="false"` e `aria-controls="users-table-menu"`. O menu tem "Adicionar usuário" e o grupo "Ordenar" com Nome, Email e Localização. O menu começa com `hidden`.
   - Cabeçalhos de Nome, Email e Localização com botão de ordenação e `aria-sort="none"`. Foto e Ações não recebem botão.
   - **G3-R1 Menu clipping.** G3 must prevent `.table-sort-menu` from being clipped by the existing `.table-card { overflow: hidden; }` in cards with 0 or 1 row. For example, allow overflow on the card and preserve rounded corners on its children. G5 must verify 0 and 1 rows at 375, 768, and 1024 px.
   - **G3-R2 Chip DOM order.** Place the remove control before the term text in the DOM. Its accessible name is `Remover <termo>`. Do not reorder with CSS.
+  - D-01 (G5): reticências e menu permanecem acessíveis com o campo de busca aberta; abrir o menu fecha e limpa a busca (opção B, aprovada).
+  - Corrigir regressão de D-01: X mantém tamanho e chips quebram linha (flex-wrap, min-width 0).
   - Rodapé de paginação: seletor "Exibir" com 10, 50 e 100 (10 selecionado), contador com `aria-live="polite"`, seletor "Página" e botões de seta. Cada seta usa `<img src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg" alt="">` ou o equivalente direito, com `aria-label` ("Página anterior" e "Próxima página").
   - Banner de limite, oculto por padrão.
   - Mensagem de busca sem resultado (D9), oculta por padrão.
@@ -151,7 +153,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - IDs novos, fixados aqui para G4: `users-table-search-toggle`, `users-table-search-field`, `users-table-search-input`, `users-table-search-close`, `users-table-chips`, `users-table-chip-template`, `users-table-menu-button`, `users-table-menu`, `users-table-menu-add`, `users-table-menu-sort-label`, `users-table-page-size`, `users-table-page`, `users-table-page-prev`, `users-table-page-next`, `users-table-counter`, `users-table-cap-banner`, `users-table-empty` e `users-table-loading` (spinner, R2).
   - Preservar todos os IDs e classes usados pelos testes: `users-table-title`, `users-table-body`, `table-card`, `new-user-button`, `status-region`, `user-dialog`, `user-form`, `user-dialog-title`, `user-dialog-error`, `user-dialog-close`, `user-dialog-cancel`, `user-name`, `user-email`, `user-location`, `user-image`, `image-preview`, `remove-image-option`, `remove-image`, `user-save-button`, `delete-dialog`, `delete-dialog-content`, `delete-dialog-message`, `delete-dialog-error`, `delete-dialog-cancel` e `delete-confirm-button`.
 - **ACs cobertos.** Estrutura de AC-03, AC-07, AC-08, AC-09, AC-10 e AC-12.
-- **Validação planejada.** `node --test webapp/frontend/tests/css-scanner.test.mjs` e `node --test webapp/frontend/tests/navigation.test.mjs`. Conferir com `grep` que cada ID da lista de preservação aparece em `index.html`.
+- **Validação planejada.** `node --test webapp/frontend/tests/css-scanner.test.mjs` e `node --test webapp/frontend/tests/navigation.test.mjs` e `node --test webapp/frontend/tests/table-menu-stacking.test.mjs webapp/frontend/tests/table-search-close.test.mjs`. Conferir com `grep` que cada ID da lista de preservação aparece em `index.html`.
 - **Depende de.** G1, porque usa classes e tokens definidos lá.
 - **Commit.** `feat(webapp): add users table markup`.
 
