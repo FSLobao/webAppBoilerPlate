@@ -146,6 +146,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - D-01 (G5): reticências e menu permanecem acessíveis com o campo de busca aberta; abrir o menu fecha e limpa a busca (opção B, aprovada).
   - Corrigir regressão de D-01: X mantém tamanho e chips quebram linha (flex-wrap, min-width 0).
   - D-02 (G5): o campo de busca cresce em altura para caber os chips; a área de chips rola após cerca de três linhas (opção A aprovada). Validar no G5 (check t de .agent/memory/webapp-users-table-validation.md, D-02).
+  - D-03 (G5): margem-inferior do input zerada (override de .input do GOV.BR) para que o input fique centrado no botão X; validar no G5 com t3.
   - Contorno de foco dos chips: padding de 8 px (var(--spacing-scale-base)); contêiner sem chips não ocupa espaço (:not(:has(...))).
   - Ordem no HTML: chips após o botão X, sem order por CSS (G3-R2).
   - Rodapé de paginação: seletor "Exibir" com 10, 50 e 100 (10 selecionado), contador com `aria-live="polite"`, seletor "Página" e botões de seta. Cada seta usa `<img src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg" alt="">` ou o equivalente direito, com `aria-label` ("Página anterior" e "Próxima página").

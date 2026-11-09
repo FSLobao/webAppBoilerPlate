@@ -444,6 +444,8 @@ h1 {
   min-width: var(--spacing-scale-10x);
   flex: 1;
   border: 0;
+  /* Zera a margem-inferior de .input do GOV.BR, que desloca a caixa do campo. */
+  margin-bottom: 0;
   padding: var(--spacing-scale-half) var(--spacing-scale-base);
   color: var(--gray-80);
   background: transparent;

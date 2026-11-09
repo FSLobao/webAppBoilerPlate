@@ -3,8 +3,8 @@
  *
  * Checks that the close button keeps its size, the chips wrap and shrink, the search input keeps
  * a minimum width, the search field grows to fit wrapped chips, the chips area keeps padding and
- * scrolls, an empty chips area takes no layout space, and the chips follow the close button in the
- * markup.
+ * scrolls, an empty chips area takes no layout space, the search field keeps its items centered, the
+ * search input has no bottom margin, and the chips follow the close button in the markup.
  * Rules are read from styles.css with simple regular expressions over top-level rules; markup is
  * read from index.html.
  */
@@ -122,6 +122,28 @@ test("search field grows to fit wrapped chips", async () => {
     declarations.has("bottom"),
     false,
     "Search field must not declare bottom, so its height is not pinned at both edges."
+  );
+});
+
+test("search input has no bottom margin so it stays centered on the close button", async () => {
+  const declarations = declarationsFor(await readStylesheet(), ".table-search-input");
+  const marginBottom = declarations.get("margin-bottom");
+
+  assert.ok(marginBottom !== undefined, "Search input must declare margin-bottom.");
+  assert.match(
+    marginBottom,
+    /^0(px)?$/,
+    "Search input must declare margin-bottom: 0 to override the GOV.BR .input bottom margin."
+  );
+});
+
+test("search field keeps its items centered", async () => {
+  const declarations = declarationsFor(await readStylesheet(), ".table-search-field");
+
+  assert.equal(
+    declarations.get("align-items"),
+    "center",
+    "Search field must declare align-items: center so the input and close button share a vertical center."
   );
 });
 
