@@ -420,11 +420,16 @@ h1 {
 .table-search-field {
   position: absolute;
   z-index: 2;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-scale-base);
-  width: 100%;
+  /* Covers the title bar at least and grows when wrapped chips need more height. */
+  height: auto;
+  min-height: 100%;
   border-bottom: 1px solid var(--gray-20);
   /* Right padding reserves room for the menu button: --spacing-scale-2x (16px) + --spacing-scale-6x (48px) = 64px. */
   padding: 0 calc(var(--spacing-scale-2x) + var(--spacing-scale-6x)) 0 var(--spacing-scale-base);
@@ -445,16 +450,28 @@ h1 {
   font: inherit;
 }
 
+/* width puts the chips on their own full-width line, so the input and close button share the first line. */
 .table-search-chips {
   display: flex;
   flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
+  width: 100%;
   min-width: 0;
+  /* 8px covers the 6px focus outline (3px outline plus 3px offset), which overflow would clip. */
+  padding: var(--spacing-scale-base);
+  /* Três linhas de chips pequenos (32 px, o tamanho de .br-button.small) mais duas gaps e dois paddings verticais. */
+  max-height: calc(var(--spacing-scale-4x) * 3 + var(--spacing-scale-half) * 2 + var(--spacing-scale-base) * 2);
+  overflow-y: auto;
   gap: var(--spacing-scale-half);
 }
 
 .table-search-chips[hidden] {
+  display: none;
+}
+
+/* An empty container would still take its padding inside the search field. */
+.table-search-chips:not(:has(.table-search-chip)) {
   display: none;
 }
 

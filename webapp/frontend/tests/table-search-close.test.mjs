@@ -1,9 +1,12 @@
 /**
  * Test the users table search close button, chip container and search input layout.
  *
- * Checks that the close button keeps its size, the chips wrap and shrink, and the search
- * input keeps a minimum width. Rules are read from styles.css with simple regular
- * expressions over top-level rules.
+ * Checks that the close button keeps its size, the chips wrap and shrink, the search input keeps
+ * a minimum width, the search field grows to fit wrapped chips, the chips area keeps padding and
+ * scrolls, an empty chips area takes no layout space, and the chips follow the close button in the
+ * markup.
+ * Rules are read from styles.css with simple regular expressions over top-level rules; markup is
+ * read from index.html.
  */
 
 import assert from "node:assert/strict";
@@ -101,4 +104,84 @@ test("chip grows with wrapped text and stays within the chips container", async 
   assert.equal(declarations.get("height"), "auto");
   assert.equal(declarations.get("min-height"), "var(--button-size)");
   assert.equal(declarations.get("max-width"), "100%");
+});
+
+test("search field grows to fit wrapped chips", async () => {
+  const declarations = declarationsFor(await readStylesheet(), ".table-search-field");
+
+  assert.notEqual(
+    declarations.get("inset"),
+    "0",
+    "Search field must not be pinned top and bottom with inset: 0."
+  );
+  assert.ok(
+    declarations.get("height") === "auto" || declarations.has("min-height"),
+    "Search field must declare height: auto or min-height so wrapped chips can grow it."
+  );
+  assert.equal(
+    declarations.has("bottom"),
+    false,
+    "Search field must not declare bottom, so its height is not pinned at both edges."
+  );
+});
+
+test("chips area scrolls after about three lines", async () => {
+  const declarations = declarationsFor(await readStylesheet(), ".table-search-chips");
+
+  assert.ok(
+    declarations.get("overflow-y") === "auto" || declarations.get("overflow") === "auto",
+    "Chips container must declare overflow-y: auto."
+  );
+  assert.equal(
+    declarations.get("max-height"),
+    "calc(var(--spacing-scale-4x) * 3 + var(--spacing-scale-half) * 2 + var(--spacing-scale-base) * 2)",
+    "Chips container max-height must cap three lines of small chips, two row gaps, and top and bottom padding."
+  );
+});
+
+test("chips container keeps padding so focus outlines are not clipped", async () => {
+  const declarations = declarationsFor(await readStylesheet(), ".table-search-chips");
+
+  assert.equal(
+    declarations.get("padding"),
+    "var(--spacing-scale-base)",
+    "Chips container padding must be var(--spacing-scale-base) (8 px) on all sides so the 6 px focus outline is not clipped."
+  );
+});
+
+test("empty chips container takes no layout space", async () => {
+  const stylesheet = await readStylesheet();
+  const hidesEmptyChips = [...stylesheet.matchAll(/([^{}]*)\{([^{}]*)\}/g)].some(
+    ([, selector, body]) =>
+      selector.includes(".table-search-chips") &&
+      selector.includes(":not(:has(") &&
+      /(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/.test(body)
+  );
+
+  assert.ok(
+    hidesEmptyChips,
+    "Expected a rule for .table-search-chips:not(:has(...)) that declares display: none."
+  );
+});
+
+test("chips take a full-width line so the close button stays on the first line", async () => {
+  const stylesheet = await readStylesheet();
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const fieldDeclarations = declarationsFor(stylesheet, ".table-search-field");
+  const chipsDeclarations = declarationsFor(stylesheet, ".table-search-chips");
+  const fieldStart = html.indexOf('<div class="table-search-field"');
+  const fieldMarkup = html.slice(fieldStart, html.indexOf("<template", fieldStart));
+  const closeIndex = fieldMarkup.indexOf("table-search-close");
+  const chipsIndex = fieldMarkup.indexOf("table-search-chips");
+
+  assert.equal(fieldDeclarations.get("flex-wrap"), "wrap");
+  assert.equal(chipsDeclarations.get("width"), "100%");
+  assert.ok(
+    closeIndex !== -1 && chipsIndex !== -1,
+    "Search field markup must contain the close button and the chips container."
+  );
+  assert.ok(
+    closeIndex < chipsIndex,
+    "Chips container must follow the close button in the search field markup."
+  );
 });

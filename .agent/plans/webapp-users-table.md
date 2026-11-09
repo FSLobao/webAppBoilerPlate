@@ -138,13 +138,16 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Arquivos.** `webapp/frontend/index.html` e `webapp/frontend/styles.css`, somente para ajustes de layout exigidos pela estrutura.
 - **Mudanças.**
   - Barra de título com botão de lupa (SVG inline original) e campo de busca sobre a barra, com botão de fechar. Ambos ficam ocultos por padrão.
-  - Search chip container next to search input; each chip uses GovBR Core `.br-button.small` modifier. Não adicionar `min-height` local, exceto `min-height: var(--button-size)` no chip, para manter a altura do botão pequeno com quebra de linha.
+  - Search chip container next to search input; each chip uses GovBR Core `.br-button.small` modifier. Não adicionar `min-height` local, exceto `min-height: var(--button-size)` no chip, para manter a altura do botão pequeno com quebra de linha; exceção: `min-height: 100%` no `.table-search-field`, para que o campo tenha no mínimo a altura da barra de título.
   - Botão de reticências (SVG inline original) com `aria-expanded="false"` e `aria-controls="users-table-menu"`. O menu tem "Adicionar usuário" e o grupo "Ordenar" com Nome, Email e Localização. O menu começa com `hidden`.
   - Cabeçalhos de Nome, Email e Localização com botão de ordenação e `aria-sort="none"`. Foto e Ações não recebem botão.
   - **G3-R1 Menu clipping.** G3 must prevent `.table-sort-menu` from being clipped by the existing `.table-card { overflow: hidden; }` in cards with 0 or 1 row. For example, allow overflow on the card and preserve rounded corners on its children. G5 must verify 0 and 1 rows at 375, 768, and 1024 px.
   - **G3-R2 Chip DOM order.** Place the remove control before the term text in the DOM. Its accessible name is `Remover <termo>`. Do not reorder with CSS.
   - D-01 (G5): reticências e menu permanecem acessíveis com o campo de busca aberta; abrir o menu fecha e limpa a busca (opção B, aprovada).
   - Corrigir regressão de D-01: X mantém tamanho e chips quebram linha (flex-wrap, min-width 0).
+  - D-02 (G5): o campo de busca cresce em altura para caber os chips; a área de chips rola após cerca de três linhas (opção A aprovada). Validar no G5 (check t de .agent/memory/webapp-users-table-validation.md, D-02).
+  - Contorno de foco dos chips: padding de 8 px (var(--spacing-scale-base)); contêiner sem chips não ocupa espaço (:not(:has(...))).
+  - Ordem no HTML: chips após o botão X, sem order por CSS (G3-R2).
   - Rodapé de paginação: seletor "Exibir" com 10, 50 e 100 (10 selecionado), contador com `aria-live="polite"`, seletor "Página" e botões de seta. Cada seta usa `<img src="assets/vendor/fontawesome-5.11.2/solid/chevron-left.svg" alt="">` ou o equivalente direito, com `aria-label` ("Página anterior" e "Próxima página").
   - Banner de limite, oculto por padrão.
   - Mensagem de busca sem resultado (D9), oculta por padrão.
