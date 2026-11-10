@@ -1,23 +1,27 @@
 <details id="top">
     <summary>Índice</summary>
+  <!-- cspell:disable -->
     <ol>
         <li><a href="#configuração-do-host-etapa-1-root">Configuração do host (etapa 1, root)</a></li>
-        <li><a href="#1-objetivo-status-e-limites">Objetivo, status e limites</a></li>
-        <li><a href="#2-inventário">Inventário</a></li>
-        <li><a href="#3-pré-requisitos-e-descoberta">Pré-requisitos e descoberta</a></li>
-        <li><a href="#4-preparar-a-conta-rootless-root">Preparar a conta rootless (root)</a></li>
-        <li><a href="#5-prova-de-conceito-descartável">Prova de conceito descartável</a></li>
-        <li><a href="#6-preparar-configurações">Preparar configurações</a></li>
-        <li><a href="#7-rede-rootless-e-rota-de-retorno">Rede rootless e rota de retorno</a></li>
-        <li><a href="#8-instalar-unidades-e-iniciar">Instalar unidades e iniciar</a></li>
-        <li><a href="#9-inscrever-o-gateway-e-acessar-o-headplane">Inscrever o Gateway e acessar o Headplane</a></li>
-        <li><a href="#10-testes-funcionais-e-gates">Testes funcionais e gates</a></li>
-        <li><a href="#11-rollback-e-limpeza">Rollback e limpeza</a></li>
-        <li><a href="#12-fontes-oficiais">Fontes oficiais</a></li>
+        <li><a href="#1-objetivo-status-e-limites">1. Objetivo, status e limites</a></li>
+        <li><a href="#2-inventário">2. Inventário</a></li>
+        <li><a href="#3-preparar-a-conta-rootless-root">4. Preparar a conta rootless (root)</a></li>
+        <li><a href="#4-pré-requisitos-e-descoberta">3. Pré-requisitos e descoberta</a></li>
+        <li><a href="#5-prova-de-conceito-descartável">5. Prova de conceito descartável</a></li>
+        <li><a href="#6-preparar-configurações">6. Preparar configurações</a></li>
+        <li><a href="#7-rede-rootless-e-rota-de-retorno">7. Rede rootless e rota de retorno</a></li>
+        <li><a href="#8-instalar-unidades-e-iniciar">8. Instalar unidades e iniciar</a></li>
+        <li><a href="#9-inscrever-o-gateway-e-acessar-o-headplane">9. Inscrever o Gateway e acessar o Headplane</a></li>
+        <li><a href="#10-testes-funcionais-e-gates">10. Testes funcionais e gates</a></li>
+        <li><a href="#11-rollback-e-limpeza">11. Rollback e limpeza</a></li>
+        <li><a href="#12-fontes-oficiais">12. Fontes oficiais</a></li>
     </ol>
+      <!-- cspell:enable -->
 </details>
 
-# Gateway VPN com Headscale, Headplane e Tailscale — alvo rootless
+# Deploy do Gateway VPN com Headscale, Headplane e Tailscale — alvo rootless
+
+Esta receita descreve a instalação e configuração do Gateway VPN com Headscale, Headplane e Tailscale em um ambiente rootless, utilizando Podman e Quadlet. O objetivo é permitir que o Gateway opere sem privilégios de root, mantendo a segurança e a segregação de rede adequada.
 
 > **Alvo rootless.** A alternativa rootful está implementada e mantida na [receita rootful](gateway-headscale-podman-rootfull.md).
 
@@ -99,8 +103,6 @@ flowchart LR
 
 A bridge existe na namespace de rede rootless e não é diretamente alcançável pela namespace de rede do host. Não publique DNS TCP/UDP 53 no host; os clientes VPN consultam o Aardvark pelo split DNS e pela rota anunciada. O tráfego de retorno ao cliente depende da rota instalada nessa namespace. Todos os containers de aplicação que precisem ser anunciados devem entrar na mesma bridge e usar aliases DNS nela.
 
-Mantenha a [alternativa rootful](gateway-headscale-podman-rootfull.md) e seus volumes. Não execute as duas variantes no mesmo host nem anuncie rotas iguais ou sobrepostas. O store rootless é separado; não migre volumes rootful. Portainer não é oficialmente suportado nesta topologia rootless.
-
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
@@ -127,62 +129,13 @@ Mantenha a [alternativa rootful](gateway-headscale-podman-rootfull.md) e seus vo
 | [install-file.sh](../../deploy/scripts/install-file.sh) | **Não usado nesta variante** | Sempre chama `chown`; sem root só serve se proprietário/grupo forem permitidos para o próprio usuário, não para mapear UID interno. Como root, pode criar arquivos com proprietário incompatível. Use instalação/cópia curta como o usuário. |
 | [Receita TLS](gateway-tls.md) | Referência para certificado | O procedimento existente gera material em caminhos controlados pelo host; a infraestrutura deve entregar os arquivos à conta rootless por canal seguro, sem afrouxar a chave privada. |
 
-Interfaces reais dos scripts: `prepare-headplane-candidate.sh [candidate_dir] [template_file]` usa como template padrão `deploy/gateway/v1/config/headplane.yaml` e, sem diretório, cria staging em `/tmp`; cria config `0600` e segredo de 32 hex `0444`. `validate-headplane-config.sh <candidate_config> <candidate_secret> [containerfile_or_image]` usa o Containerfile versionado como padrão, roda container de rede `none`, tenta healthcheck por até 20 segundos e remove o container; remove também imagem que baixou somente quando a validação falha. `enroll-gateway.sh <headscale_fqdn> [container_name] [network_name] [authkey_path]` assume `gateway`, `podman` e `/run/tailscale-auth/authkey` quando omitidos; esta receita passa `gateway` e `gateway-vpn` explicitamente. `install-file.sh <source_path|-> <target_path> <mode> <owner> <group>` ajusta proprietário/grupo com `chown`, aplica modo, recusa destino existente e faz rename atômico; sem root, `chown` só pode manter um proprietário/grupo permitido para o usuário atual, não mapear UID interno. Executar como root não atende ao modelo de arquivos pertencentes à conta rootless.
+Interfaces reais dos scripts:
 
-`prepare-headplane-candidate.sh` é reutilizável sem root, mas seu segredo `0444` não atende à política de permissões finais. Valide primeiro; depois copie, restrinja e aplique o mapeamento de UID interno descrito na seção 6. `validate-headplane-config.sh` usa o `podman` encontrado no `PATH`; não o execute com `sudo`.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## 3. Pré-requisitos e descoberta
-
-Faça primeiro as inspeções de leitura. Não altere redes, sysctls, firewall, SELinux, unidades nem imagens nesta etapa. Obtenha da equipe de infraestrutura o CIDR atual da rede rootful `podman`; não use `sudo podman` nesta receita nem confunda esse valor com a rede `podman` do store rootless.
-
-**Gate G0 — bloqueante, somente leitura.** Depois da preparação de conta na seção 4, entre como `<GATEWAY_USER>` em uma sessão real (`machinectl shell <GATEWAY_USER>@` ou SSH) e execute as verificações abaixo. `sudo -u` sozinho não fornece a sessão D-Bus de usuário nem `XDG_RUNTIME_DIR`.
-
-```bash
-podman --version
-podman info --format '{{.Host.Security.Rootless}}'
-podman info --format '{{.Host.CgroupsVersion}}'
-```
-
-```bash
-printf 'runtime=%s\n' "$XDG_RUNTIME_DIR"
-test -S "$XDG_RUNTIME_DIR/bus"
-```
-
-Exija `true`, cgroups `v2`, `XDG_RUNTIME_DIR` definido e socket `bus` presente. Confirme faixas subuid/subgid para o usuário, `newuidmap`, `newgidmap`, `pasta`, Netavark e Aardvark DNS; use `podman info --debug`, `command -v` e os nomes de pacote disponíveis no RHEL para confirmar caminhos e instalação. Confirme também:
-
-```bash
-command -v newuidmap
-command -v newgidmap
-command -v pasta
-```
-
-```bash
-rpm -q netavark aardvark-dns passt
-getenforce
-test -c /dev/net/tun
-```
-
-```bash
-loginctl show-user "$(id -un)" -p Linger
-findmnt -no FSTYPE,OPTIONS -T "$HOME"
-grep -E "^$(id -un):[0-9]+:[0-9]+$" /etc/subuid /etc/subgid
-```
-
-Exija SELinux `Disabled`, dispositivo `/dev/net/tun` presente, `Linger=yes`, ranges subuid/subgid, e home em disco local. A home não pode estar em NFS nem montada com `noexec` ou `nodev`. `rpm -q` pode usar nomes de pacote diferentes no repositório RHEL; confirme os executáveis efetivos em vez de ignorar ausência de Netavark/Aardvark/pasta.
-
-Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN e CIDR da alternativa rootful `podman`. O alvo rootless usa `gateway-vpn` (`10.90.0.0/24`), resolver `10.90.0.1`, Gateway `10.90.0.2` e prefixo Headscale `100.96.0.0/24`; confirme que não há sobreposição. A publicação do endpoint é TCP 443 direto no host.
-
-**Critério G0:** todas as verificações e os dados de rede estão disponíveis e não se sobrepõem. **Se falhar: pare.** Não tente contornar SELinux, user namespaces, home remota ou falta de dependências nesta receita.
+- `prepare-headplane-candidate.sh [candidate_dir] [template_file]` usa como template padrão `deploy/gateway/v1/config/headplane.yaml` e, sem diretório, cria staging em `/tmp`; cria config `0600` e segredo de 32 hex `0444`.
+- `validate-headplane-config.sh <candidate_config> <candidate_secret> [containerfile_or_image]` usa o Containerfile versionado como padrão, roda container de rede `none`, tenta healthcheck por até 20 segundos e remove o container; remove também imagem que baixou somente quando a validação falha.
+- `enroll-gateway.sh <headscale_fqdn> [container_name] [network_name] [authkey_path]` assume `gateway`, `podman` e `/run/tailscale-auth/authkey` quando omitidos; esta receita passa `gateway` e `gateway-vpn` explicitamente.
+- `install-file.sh <source_path|-> <target_path> <mode> <owner> <group>` ajusta proprietário/grupo com `chown`, aplica modo, recusa destino existente e faz rename atômico; sem root, `chown` só pode manter um proprietário/grupo permitido para o usuário atual, não mapear UID interno. Executar como root não atende ao modelo de arquivos pertencentes à conta rootless.
+- `prepare-headplane-candidate.sh` é reutilizável sem root, mas seu segredo `0444` não atende à política de permissões finais. Valide primeiro; depois copie, restrinja e aplique o mapeamento de UID interno descrito na seção 6. `validate-headplane-config.sh` usa o `podman` encontrado no `PATH`; não o execute com `sudo`.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -194,7 +147,7 @@ Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN e CIDR da al
   <br><br>
 </div>
 
-## 4. Preparar a conta rootless (root)
+## 3. Preparar a conta rootless (root)
 
 Execute esta preparação como `root` ou entre com `sudo -i`. Reserve ranges subuid e subgid livres, sem sobrepor as ranges já alocadas em `/etc/subuid` e `/etc/subgid`. Não use os valores de exemplo de outra conta.
 
@@ -265,6 +218,65 @@ test -S "$XDG_RUNTIME_DIR/bus" || { printf "User bus indisponível.\n" >&2; exit
 ```
 
 Se `su` não fornecer o user bus, saia da sessão e use `machinectl shell <GATEWAY_USER>@`; repita a definição e a confirmação. SSH também serve. Daqui em diante execute **tudo** como `<GATEWAY_USER>`, sem `sudo`: build, scripts, Podman, Quadlet, configurações, rede, logs e testes. Se o checkout estiver sob uma home privada e inacessível, não amplie permissões da home; use cópia temporária dos arquivos necessários em diretório acessível à conta rootless. Quadlet rootless é gerenciado por `systemctl --user` e não aceita `User=` para trocar a conta do container; o manager já executa como o usuário dedicado.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
+
+## 4. Pré-requisitos e descoberta
+
+Faça primeiro as inspeções de leitura. Não altere redes, sysctls, firewall, SELinux, unidades nem imagens nesta etapa. Obtenha da equipe de infraestrutura o CIDR atual da rede rootful `podman`; não use `sudo podman` nesta receita nem confunda esse valor com a rede `podman` do store rootless.
+
+Depois da preparação de conta do usuário rootless (sessão 3) entre como `<GATEWAY_USER>` em uma sessão real (`machinectl shell <GATEWAY_USER>@` ou SSH) e execute as verificações abaixo. `sudo -u` sozinho não fornece a sessão D-Bus de usuário nem `XDG_RUNTIME_DIR`.
+
+Execute os seguintes comandos, verifique as respostas: `true`, cgroups `v2`, `XDG_RUNTIME_DIR` definido e socket `bus` presente (saída sem erros).
+
+
+```bash
+podman --version
+podman info --format '{{.Host.Security.Rootless}}'
+podman info --format '{{.Host.CgroupsVersion}}'
+```
+
+```bash
+printf 'runtime=%s\n' "$XDG_RUNTIME_DIR"
+test -S "$XDG_RUNTIME_DIR/bus"
+```
+
+Confirme faixas subuid/subgid para o usuário, `newuidmap`, `newgidmap`, `pasta`:
+
+```bash
+command -v newuidmap
+command -v newgidmap
+command -v pasta
+```
+
+Netavark e Aardvark DNS; use `podman info --debug`, `command -v` e os nomes de pacote disponíveis no RHEL para confirmar caminhos e instalação. Confirme também
+
+```bash
+rpm -q netavark aardvark-dns passt
+getenforce
+test -c /dev/net/tun
+```
+
+```bash
+loginctl show-user "$(id -un)" -p Linger
+findmnt -no FSTYPE,OPTIONS -T "$HOME"
+grep -E "^$(id -un):[0-9]+:[0-9]+$" /etc/subuid /etc/subgid
+```
+
+Exija SELinux `Disabled`, dispositivo `/dev/net/tun` presente, `Linger=yes`, ranges subuid/subgid, e home em disco local. A home não pode estar em NFS nem montada com `noexec` ou `nodev`. `rpm -q` pode usar nomes de pacote diferentes no repositório RHEL; confirme os executáveis efetivos em vez de ignorar ausência de Netavark/Aardvark/pasta.
+
+Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN e CIDR da alternativa rootful `podman`. O alvo rootless usa `gateway-vpn` (`10.90.0.0/24`), resolver `10.90.0.1`, Gateway `10.90.0.2` e prefixo Headscale `100.96.0.0/24`; confirme que não há sobreposição. A publicação do endpoint é TCP 443 direto no host.
+
+**Critério G0:** todas as verificações e os dados de rede estão disponíveis e não se sobrepõem. **Se falhar: pare.** Não tente contornar SELinux, user namespaces, home remota ou falta de dependências nesta receita.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

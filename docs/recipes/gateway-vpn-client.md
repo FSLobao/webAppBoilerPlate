@@ -54,14 +54,17 @@ flowchart LR
     client -.->|split DNS dev.anatel| resolver[Resolver da rede de containers]
 ```
 
-Antes de começar, peça ao operador os dados abaixo. A chave de inscrição deve ser individual,
+Antes de começar, peça ao administrador os dados abaixo. A chave de inscrição deve ser individual,
 de uso único, de curta validade e entregue fora do Git e do histórico do shell. A chave privada
 do dispositivo é gerada localmente pelo Tailscale e não deve ser compartilhada.
 
+Administradores: consulte a [receita de administração do Gateway VPN](gateway-vpn-admin.md) para
+cadastrar usuários Headscale e emitir chaves de inscrição.
+
 | Marcador | O que fornecer ou substituir | Exemplo ilustrativo |
 | --- | --- | --- |
-| `<HEADSCALE_FQDN>` | Nome público do Headscale; HTTPS TCP 443 deve funcionar antes da VPN. | `headscale.dev.anatel` |
-| `<AUTH_KEY_FILE>` | Caminho local, fora do repositório, para o arquivo de chave de inscrição entregue pelo operador. | `/home/ana/.config/tailscale/auth-key` |
+| `<HEADSCALE_FQDN>` | Nome público ou privado (ou IP) do Headscale por meio do qual o cliente pode acessar o serviço HTTPS na porta TCP 443. | `headscale.dev.anatel` |
+| `<AUTH_KEY_FILE>` | Caminho local, fora do repositório, para o arquivo de chave de inscrição entregue pelo administrador. | `/home/ana/.config/tailscale/auth-key` |
 | `<CA_FILE>` | Caminho do certificado público da CA privada, somente se o endpoint usar essa CA. | `/home/ana/Downloads/gateway-ca.crt` |
 | `<APP_ALIAS>` | Nome DNS autorizado para o serviço/container. | `backend.project-a.dev.anatel` |
 | `<GATEWAY_ALIAS>` | Nome DNS autorizado para o Gateway. | `dev-gateway.dev.anatel` |
