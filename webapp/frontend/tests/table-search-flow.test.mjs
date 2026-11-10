@@ -1,10 +1,9 @@
 /**
- * Test the users table search field reflow at narrow widths, plus its stacking, alignment, and markup.
+ * Test the users table search field reflow, stacking, alignment, and markup at every width.
  *
- * At 793.98 px or less the open search field leaves absolute positioning, takes its own line below the
- * header controls, and the header wraps only while the field is open. Above 793.98 px the field keeps
- * absolute positioning. The value that applies at each width is resolved from styles.css with the local
- * CSS scanner, and the markup order is read from index.html.
+ * At every width the open search field leaves absolute positioning, takes its own line below the
+ * header controls, and the header wraps only while the field is open. The values are resolved from
+ * styles.css with the local CSS scanner, and the markup order is read from index.html.
  */
 
 import assert from "node:assert/strict";
@@ -18,9 +17,7 @@ import {
 } from "./helpers/css-cascade.mjs";
 
 const STYLESHEET_URL = new URL("../styles.css", import.meta.url);
-const REFLOW_WIDTHS = [375, 480, 481, 768, 793, 793.98];
-const WIDE_WIDTHS = [794, 1023, 1024];
-const ALL_WIDTHS = [...REFLOW_WIDTHS, ...WIDE_WIDTHS];
+const REFLOW_WIDTHS = [375, 480, 481, 768, 793, 793.98, 794, 1023, 1024, 1280, 1440];
 const OPEN_HEADER_SELECTOR = ".top-bar:has(.table-search-field:not([hidden]))";
 // The loading rule's exact selector text in styles.css. It sits outside .top-bar (see the placement test), so it never applies to the search field.
 const LOADING_RULE_SELECTOR = "#users-table-loading:not(:has(.table-loading-indicator:not([hidden])))";
@@ -44,7 +41,7 @@ function closingDivIndex(html, openIndex) {
   return -1;
 }
 
-test("search field leaves absolute positioning at 793.98 px and below", async () => {
+test("search field joins the normal flow at every width", async () => {
   const declarations = await readStylesheetDeclarations(STYLESHEET_URL);
 
   for (const width of REFLOW_WIDTHS) {
@@ -60,23 +57,23 @@ test("search field leaves absolute positioning at 793.98 px and below", async ()
   }
 });
 
-test("search field keeps absolute positioning above 793.98 px", async () => {
+test("open search field is never absolutely positioned", async () => {
   const declarations = await readStylesheetDeclarations(STYLESHEET_URL);
 
-  for (const width of WIDE_WIDTHS) {
-    assert.equal(
+  for (const width of REFLOW_WIDTHS) {
+    assert.notEqual(
       valueAtWidth(declarations, {
         matchesSelector: matchesSearchField,
         property: "position",
         width
       }),
       "absolute",
-      `Search field position at ${width} px must stay absolute.`
+      `Open search field must not be absolutely positioned at ${width} px.`
     );
   }
 });
 
-test("search field takes a full-width flex line at 793.98 px and below", async () => {
+test("search field takes a full-width flex line at every width", async () => {
   const declarations = await readStylesheetDeclarations(STYLESHEET_URL);
 
   for (const width of REFLOW_WIDTHS) {
@@ -86,21 +83,14 @@ test("search field takes a full-width flex line at 793.98 px and below", async (
       `Search field flex at ${width} px must take a full-width line.`
     );
   }
-  for (const width of WIDE_WIDTHS) {
-    assert.equal(
-      valueAtWidth(declarations, { matchesSelector: matchesSearchField, property: "flex", width }),
-      undefined,
-      `Search field must not declare flex at ${width} px.`
-    );
-  }
 });
 
-test("header wraps only while the search field is open at 793.98 px and below", async () => {
+test("header wraps only while the search field is open at every width", async () => {
   const declarations = await readStylesheetDeclarations(STYLESHEET_URL);
   const matchesHeader = (selector) => selector === ".top-bar";
   const matchesOpenHeader = (selector) => selector === OPEN_HEADER_SELECTOR;
 
-  for (const width of [375, 793.98, 1024]) {
+  for (const width of REFLOW_WIDTHS) {
     assert.equal(
       valueAtWidth(declarations, { matchesSelector: matchesHeader, property: "flex-wrap", width }),
       undefined,
@@ -112,13 +102,6 @@ test("header wraps only while the search field is open at 793.98 px and below", 
       valueAtWidth(declarations, { matchesSelector: matchesOpenHeader, property: "flex-wrap", width }),
       "wrap",
       `Header must wrap while the search field is open at ${width} px.`
-    );
-  }
-  for (const width of WIDE_WIDTHS) {
-    assert.equal(
-      valueAtWidth(declarations, { matchesSelector: matchesOpenHeader, property: "flex-wrap", width }),
-      undefined,
-      `Header must not wrap for the open search field at ${width} px.`
     );
   }
 });
@@ -138,7 +121,7 @@ test("loading container sits outside the top bar, so its rule cannot apply to th
   );
 });
 
-test("search field drops absolute-only sizing at 793.98 px and below", async () => {
+test("search field drops absolute-only sizing at every width", async () => {
   const declarations = (await readStylesheetDeclarations(STYLESHEET_URL)).filter(
     (declaration) => declaration.selector !== LOADING_RULE_SELECTOR
   );
@@ -154,7 +137,7 @@ test("search field drops absolute-only sizing at 793.98 px and below", async () 
       `Search field min-height at ${width} px must not be 100%; found ${minHeight}.`
     );
   }
-  for (const width of ALL_WIDTHS) {
+  for (const width of REFLOW_WIDTHS) {
     assert.equal(
       valueAtWidth(declarations, { matchesSelector: matchesSearchField, property: "height", width }),
       "auto",
@@ -166,7 +149,7 @@ test("search field drops absolute-only sizing at 793.98 px and below", async () 
 test("menu anchor stacks above the search field and the sort menu keeps its layer", async () => {
   const declarations = await readStylesheetDeclarations(STYLESHEET_URL);
 
-  for (const width of ALL_WIDTHS) {
+  for (const width of REFLOW_WIDTHS) {
     const anchorZIndex = Number(
       valueAtWidth(declarations, {
         matchesSelector: (selector) => targetsSelector(selector, ".table-menu-anchor"),
@@ -201,7 +184,7 @@ test("menu anchor stacks above the search field and the sort menu keeps its laye
 test("search input and close button stay aligned with the field at every width", async () => {
   const declarations = await readStylesheetDeclarations(STYLESHEET_URL);
 
-  for (const width of ALL_WIDTHS) {
+  for (const width of REFLOW_WIDTHS) {
     assert.equal(
       valueAtWidth(declarations, {
         matchesSelector: matchesSearchField,

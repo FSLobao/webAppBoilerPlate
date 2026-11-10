@@ -427,11 +427,11 @@ h1 {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-scale-base);
-  /* Covers the title bar at least and grows when wrapped chips need more height. */
+  /* Grows when wrapped chips need more height. */
   height: auto;
   min-height: 100%;
   border-bottom: 1px solid var(--gray-20);
-  /* Right padding reserves room for the menu button: --spacing-scale-2x (16px) + --spacing-scale-6x (48px) = 64px. */
+  /* Right padding: --spacing-scale-2x (16px) + --spacing-scale-6x (48px) = 64px. */
   padding: 0 calc(var(--spacing-scale-2x) + var(--spacing-scale-6x)) 0 var(--spacing-scale-base);
   background: var(--pure-0);
 }
@@ -487,20 +487,19 @@ h1 {
   margin-right: 0;
 }
 
-@media (max-width: 793.98px) {
-  /* Wraps only while the field is open, so the closed header keeps a single row. */
-  .top-bar:has(.table-search-field:not([hidden])) {
-    flex-wrap: wrap;
-  }
+/* Wraps only while the field is open, so the closed header keeps a single row. */
+.top-bar:has(.table-search-field:not([hidden])) {
+  flex-wrap: wrap;
+}
 
-  .top-bar .table-search-field {
-    position: static;
-    top: auto;
-    right: auto;
-    left: auto;
-    flex: 0 0 100%;
-    min-height: auto;
-  }
+/* Static at every width, so the open field takes its own line below the header controls. */
+.top-bar .table-search-field {
+  position: static;
+  top: auto;
+  right: auto;
+  left: auto;
+  flex: 0 0 100%;
+  min-height: auto;
 }
 
 @media (max-width: 480px) {
