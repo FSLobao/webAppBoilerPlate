@@ -263,6 +263,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Validação planejada.** Revisão manual de índice, âncoras e links relativos. `git --no-pager diff --name-only` mostra somente os dois arquivos.
 - **Depende de.** G5.
 - **Commit.** `docs(webapp): document users table behavior and deviations`.
+- **Decisão do dono (G6).** A direção de ordenação aparece só nos cartões abaixo de 768 px. Nos cabeçalhos, o destaque usa cor e `aria-sort`. Aceito como está; implementar seta no cabeçalho exigiria mudança de contrato, CSS e nova validação G5.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
