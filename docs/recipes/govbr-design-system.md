@@ -189,6 +189,20 @@ não requisito oficial.
 O texto central usa `line-height: 3`, sem altura fixa; links podem quebrar
 naturalmente em telas estreitas.
 
+### Desvios da tabela de usuários
+
+A tabela de usuários segue a [Table do GOV.BR](https://docs-ds.estaleiro.serpro.gov.br/govbr-ds/ds/componentes/table/table.md), com os desvios abaixo. O [contrato da tabela](../../.agent/contracts/webapp-users-table.md) registra os desvios com seus motivos, as decisões D1 a D9 e as regras R1 e R2.
+
+| ID | Desvio | Motivo |
+| --- | --- | --- |
+| a | Abaixo de 768 px, cartões substituem a rolagem horizontal da fonte. | Decisão do usuário. |
+| b | Dois triângulos (para cima e para baixo) em vez de uma única seta de ordenação. | Decisão do usuário. Mostra as duas direções e destaca a ativa. |
+| c | Limite de 500 itens aplicado após a filtragem. | Limita a renderização no navegador sem reduzir a busca, que continua sobre a lista completa da API. |
+| d | Menu de ordenação em todas as larguras, além do clique no cabeçalho. | Oferece ordenação por teclado e por toque em telas estreitas, onde o cabeçalho não aparece. |
+| e | Spinner somente em CSS, sem SVG nem imagem. | Não adiciona asset nem dependência ao projeto. |
+
+O desvio b vale para os cartões abaixo de 768 px (D1). Nos cabeçalhos da tabela, o sentido da ordenação não aparece visualmente; ele é informado por `aria-sort`.
+
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>

@@ -128,6 +128,26 @@ Em telas com largura de até 767,98 px, cada linha vira um cartão com Email e L
 ações Editar e Excluir visíveis. Textos longos quebram sem rolagem horizontal.
 Não há atalhos globais adicionais.
 
+### Tabela de usuários
+
+A tabela da tela principal funciona assim. Os desvios em relação ao padrão GOV.BR estão em [Desvios da tabela de usuários](./govbr-design-system.md#desvios-da-tabela-de-usuários).
+
+| Recurso | Comportamento |
+| --- | --- |
+| Busca | A lupa do cabeçalho da tabela abre o campo de busca. A busca cobre Nome, Email e Localização. O campo `id` não é pesquisado. A comparação ignora maiúsculas, minúsculas e acentos. Com o campo aberto, ele ocupa uma linha própria abaixo dos controles do cabeçalho, em todas as larguras. |
+| Termos | Cada palavra separada por espaço é um termo, e os termos são combinados com OR. Texto entre aspas é uma frase única, por exemplo `"Rio de Janeiro"`. Pressione Enter para aceitar os termos digitados. O campo é limpo, e termo repetido não cria novo chip. |
+| Chips | Cada termo aceito vira um chip com o botão "×" à esquerda do texto. O nome acessível do botão começa com "Remover", seguido do termo, por exemplo "Remover ana". Remover um chip devolve o foco ao campo de busca. Os trechos encontrados são destacados nas células. A área de chips rola na vertical: altura máxima de 172 px em larguras de até 480 px, e de 120 px acima disso. |
+| Fechar a busca | Fechar pela lupa, pelo botão "Fechar busca" ou ao abrir o menu limpa termos, chips e texto, e restaura a lista completa. |
+| Ordenação | Clicar no cabeçalho de Nome, Email ou Localização segue o ciclo ascendente, descendente, ascendente. A partir de 768 px, o cabeçalho ativo fica destacado e o estado é informado por `aria-sort`; o sentido da ordenação não aparece visualmente nos cabeçalhos. Foto e Ações não são ordenáveis. |
+| Menu de reticências | O botão de reticências, rotulado "Mais opções da tabela", abre o menu com "Adicionar usuário" e o grupo "Ordenar", com Nome, Email e Localização. Escolher uma coluna equivale a clicar no cabeçalho dela. A coluna ativa fica marcada. |
+| Cartões | Abaixo de 768 px, cada rótulo de Nome, Email e Localização tem dois triângulos à direita, com a direção ativa destacada. Os triângulos não são interativos; para ordenar nos cartões, use o menu de reticências. |
+| Novo usuário | O botão Novo usuário fica fora da tabela, e a mesma ação está no menu de reticências. |
+| Paginação | Exibe 10, 50 ou 100 itens por página, com padrão 10. Em "Exibir", escolha o tamanho; em "Página", escolha a página em uma lista; use os botões de anterior e próxima. |
+| Contador | Mostra o intervalo e o total exibido, por exemplo "1-10 de 25 itens". Sem resultados, mostra "Nenhum item". |
+| Limite de 500 | O limite aplica-se depois da filtragem. Com mais de 500 resultados filtrados, o contador mostra o conjunto exibido (por exemplo, "1-10 de 500 itens" na página 1), um banner informa o total real, e a paginação percorre somente os 500 exibidos. |
+| Sem resultados | Quando a busca não encontra usuários, é exibida a mensagem "Nenhum usuário encontrado para a busca informada." |
+| Carregamento | Enquanto a lista é buscada, a região mostra "Carregando usuários" com spinner em CSS e o contêiner da tabela fica com `aria-busy="true"`. Com redução de movimento ativa, o spinner não gira e pulsa de opacidade. |
+
 <div>
   <a href="#top" title="De volta ao topo da página">
     <picture>
@@ -188,12 +208,14 @@ Resultado esperado:
 
 Os testes unitários usam um repositório falso e não precisam de banco.
 O frontend em `webapp/frontend/` não tem etapa de build. Os testes de navegação,
-mensagens e foco usam o `node:test` integrado. Na raiz do repositório:
+mensagens, foco e tabela usam o `node:test` integrado.
+
+Execute os comandos a seguir com Bash, na raiz do repositório:
 
 ```bash
-node --test webapp/frontend/tests/dialog-accessibility.test.mjs \
-  webapp/frontend/tests/navigation.test.mjs webapp/frontend/tests/css-scanner.test.mjs
+node --test webapp/frontend/tests/*.test.mjs
 node --check webapp/frontend/app.js &&
+  node --check webapp/frontend/table-model.mjs &&
   node --check webapp/frontend/navigation.mjs &&
   node --check webapp/frontend/dialog-accessibility.mjs &&
   node --check webapp/frontend/tests/dialog-accessibility.test.mjs &&
@@ -202,9 +224,9 @@ node --check webapp/frontend/app.js &&
   node --check webapp/frontend/tests/css-scanner.test.mjs
 ```
 
-Resultado esperado: `node --test` termina com código `0` e sem falhas; a saída TAP informa os
-resultados do conjunto selecionado, sem contagem presumida. `node --check` termina com código `0`
-sem erros de sintaxe e sem saída.
+Resultado esperado: `node --test` termina com código `0` e sem falhas; o resumo informa os
+resultados de todos os testes em `webapp/frontend/tests/`, sem contagem presumida. `node --check` termina com código `0`
+sem erros de sintaxe e sem saída, nos módulos listados acima.
 
 O CSS Core 3.7.0, Rawline, ícones e a ilustração são locais. As origens, licenças e
 atribuições estão no [índice de licenças de componentes](../../LICENSES.md); os detalhes
