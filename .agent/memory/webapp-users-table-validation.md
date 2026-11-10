@@ -467,3 +467,103 @@ Usuários: antes da semeadura, 2 (id 6 `user1`; id 7 `user2`). `usuarios_antes_d
 
 Não medido: Firefox, WebKit, toque real, barra de rolagem visível, rolagem até o fim, 3 termos nessas larguras, veredito de t1 e t2 (critério REQ-13 não reaplicado nesta rodada), largura 793.98 px.
 
+## G5 pós-reflow (7f55528)
+
+**Veredito.** PASS nos critérios de aceite (t1 medido, t2 pelo critério medido, teto, reflow, D-01 com ponteiro e teclado, sobreposição zero, rolagem horizontal ≤ clientWidth em 768, 793 e 794 px); FAIL histórico mantido: t2 literal (D-04); t1 literal em 481 px (7,7 px, visível 0,0) é informativo; s fica FAIL pelos literais históricos.
+
+**Ambiente.** 2026-11-10. HEAD 7f55528, tag `gate/table-g5a-reflow-all-widths`; `git diff 7f55528 -- webapp/` vazio. Chromium 158.0.8127.18 (headless), Playwright 1.65.0, Node v24.21.0. Index 200; health `{"status":"ok"}`. Evidência fora do repositório: `files/g5/g5a-7f55528/`. pageErrors 0 em todas as execuções desta seção.
+
+**Integridade.** sha256 do stage (`/var/lib/webapp-src/7f55528/webapp/frontend/`), do servido em `localhost:8080/webapp/` e de `git show 7f55528` são iguais: `styles.css` 241cc81e281334f2ca7a52f3ace42c774f0c95513fd5dfb00b9a67591ce95b7c; `index.html` cb6c2509465272ef843cbafb1dce7c0b8f2561fa8a29a31c63b061681609758f; `app.js` afaa147e7d0697552ef930f4ad3e2e82255a559136705abd7cf43b9a1642186d. Referência: `files/g5/deploy-7f55528/resumo.txt`. Testes: `node-test.tap` (10:52) 187 pass, 0 fail; reexecução no HEAD 7f55528 (`node-test-rerun-7f55528.tap`, 11:01) 187 pass, 0 fail, `webapp/` sem alterações.
+
+**Critérios e termos.** t1 medido: estouro visível de cada chip ≤ 1 px e contêiner dentro do campo (REQ-13, AC-13). t2 medido: se `scrollHeight > clientHeight`, `clientHeight` fica a ±2 px do teto. Teto: 172 px até 480 px e 120 px acima (REQ-14, AC-14). Reflow: campo em `position: static`, `flex: 0 0 100%`, abaixo dos controles, 0 px² com corpo, cartões, controles e menu. Matriz: 4 termos longos `lote-g5-termo-longo-numero-um`, `zelia-teste-g5-nome-muito-comprido`, `adalberto-termo-com-muitas-letras-para-quebrar` e `termo-quatro-sem-espaco-nenhum-x`; 375 px com 3 termos usa os três primeiros. Parte A e checklist: `LONG_CHIP_QUERY` (`lote-g5`, `zelia`, `lote-g5x-longtermo-com-muitas-letras-para-quebrar-linha`, `zelia-outro-termo-longo`). Os literais de t1 e t2 dependem do conjunto de termos e não são critério de aceite.
+
+**Parte A: s, t3 e t4 nas dez larguras.** Script `g5-tools/extra-widths-10w.mjs`, cópia de `extra-widths.mjs` com as dez larguras (o original cobre só 480, 481, 794 e 1023 px). Termos: `LONG_CHIP_QUERY`, 4 chips criados com Enter. `pageErrors` 0. Capturas `s-long-chips-{largura}.png` em `extra-10w/`.
+
+| Largura | s | campo de texto (px) | t3 centro: X − campo (px) | t3 topo: X − topo do campo (px) | t4 sobreposição (px) | X fecha; chips |
+|---|---|---|---|---|---|---|
+| 375x812 | PASS | 197,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 480x800 | PASS | 302,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 481x800 | PASS | 303,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 768x1024 | PASS | 526,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 793x1024 | PASS | 551,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 794x1024 | PASS | 552,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 1023x768 | PASS | 781,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 1024x768 | PASS | 782,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 1280x800 | PASS | 998,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+| 1440x900 | PASS | 998,0 | +0,01 | 0,00 | 0,0 | PASS; 0 |
+
+t3 e t4 são INFO (sem veredito). t3 = centro do X − centro do campo; topo do X − topo do contêiner do campo. t4 = max(0; base do campo − topo do corpo). No checklist, t3 é critério só de 375 px: PASS em 375 (`checks-10w.mjs` linha 1151) e NOT RUN nas outras nove (linha 1163).
+
+**Primeira matriz.** O JSON da primeira matriz foi sobrescrito (a etapa D-01 gravou listas vazias) e não tem artefato para comparação. A validade vem da rodada final, `recheck/recheck-7f55528.json` com `recheck/stdout-run2.txt` (10:39, `STAGES=matrix`). A repetição com D-01 em `recheck-10w/` (11:00) tem as 21 medidas da matriz iguais às da rodada final; a igualdade é entre duas execuções finais.
+
+**Matriz de aceite** (`recheck/recheck-7f55528.json`; px; t1, t2, teto e reflow medidos; `Linhas` = chips em linhas distintas). Última coluna: t1 e t2 literais do checklist (`checks-10w-default/results.json`, `LONG_CHIP_QUERY`).
+
+| Largura | Termos | Linhas | clientHeight / scrollHeight | max-height | Estouro visível | Estouro literal, 4 termos | t1 · t2 · teto · reflow | t1 · t2 literais, `LONG_CHIP_QUERY` |
+|---|---|---|---|---|---|---|---|---|
+| 375x812 | 4 | 4 | 172 / 247 | 172px | 0,00 | 66,09 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (161/161) |
+| 375x812 | 3 | 3 | 172 / 194 | 172px | 0,00 | 13,41 | PASS · PASS · PASS · PASS (AC-13: 194 > 172) | não medido |
+| 480x800 | 4 | 4 | 172 / 173 | 172px | 0,00 | 0,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (137/137) |
+| 481x800 | 4 | 4 | 120 / 173 | 120px | 0,00 | 43,69 | PASS · PASS · PASS · PASS | FAIL literal, histórico, sem aceite (t1 7,7 px); t2 PASS (120/137) |
+| 768x1024 | 4 | 4 | 120 / 156 | 120px | 0,00 | 27,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (120/120) |
+| 793x1024 | 4 | 4 | 120 / 156 | 120px | 0,00 | 27,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (120/120) |
+| 794x1024 | 4 | 4 | 120 / 156 | 120px | 0,00 | 27,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (120/120) |
+| 1023x768 | 4 | 2 | 84 / 84 | 120px | 0,00 | 0,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (84/84) |
+| 1024x768 | 4 | 2 | 84 / 84 | 120px | 0,00 | 0,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (84/84) |
+| 1280x800 | 4 | 2 | 84 / 84 | 120px | 0,00 | 0,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (48/48) |
+| 1440x900 | 4 | 2 | 84 / 84 | 120px | 0,00 | 0,00 | PASS · PASS · PASS · PASS | 0,00 · FAIL literal, histórico, sem aceite (48/48) |
+
+O literal de t1 com 4 termos (66,09 px em 375; 13,41 px em 375 com 3 termos; 43,69 px em 481; 27,00 px em 768, 793 e 794; 0,00 nas demais) depende do conjunto de termos e não é critério de aceite. REQ-13 usa o estouro visível, 0,00 px em todas as linhas. Os FAIL literais da última coluna são históricos, sem aceite. Em todas as 11 linhas: `overflow-y: auto`; contêiner fora do campo 0,00 px; interseções com corpo, cartões, controles e menu 0 px² (com 4 termos não há cartões). AC-13 a 375 px com 3 termos: `scrollHeight` 194 > 172, a área rola: PASS.
+
+**Usuários** (`usuarios-snapshot.mjs`): `extra-10w/usuarios-antes.json` com 2 (ids 6 e 7); semeadura de 522 (API: 524); limpeza com 522 DELETE, todos HTTP 204, `g5_records_after` 0; `usuarios-depois.json` com 2 (ids 6 e 7); `compare`: ids, nomes e e-mails iguais. Após o X, chips 0 nas dez larguras da Parte A e nas 11 linhas da matriz.
+
+**D-01** (`recheck-10w/d01/d01-7f55528.json`, 11:00, 4 chips): 20 de 20 caminhos PASS (10 larguras × ponteiro e teclado). Os vereditos `inicioBuscaComQuatroChips`, `entrada`, `buscaFechaMenuAbreLimpa`, `nomeEmailAdicionarPonteiro` e `interseccaoCampoMenu` (campo × menu) são PASS em todos.
+
+**Checklist a–w** (`checks-10w-default/results.json`; 323 registros: 288 PASS, 10 FAIL, 10 INFO, 15 NOT RUN; mesmos status da rodada de 10:59 em `checks-10w/results.json`). Script `checks-10w-7f55528.mjs`, cópia de `checks-10w.mjs` com padrão de `G5_DIR` novo (única diferença, linha 13). As linhas citadas são de `checks-10w.mjs`. `t` é sub-item de s e está na Parte A e na matriz.
+
+| Item | 375 | 480 | 481 | 768 | 793 | 794 | 1023 | 1024 | 1280 | 1440 | Regra ou motivo (`checks-10w.mjs`) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| a layout, scroll e modo | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | linha 211: cartões ⇔ < 768 px |
+| b carregamento ocioso | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| c spinner | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| d busca fora da página 1 | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| e chips E/OU | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| f destaque `<mark>` | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| g banner de limite | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| h busca vazia | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| i ordenação pelo cabeçalho | NOT RUN | NOT RUN | NOT RUN | PASS | PASS | PASS | PASS | PASS | PASS | PASS | linha 500 (`DESKTOP.width < 768`), registro na linha 506 |
+| j ordenação pelo menu | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | linhas 1400–1401: Nome ×3 abaixo de 768 px |
+| k reticências com busca aberta | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| l Escape fecha o menu | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| m menu sem recorte | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| n Tab até lupa, reticências e cabeçalhos | NOT RUN | NOT RUN | NOT RUN | PASS | PASS | PASS | PASS | PASS | PASS | PASS | linha 847 (`DESKTOP.width < 768`), registro na linha 853 |
+| o movimento reduzido | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| p paginação | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| q triângulos de rótulo | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | linha 936: rótulos ocultos ≥ 768 px |
+| r ponteiro nas reticências | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| s termos longos (registro s) | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL | FAIL vem do t2 literal (D-04, 9 larguras) e do t1 literal (481 px); ambos históricos, sem aceite |
+| u menu por ponteiro | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| v foco do chip (contorno) | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+| w ordem de Tab | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | — |
+
+**NOT RUN e s.** Os 15 NOT RUN são regras do script: i em 375, 480 e 481 px por `DESKTOP.width < 768` (linha 500; cabeçalhos ocultos em cartões); n nas mesmas três larguras pela mesma regra (linha 847); t3 em nove larguras por `viewport.width === MOBILE.width` (linha 1151; registro na linha 1163). A célula s FAIL vem do t2 literal (D-04, linha 1144: nove larguras) e do t1 literal (481 px, linha 1134: 7,7 px). Ambos históricos, sem aceite. O registro s em si é PASS nas dez (linha 1081). t4 é INFO nas dez larguras (sem aprovação).
+
+**Sobreposição sem chips** (`sem-chips-10w/sem-chips-7f55528.json`; `sem-chips-10w.mjs`): 10 casos, uma por largura, `rowCount` 10 em todos. As 10 medidas são linhas de `#users-table-body tr` (≥ 768 px) e cartões (< 768 px). Interseções 0 px² com cartões, corpo, controles e menu; `fieldBelowControlsPx` 0; `scrollWidth` = `clientWidth` de 375 a 1440 px; reflow PASS (partes nas linhas 127–138; vereditos nas linhas 140–145); X fecha com 0 chips (linha 179). Cartões: 0 chips (`sem-chips-10w`) e 1 termo (`recheck`, blocos cartoes); com 4 termos não há linhas de cartão.
+
+**Comandos e G5_DIR.** `…` = `files/g5/g5a-7f55528/`. Semeadura e limpeza das execuções: `G5_DIR=…/extra-10w` e `G5_DIR=…/checks-10w-default` com `seed.mjs` e `cleanup.mjs` (semeadura de 522 registros: 520 `lote-g5`, Zelia e Adalberto, todos em `example.com`).
+
+| Execução | Comando | G5_DIR | Saída |
+|---|---|---|---|
+| Medição, Parte A | `G5_DIR=…/extra-10w node extra-widths-10w.mjs` | `…/extra-10w` | `extra-widths.json`, `.log`, `stdout.txt` |
+| Checklist, rodada de 10:59 | `G5_DIR=…/checks-10w node checks-10w.mjs` (inferido dos artefatos) | `…/checks-10w` | `results.json` |
+| Checklist, final | `node checks-10w-7f55528.mjs` (sem variável) | padrão `…/checks-10w-default` | `results.json` (323), `stdout.txt` |
+| Matriz, final | `STAGES=matrix node recheck-7f55528.mjs` (stages do JSON) | padrão `…/g5a-7f55528` | `recheck/recheck-7f55528.json`, `stdout-run2.txt` |
+| Matriz e D-01, repetição | `G5_DIR=…/recheck-10w node recheck-7f55528.mjs` | `…/recheck-10w` | `recheck-10w/recheck/`, `recheck-10w/d01/`, `run.log` |
+| Sem chips | `node sem-chips-10w.mjs` | padrão `…/sem-chips-10w` | `sem-chips-7f55528.json`, `.log` |
+| Usuários, antes e depois | `node usuarios-snapshot.mjs save` / `compare` | — | `extra-10w/usuarios-*.json` |
+
+**G5_DIR padrão.** `final-9fc7ab2` é o padrão de `checks-10w.mjs` (linha 13), `checks.mjs`, `seed.mjs` e `cleanup.mjs` (linha 9 em cada). A cópia `checks-10w-7f55528.mjs` (linha 13) usa `checks-10w-default`. `seed.mjs` e `cleanup.mjs` não foram alterados; foram sempre chamados com `G5_DIR` explícito. `checks-10w.mjs` tem mtime 11:05, depois da rodada de 10:59; por isso o checklist vem da reexecução.
+
+**Evidência.** `files/g5/g5a-7f55528/`: `extra-10w/`; `checks-10w-default/` (final); `checks-10w/` (10:59, histórico); `recheck/` (final); `recheck-10w/` (repetição); `d01/` (10:38, histórico, não usado); `sem-chips-10w/`; `baseline/antes-plan-memory.patch` (diff antes desta edição). Scripts novos em `g5-tools/`: `extra-widths-10w.mjs` e `checks-10w-7f55528.mjs`. Sem alteração nesta rodada: `extra-widths.mjs`, `checks-10w.mjs`, `recheck-7f55528.mjs`, `sem-chips-10w.mjs`, `seed.mjs`, `cleanup.mjs` e `usuarios-snapshot.mjs`.
+
+**Limites.** Não medido: Firefox, WebKit, toque real, barra de rolagem visível (headless), 3 termos fora de 375 px e rolagem até o fim dos chips. 793,98 px não é viewport inteiro no Playwright (limite do método); medidos 793 e 794 px, decisão do dono. Sobreposição com cartões medida com 0 chips (`sem-chips-10w`) e com 1 termo (`recheck`, blocos cartoes); com 4 termos não há linhas de cartão. A tag `gate/table-g5-validation`, citada na decisão 5 do plano, não existe; não foi criada.
+

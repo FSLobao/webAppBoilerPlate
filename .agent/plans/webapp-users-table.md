@@ -230,7 +230,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   | Escolher Nome no menu três vezes produz ascendente, descendente e ascendente | Abaixo de 768 px | AC-05, AC-07 |
   | Banner de limite com 620 registros correspondentes, com `api/users` interceptada e registro do método | Maior ou igual a 1024 px | AC-11 |
   | Spinner durante `api/users` atrasada, com `aria-busy`, texto e reduced motion emulado | Maior ou igual a 1024 px | AC-12 |
-  | Sem overflow horizontal da página, com `scrollWidth` menor ou igual a `clientWidth` | 768 px e 793.98 px | AC-10 |
+  | Sem overflow horizontal da página, com `scrollWidth` menor ou igual a `clientWidth` | 768 px, 793 px e 794 px | AC-10 |
   | Triângulos somente em Nome, Email e Localização e destaque do cartão ativo | Abaixo de 768 px | AC-08, AC-10 |
 
 - Conferir visualmente `.table-sort-button` e `.table-page-button` em 375, 768 e 1024 px; sem regra própria, herdam `.br-button` do core.
@@ -297,7 +297,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Decisões aprovadas pelo dono.**
   1. Critério de aceite de t1 e t2 = critério medido (REQ-13 e AC-13). Substitui o literal de D-04 apenas para aceite. O literal permanece registrado como FAIL histórico em `.agent/memory/webapp-users-table-validation.md` e não é apagado.
   2. Teto por breakpoint, opção B: até 480 px, `max-height` de 172 px na área de chips, com `overflow-y: auto`; acima de 480 px, mantém 120 px (REQ-14). Consequência: t2 aceita 172 ± 2 px até 480 px. Com três termos longos a 375 px, `scrollHeight` é maior que `clientHeight`: o conteúdo excede o teto de 172 px e a área rola (medição na memória, seção G5a).
-  3. OBS-01 resolvido pela opção recomendada, somente até `max-width` de 793.98 px, o campo de busca aberto entra no fluxo normal, em linha própria abaixo dos controles, sem sobrepor cartões (REQ-14). Acima de 793.98 px, o comportamento foi ampliado para todas as larguras (decisão 5). Não sobrepõe o menu e não quebra D-01 (reticências e menu acessíveis com a busca aberta), D-02 (campo cresce em altura) nem D-03 (alinhamento do X). Descartada: reservar 89 px fixos abaixo de painel absoluto, porque não acompanha a altura variável dos chips. Sobreposição a partir de 794 px (t4 de 20,7 px em 794 px; caixas do cabeçalho com 4 chips): resolvida pela decisão 5.
+  3. OBS-01 resolvido pela opção recomendada, somente até `max-width` de 793.98 px, o campo de busca aberto entra no fluxo normal, em linha própria abaixo dos controles, sem sobrepor cartões (REQ-14). A decisão 5 amplia esse comportamento a todas as larguras. Não sobrepõe o menu e não quebra D-01 (reticências e menu acessíveis com a busca aberta), D-02 (campo cresce em altura) nem D-03 (alinhamento do X). Descartada: reservar 89 px fixos abaixo de painel absoluto, porque não acompanha a altura variável dos chips. Sobreposição a partir de 794 px (t4 de 20,7 px em 794 px; caixas do cabeçalho com 4 chips): resolvida pela decisão 5.
   4. Critério de sobreposição com o menu (aceite do dono, G5a). A prova é a medição no estado alcançável pela UI: clique real nas reticências com a busca aberta fecha a busca, abre o menu e limpa termos e chips. Nas oito larguras medidas (375, 480, 481, 768, 793, 794, 1023 e 1024 px), a interseção entre o campo de busca e o menu é 0 px², e Nome, Email e Adicionar recebem o ponteiro com o menu aberto. A medição com menu forçado (rodada 1) fica como histórico. O limite de 793,98 px deixa de existir com a decisão 5.
   5. Reflow em todas as larguras (decisão do dono, G5a). Com a busca aberta, o campo entra no fluxo normal e em linha própria abaixo dos controles do cabeçalho em qualquer largura, sem `position: absolute` nesse estado. Esta decisão altera REQ-14 e AC-14. Exige CSS, testes de flow em todas as larguras e nova validação completa: G5 com checks a–w, medição de t1, t2, teto e reflow, D-01 com 4 chips e sobreposição zero entre campo, cartões e controles do cabeçalho, em 375, 480, 481, 768, 793, 794, 1023, 1024, 1280 e 1440 px. Tags: código em `gate/table-g5a-reflow-all-widths`; validação em `gate/table-g5-validation`.
 - **Dependências.** G5 final (commit 9fc7ab2, FAIL histórico) e Revisão 2 de t1 e t2 em `.agent/memory/webapp-users-table-validation.md`. Contrato: REQ-13, REQ-14, AC-13 e AC-14.
@@ -309,7 +309,7 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
   - Não alterar `app.js`, `table-model.mjs`, `docs/`, `deploy/` nem `.github/`. A documentação do teto e do reflow fica para G6.
 - **Alterações CSS.**
   - Teto: dentro de `@media (max-width: 480px)`, `.top-bar .table-search-chips` (`styles.css`, linha 507) recebe `max-height: 172px` e mantém `overflow-y: auto`. A regra-base `.table-search-chips` (linha 456) não muda e continua com o teto de 120 px calculado por tokens.
-  - Reflow: dentro de `@media (max-width: 793.98px)` (linha 490), `.top-bar .table-search-field` (linha 496) sai de `position: absolute` para `position: static` e entra no fluxo normal com `flex: 0 0 100%`, ou seja, em linha própria abaixo dos controles do cabeçalho. Nesse breakpoint, `top`, `right` e `left` vão para `auto` e `min-height` para `auto`. Também nesse breakpoint, `.top-bar:has(.table-search-field:not([hidden]))` (linha 492) recebe `flex-wrap: wrap`, para que o cabeçalho quebre só com o campo aberto. O padding direito reservado ao menu pode ser revisto somente se D-01 e D-03 continuarem válidos.
+  - Reflow: `.top-bar .table-search-field` (linha 496) sai de `position: absolute` para `position: static` em todas as larguras, sem `@media`, e entra no fluxo normal com `flex: 0 0 100%`, em linha própria abaixo dos controles do cabeçalho. `top`, `right` e `left` vão para `auto` e `min-height` para `auto`. Em todas as larguras, `.top-bar:has(.table-search-field:not([hidden]))` (linha 491) recebe `flex-wrap: wrap`, para que o cabeçalho quebre só com o campo aberto. O padding direito de 64 px é mantido, porque `table-menu-stacking.test.mjs` lê esse valor; revisá-lo exige alterar esse teste e nova validação.
   - Sem alteração: regra-base, `z-index` de `.table-search-field` (2), de `.table-menu-anchor` (3) e de `.table-sort-menu` (1). Nenhum `order` por CSS (G3-R2).
 - **Testes.**
   - `css-cascade.test.mjs` (novo), com CSS inline, testa o helper:
@@ -326,10 +326,10 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
     - em 481, 768 e 1024 px: `max-height` resolve para 120 px e `overflow-y` é `auto`;
     - `172px` é declarado somente dentro de `@media (max-width: 480px)`.
   - `table-search-flow.test.mjs` (novo), lê `styles.css` pelo helper e `index.html`:
-    - reflow: `position` do campo é `static` em 375, 480, 481, 768, 793 e 793.98 px, e `absolute` em 794, 1023 e 1024 px;
-    - `flex` do campo é `0 0 100%` até 793.98 px e não é declarado acima;
-    - `flex-wrap` de `.top-bar:has(.table-search-field:not([hidden]))` é `wrap` até 793.98 px e não é declarado acima; a regra `.top-bar` não declara `flex-wrap` nas larguras testadas;
-    - `min-height` do campo não é 100% até 793.98 px, e `height` é `auto` em todas as larguras, excluindo a regra de `#users-table-loading` (ver o item de posicionamento);
+    - reflow: `position` do campo é `static` em todas as larguras (375 a 1440 px, incluindo 793 px e 794 px);
+    - `flex` do campo é `0 0 100%` em todas as larguras;
+    - `flex-wrap` de `.top-bar:has(.table-search-field:not([hidden]))` é `wrap` em todas as larguras; a regra `.top-bar` não declara `flex-wrap` nas larguras testadas;
+    - `min-height` do campo não é 100% em nenhuma largura, e `height` é `auto` em todas as larguras, excluindo a regra de `#users-table-loading` (ver o item de posicionamento);
     - posicionamento: em `index.html`, `#users-table-loading` fica depois do fechamento de `.top-bar`, o que justifica a exclusão acima;
     - z-index: `.table-menu-anchor` (3) é maior que `.table-search-field` (2) em todas as larguras, e `.table-sort-menu` tem `z-index: 1` em 1024 px;
     - alinhamento: `align-items: center` no campo, `margin-bottom: 0` no input (D-03) e `flex: 0 0 auto` no botão X em todas as larguras;
@@ -340,22 +340,24 @@ Ordem: G1 e G2 podem ocorrer em paralelo. G3 segue G1. G4 segue G2 e G3. G5 segu
 - **Validação no host (G5a).** Sobre o commit do código, na stack em `http://localhost:8080/webapp/index.html`:
   1. Testes da seção Testes, com resultado verde.
   2. Integridade: `styles.css`, `index.html` e `app.js` servidos com o mesmo SHA-256 (16 primeiros caracteres) do commit.
-  3. G5 completo, checks a a w, nas larguras da G5 final (375, 768, 793 e 1024 px). i e n seguem NOT RUN em 375 px por contrato.
-  4. Remedição de t1, t2, s, t3 e t4 com 4 termos longos em 375x812, 480, 481, 768, 793, 794, 1023 e 1024x768. Em 375x812, também com 3 termos. Por largura, registrar estouro visível, linhas, `clientHeight`, `scrollHeight`, `max-height`, `overflow-y` e veredito de t2. Em 375x812 com 3 termos, t2 espera ausência de rolagem.
-  5. Sobreposição: em cada largura da remedição, com a busca aberta, a caixa de `.table-search-field` não intersecta `#users-table-body` nem o primeiro cartão. Em 768 px e 793.98 px, `scrollWidth` não excede `clientWidth` (AC-10).
+  3. G5 completo, checks a–w, nas larguras da decisão 5 (375, 480, 481, 768, 793, 794, 1023, 1024, 1280 e 1440 px). i e n seguem NOT RUN abaixo de 768 px (375, 480 e 481 px), por contrato: cabeçalhos ocultos em cartões.
+  4. Remedição de t1, t2, teto e reflow com 4 termos longos em 375x812 (também com 3 termos), 480, 481, 768, 793, 794, 1023, 1024x768, 1280x800 e 1440x900; s, t3 e t4 pelo script de larguras extras (`extra-widths-10w.mjs`) nas mesmas dez larguras; t3 INFO nas dez larguras neste script, e critério de t3 (PASS) só em 375 px, no checklist (`checks-10w.mjs`, linha 1151). Em 375x812 com 3 termos, t2 espera rolagem com `clientHeight` de 172 px ± 2 px, porque o conteúdo excede o teto (AC-13).
+  5. Sobreposição: em cada largura da remedição, com a busca aberta, a caixa de `.table-search-field` não intersecta `#users-table-body`, o primeiro cartão nem os controles do cabeçalho. Em 768 px, 793 px e 794 px, `scrollWidth` não excede `clientWidth` (AC-10). O valor de 793,98 px não é medível como viewport inteiro; 793 px e 794 px cobrem a faixa (decisão do dono).
   6. Limpeza: remover por ID somente os registros semeados, usando a lista de IDs da semeadura. Contar registros antes da semeadura e após a limpeza. Os registros que existiam antes da semeadura devem permanecer inalterados.
 - **Registro.** A validação é registrada em nova seção de `.agent/memory/webapp-users-table-validation.md`, sem alterar as seções existentes. Evidência bruta fica fora do repositório, como nas rodadas anteriores.
 - **Ordem e commits.**
-  1. Commit de documentação deste contrato e plano: `docs(agent): define users table G5a contract and plan`, sem tag.
-  2. Commit do código: `fix(webapp): cap search chips and reflow open search field`, com a tag `gate/table-g5a-chip-breakpoint`.
+  1. Commit de documentação deste contrato e plano: `docs(agent): record G5a chip breakpoint and reflow criteria` (`1923217`), sem tag.
+  2. Commit do código: `fix(webapp): cap chip area by breakpoint and reflow open search` (`be84d8b`), com a tag `gate/table-g5a-chip-breakpoint`.
   3. Validação sobre o commit do código.
-  4. Commit de registro da validação: `docs(agent): record users table G5a validation`, sem tag.
+  4. Registro da validação G5a: não há commit com o assunto planejado; a seção `G5a (be84d8b)` entrou no commit `cd921f0`, sem tag (ver item 5).
+  5. Commit de documentação da decisão 5 (reflow em todas as larguras): `cd921f0` (`docs(agent): extend users table search reflow to all widths`), sem tag.
+  6. Commit de código da decisão 5: `7f55528` (`fix(webapp): keep open search field in normal flow at every width`), com a tag `gate/table-g5a-reflow-all-widths`. A validação G5 sobre este commit está na seção "G5 pós-reflow (7f55528)" de `.agent/memory/webapp-users-table-validation.md`.
 - **ACs cobertos.** AC-13 e AC-14. A validação G5 completa reexecuta AC-03 a AC-12 sobre o commit do gate.
 - **Depende de.** G5 final (9fc7ab2) e decisões 1 a 3 aprovadas pelo dono.
 - **Riscos.**
   - O intervalo de 794 a 1023 px não tinha medição anterior. A remedição deve medi-lo. Se houver sobreposição nesse intervalo, o defeito volta a este gate e não é aceito por analogia com 793.98 px.
   - O teto de 172 px depende da altura medida de chips longos (48.7 px por linha). Chips de altura diferente mudam quantas linhas cabem. A remedição usa os termos longos da Revisão 2.
-  - Com o campo em linha própria, o cabeçalho fica mais alto até 793.98 px e os cartões descem. A medição deve confirmar ausência de sobreposição e de rolagem horizontal da página.
+  - Com o campo em linha própria, o cabeçalho fica mais alto em todas as larguras e os cartões descem. A medição deve confirmar ausência de sobreposição e de rolagem horizontal da página.
 - **Dívida registrada (fora do G5a).** Migrar `table-search-close.test.mjs`, `table-menu-stacking.test.mjs` e `navigation.test.mjs` para `css-cascade.mjs`. Estado: migração pendente. Os três leem `styles.css` e `index.html` com leitura própria e não importam `css-cascade.mjs`. Motivo: escopo; esses testes já passam e não devem ser editados neste gate.
 - **Limites do helper `css-cascade.mjs` (registrados no G5a).**
   - Propriedades são comparadas por nome exato, sem expansão de shorthand ou longhand: `flex` não cobre `flex-basis`, e `max-block-size` não é normalizado para `max-height`.
