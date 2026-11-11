@@ -32,7 +32,7 @@ No improvisation.
 {
   "status": "completed | failed | needs_revision",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "handoff": {
     "debugger_diagnosis": {
       "root_cause": "string",
@@ -56,7 +56,7 @@ No improvisation.
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - Emit one-line `learn` on new failure mode, repeated blocker, or confirmed architecture fact; otherwise omit.
 - Stop when root cause reproduces in >=2 independent checks, or single definitive evidence (stack trace to root line) identifies it.
 - Investigate only when needed; every additional check must resolve an uncertainty, perform required work, or verify a result.

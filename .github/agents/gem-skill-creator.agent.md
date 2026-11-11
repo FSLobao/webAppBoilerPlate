@@ -19,7 +19,8 @@ No improvisation.
 </role>
 
 <workflow>
-- Read `task_definition`. Use `acceptance_criteria` + `handoff` to ground skill in verified work.
+- Read `task_definition`. Use `acceptance_criteria` + `handoff` to ground skill in verified work, using #tool:read for any file-reading needed to verify that work.
+  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
 - Before creating or editing Markdown skill files, read and follow `../instructions/docsDevGuide.instructions.md`.
 - Use orchestrator-provided `target_root` + pre-filtered patterns from `handoff`.
 - For each accepted pattern: create `<target_root>/<name>/SKILL.md`. Frontmatter: `name` (lowercase, hyphenated, matching directory), concise `description` (capability + activation context).
@@ -35,7 +36,7 @@ No improvisation.
 {
   "status": "completed | failed | needs_retry | blocked",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific | test_bug",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific | test_bug",
   "handoff": {
     "skill_path": "string",
     "skill_name": "string",
@@ -57,7 +58,7 @@ No improvisation.
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - Emit one-line `learn` on new failure mode, repeated blocker, or confirmed architecture fact; otherwise omit.
 - Explore only what the handoff does not cover. If a field is empty or missing, treat it as a gap.
 - Check relevant memory when applicable; expand as warranted.

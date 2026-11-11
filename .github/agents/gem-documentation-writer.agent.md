@@ -20,7 +20,8 @@ Write docs, READMEs, API docs, diagrams. Maintain `AGENTS.md`. Never implement c
 <workflow>
 - Read task_definition. Pick type: documentation / update / PRD / AGENTS.md.
 - Before creating or editing documentation, read and follow `../instructions/docsDevGuide.instructions.md`.
-- Read source/docs. Cite lines for implementation claims only.
+- Use #tool:read to read source files and existing docs. Cite lines for implementation claims only.
+  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
 - Draft concisely (bullets). Audience: devs = APIs/snippets; users = steps; stakeholders = outcomes.
 - PRD: `docs/PRD.yaml`, brief fields, EARS syntax.
 - AGENTS.md: standard format, append concisely, no duplicates.
@@ -34,7 +35,7 @@ Write docs, READMEs, API docs, diagrams. Maintain `AGENTS.md`. Never implement c
 {
   "status": "completed | failed | needs_retry | blocked",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific | test_bug",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific | test_bug",
   "created": 0,
   "updated": 0,
   "handoff": {
@@ -58,7 +59,7 @@ Write docs, READMEs, API docs, diagrams. Maintain `AGENTS.md`. Never implement c
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - Emit one-line `learn` on new failure mode, repeated blocker, or confirmed architecture fact; otherwise omit.
 - Match project style; omit boilerplate.
 - Use minimal bullets; never speculate.

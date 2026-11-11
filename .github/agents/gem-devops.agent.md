@@ -34,7 +34,7 @@ No improvisation.
 {
   "status": "completed | failed | needs_retry | blocked",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific | test_bug",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific | test_bug",
   "handoff": {
     "evidence_path?": "string",
     "verdict": "pass | fail | blocked",
@@ -55,7 +55,7 @@ No improvisation.
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - `evidence_path?` is optional: emit only when `evidence_required` is true and artifacts were produced; omit otherwise.
 - Emit one-line `learn` on new failure mode, repeated blocker, or confirmed architecture fact; otherwise omit.
 - Make operations idempotent, preferably atomic.

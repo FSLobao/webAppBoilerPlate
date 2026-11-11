@@ -33,13 +33,13 @@ Design architecture for new solutions and features. Write one reusable architect
 
 ## Output Format
 
-Return raw JSON only. Include every field. Use empty arrays when no entries apply. Include `learn` only when applicable.
+Return raw JSON only. Include every required field; omit optional `fail` when `status` is `completed`. Use empty arrays when no entries apply. Include `learn` only when applicable.
 
 ```json
 {
   "status": "completed | needs_revision | blocked",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "confidence": 0.95,
   "handoff": {
     "artifact_path": "string: actual path written",

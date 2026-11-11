@@ -40,7 +40,7 @@ Use `exploration_mode` from `task_definition` as research budget (default: `scan
 {
   "status": "completed | failed | needs_revision",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "mode": "scan | deep | audit | trace | question",
   "tldr": "string: dense 1-3 bullet summary",
   "relevant_context": ["string: compact source-backed context (type, file, line, confidence, note)"],
@@ -62,7 +62,7 @@ Use `exploration_mode` from `task_definition` as research budget (default: `scan
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - `evidence_path?` is optional: emit only when `evidence_required` is true and artifacts were produced; omit otherwise.
 - Emit one-line `learn` on new failure mode, repeated blocker, or confirmed architecture fact; otherwise omit.
 - Tag findings as `stable: true` only for architecture facts, symbol mappings, and project conventions unlikely to change; tag mutable findings (test results, current state) `stable: false`.

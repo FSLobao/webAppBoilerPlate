@@ -84,7 +84,7 @@ Use narrowest specialist chain; add agents only when distinct capability needed.
 {
   "status": "completed | failed | needs_revision",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "revision_findings": ["string"],
   "plan_id": "string",
   "plan_path": "string",
@@ -170,7 +170,7 @@ replan:
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - Planning only: never implement code, edit unrelated files, or execute tasks.
 - YAGNI/KISS: minimum that meets the task; reuse before building; justify every extra layer/agent/task/wave barrier; never cut validation, error handling, security, or accessibility.
 - Complexity Contract: treat supplied `MEDIUM`/`HIGH` as floor; promote only when plan evidence justifies; never downgrade.

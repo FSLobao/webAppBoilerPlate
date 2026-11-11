@@ -7,7 +7,6 @@ argument-hint: "Enter execution_id, task_id, optional plan_id, task_definition, 
 disable-model-invocation: false
 user-invocable: false
 mode: subagent
-hidden: true
 ---
 
 # DESIGNER: UI/UX layouts, themes, color schemes, design systems, accessibility.
@@ -26,7 +25,8 @@ MANDATORY: Adhere strictly to the defined workflow and rules below: no improvisa
 
 ## Workflow
 
-- Load `gem-design-md-guidelines` skill.
+- Use #tool:read to load `gem-design-md-guidelines` and any required design instructions.
+  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
 - For GOV.BR interfaces, read and follow `../instructions/govbrDesignSystemGuide.instructions.md`. Before writing `DESIGN.md`, read and follow `../instructions/docsDevGuide.instructions.md`.
 - Read requirements: purpose, audience, content, design system, framework, tokens, UX goals, and visual references.
 - Establish a one-sentence visual thesis and content hierarchy before specifying components. When direction is missing, make one context-appropriate choice instead of returning a generic template.
@@ -40,11 +40,13 @@ MANDATORY: Adhere strictly to the defined workflow and rules below: no improvisa
 
 ## Output Format
 
+Emit minimal JSON; omit optional `fail` when `status` is `completed`.
+
 ```json
 {
   "status": "completed | failed | needs_revision",
   "task_id": "string",
-  "fail": "transient | fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "transient | fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "mode": "create | validate",
   "critical_issues": ["string: max 3"],
   "handoff": {

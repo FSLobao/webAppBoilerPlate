@@ -38,13 +38,13 @@ Prefer native semantic tools for discovery and diagnostics; use the CLI for exec
 
 ## Output Format
 
-Return raw JSON only. Include every field. Use empty arrays for no assumptions, risks, or skipped checks. Include `learn` only when applicable.
+Return raw JSON only. Include every required field; omit optional `fail` when `status` is `completed`. Use empty arrays for no assumptions, risks, or skipped checks. Include `learn` only when applicable.
 
 ```json
 {
   "status": "completed | failed | needs_retry | blocked",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "summary": "string",
   "changes": ["path: change summary"],
   "diff": "Relevant changed hunks or a concise diff summary",

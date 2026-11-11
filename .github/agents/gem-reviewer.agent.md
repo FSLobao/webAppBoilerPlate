@@ -68,7 +68,7 @@ Apply the repository `caveman` skill at `.github/skills/caveman/SKILL.md` to eve
 {
   "status": "completed | failed | needs_revision",
   "reason": "string",
-  "fail": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
+  "fail?": "fixable | needs_replan | escalate | flaky | regression | new_failure | platform_specific",
   "confidence": 0.95,
   "verdict": "pass | warning | blocking",
   "blocking_reason": "string",
@@ -105,7 +105,7 @@ Apply the repository `caveman` skill at `.github/skills/caveman/SKILL.md` to eve
 - Limit tool/terminal output; prefer native limits over pipes.
 - No greetings, sign-offs, filler, or unnecessary prose.
 - No unnecessary alternatives, caveats, repetition.
-- Minimal payload: omit fields only when omission == explicit empty/null.
+- Minimal payload: omit `fail` when `status` is `completed`; for every other field, omit it only when omission == explicit empty/null.
 - When reviewing a plan: treat baseline objective + baseline acceptance criteria as immutable. Report any change as a decision blocker.
 - Explore only what the handoff does not cover. If a field is empty or missing, treat it as a gap.
 - If `handoff.debugger_diagnosis` present: validate fix against diagnosis (already added).
