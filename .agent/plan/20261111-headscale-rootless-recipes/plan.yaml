@@ -1,0 +1,176 @@
+plan_id: 20261111-headscale-rootless-recipes
+status: blocked
+tldr: |
+  Harmonize the rootless Headscale recipe with repository documentation and recipe
+  rules, preserve its supported procedure and the user's staged step-title change,
+  label the rootful cookbook as a legacy reference, then independently validate
+  the two-file documentation change. First expose the concrete VS Code file editor
+  to existing write-enabled custom agents that currently declare only the `edit`
+  alias.
+created_at: "2026-11-11T10:15:37+01:00"
+created_by: gem-planner
+revision: 2
+replan_count: 1
+planner_revision_used: true
+
+decisions:
+  - "A wave-1 capability prerequisite uses Universal Janitor, whose existing definition already has `edit/editFiles`; only existing write-enabled definitions missing that concrete tool are changed."
+  - "One gem-documentation-writer task owns both linked recipe files; the shared documentation concern and reciprocal links make separate editing tasks redundant."
+  - "A dependent gem-reviewer task independently checks preservation and Markdown validity because the acceptance contract explicitly requires validation and the rootless recipe documents host-wide changes."
+  - "Legacy labeling applies to the rootful cookbook as a reference only; it does not change the runtime support status stated by the architecture contract."
+  - "Preserve the staged step-5 bridge-creation title's intent while converting headings and numbering as needed to meet the recipe guide; do not restore the superseded proof-of-concept title."
+
+assumptions:
+  - "Existing rootless recipe commands, configuration values, operational behavior, and recorded verification evidence are the baseline; this is a documentation-only change."
+  - "The rootless procedure remains the supported primary recipe. The rootful cookbook remains available and is labeled legacy without asserting that the rootful runtime is deprecated."
+  - "No new scripts or dependencies are authorized; recipe changes stay within the two named recipe files and the editor prerequisite stays within its specified agent definitions. If full guide compliance appears to require broader recipe changes, report the blocker rather than expanding scope."
+
+baseline:
+  objective: "Harmonize the rootless Headscale recipe with repository documentation and recipe rules, preserve its supported procedure and the user's staged step-title change, label the rootful cookbook as a legacy reference, then independently validate the two-file documentation change."
+  acceptance_criteria:
+    - "Recipe edits are limited to docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md."
+    - "Rootless remains the supported primary procedure; rootful remains a legacy cookbook reference without a runtime deprecation claim."
+    - "The staged step-5 bridge-creation title and its procedure remain intact."
+    - "Existing technical values, command behavior, safety guidance, and supported procedure are preserved; unverified claims are not invented."
+    - "An independent read-only review validates the completed two-file documentation change."
+  captured_at: "2026-11-11T11:58:01+01:00"
+
+replan:
+  reason: "The documentation writer remained blocked because its `edit` alias did not expose the concrete `edit/editFiles` editor. Add a bounded agent-definition prerequisite before resuming recipe implementation."
+  changed_tasks:
+    - harmonize-headscale-recipes
+    - verify-headscale-recipe-docs
+  added_tasks:
+    - enable-concrete-file-editor
+  removed_tasks: []
+  preserved_acceptance_criteria:
+    - "Recipe edits remain limited to the two named Headscale recipe files."
+    - "Rootless remains the supported primary procedure; rootful remains a legacy reference without a runtime deprecation claim."
+    - "The staged step-5 bridge-creation title and its procedure remain intact."
+    - "Existing technical values, commands, safety guidance, and supported behavior remain preserved; no unverified claims are invented."
+    - "The existing detailed recipe-structure, navigation, safety, and Markdown validation criteria remain in the harmonization and independent review tasks."
+    - "A separate gem-reviewer task performs read-only documentation validation after implementation."
+  new_risks: []
+  progress_signal: "Revision 1 recorded harmonize-headscale-recipes as blocked after one retry because the spawned writer had no approved editor despite the `edit` alias; verify-headscale-recipe-docs was blocked on that dependency. No recipe edits or completed validation evidence exist. The user's staged heading `5. Criação da bridge rootless` remains the required baseline."
+  revised_tasks:
+    - harmonize-headscale-recipes
+    - verify-headscale-recipe-docs
+  invalidated_tasks: []
+  invalidated_assumptions: []
+
+tasks:
+  - id: enable-concrete-file-editor
+    title: Expose concrete editor to write-enabled agents
+    description: >-
+      [reuse] Add the concrete VS Code file editor `edit/editFiles` to the
+      existing write-enabled custom-agent definitions that currently declare
+      the `edit` alias without that concrete tool. Use the existing Janitor
+      definition as the repository precedent; do not change unrelated
+      permissions or agent behavior.
+    wave: 1
+    depends_on: []
+    agent: Universal Janitor
+    status: completed
+    retries_used: 0
+    acceptance_criteria:
+      - "Add `edit/editFiles` to the tools lists in exactly gem-architect.agent.md, coder.agent.md, gem-implementer.agent.md, gem-skill-creator.agent.md, gem-code-simplifier.agent.md, gem-debugger.agent.md, gem-designer.agent.md, gem-devops.agent.md, gem-documentation-writer.agent.md, gem-orchestrator.agent.md, gem-planner.agent.md, and planner.agent.md."
+      - "Preserve every pre-existing tool entry and all unrelated file content in those definitions; make no other permission, description, model, or behavior changes."
+      - "Leave gem-reviewer.agent.md, reviewer.agent.md, coordinator.agent.md, gem-researcher.agent.md, gem-browser-tester.agent.md, and gem-mobile-tester.agent.md unchanged; do not grant edit access to read-only or test-only agents."
+      - "All 12 changed tool lists remain valid frontmatter and contain the concrete editor exactly once; janitor.agent.md remains the unchanged precedent."
+    handoff:
+      constraints:
+        - "Use approved file-edit tooling only; do not use shell-based file writes."
+        - "Limit edits to adding `edit/editFiles` in the specified tools lists; preserve all existing permissions and unrelated user changes."
+        - "Do not add `execute` or any other tool to a definition that did not already have it."
+      relevant_context:
+        - ".github/agents/janitor.agent.md already declares `edit/editFiles` and is the concrete-tool precedent."
+        - ".github/agents/gem-architect.agent.md, coder.agent.md, gem-implementer.agent.md, gem-skill-creator.agent.md, gem-code-simplifier.agent.md, gem-debugger.agent.md, gem-designer.agent.md, gem-devops.agent.md, gem-documentation-writer.agent.md, gem-orchestrator.agent.md, gem-planner.agent.md, and planner.agent.md currently declare the `edit` alias without the concrete editor."
+        - "Read-only reviewer, coordinator, researcher, and test-only agent definitions are explicitly outside this task."
+      high_risk_signals:
+        - security_sensitive
+      critic_signals: []
+
+  - id: harmonize-headscale-recipes
+    title: Harmonize rootless recipe and mark rootful legacy
+    description: >-
+      [reuse] Reorganize the existing rootless cookbook into the repository's
+      Brazilian Portuguese recipe structure, retaining its technical procedure
+      and the user's staged bridge-creation title change. Mark and link the
+      rootful cookbook as a legacy reference without changing runtime support
+      claims. Follow the documentation and recipe guides.
+    wave: 2
+    depends_on:
+      - enable-concrete-file-editor
+    agent: gem-documentation-writer
+    status: blocked
+    blocking_reason: "The spawned documentation writer still lacks edit/editFiles although its repository definition now declares it; updated definitions are not loaded in this runtime."
+    retries_used: 1
+    acceptance_criteria:
+      - "Only docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md are edited."
+      - "The rootless recipe follows the guide's ordered required sections—Visão geral, Ambiente e versões, Pré-requisitos e variáveis, consecutive Passo N sections, Verificação final, Solução de problemas, Reversão e desinstalação, and Referências—plus applicable conditional sections."
+      - "The rootless page uses Brazilian Portuguese, a first-rendered collapsible index synchronized with all top-level sections, valid heading hierarchy, and the guide's responsive return-to-top block at each section end."
+      - "Each procedural step has one purpose, no more than five commands, and the guide's objective, context when applicable, copy-ready language-tagged commands, expected output, and success verification; non-verified behavior is labeled rather than asserted."
+      - "Destructive and security-weakening operations retain the required warnings, risk rationale, backup and rollback guidance, and troubleshooting/reference links."
+      - "The staged step-5 rename remains represented as bridge creation; it is not reverted to the prior proof-of-concept title, and its procedure remains intact."
+      - "Rootless remains explicitly the supported primary procedure; existing technical values, commands, sequence, and operational behavior are not silently changed. Any necessary presentation-only command-block split is semantically equivalent."
+      - "The rootful cookbook remains present and usable as a legacy reference, is clearly labeled as such, and links to the primary rootless recipe; the rootless recipe links back with the legacy label."
+      - "Existing verification claims are preserved only where supported by the recipe or .agent/memory/historico-dev.md; no test date, command output, or runtime validation is invented."
+    handoff:
+      constraints:
+        - "Follow .github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md."
+        - "Use the concrete `edit/editFiles` file editor after the agent-definition prerequisite is complete; do not use shell-based file writes."
+        - "Before editing recipes, confirm the newly spawned documentation writer exposes `edit/editFiles`; if unavailable, stop and report the blocker without editing."
+        - "Preserve all existing configuration values, command behavior, safety warnings, rollback semantics, and supported rootless procedure; do not modify runtime files."
+        - "Do not reset, discard, stage, or otherwise overwrite the user's pre-existing staged change."
+        - "Do not change README.md or any recipe other than the two named files; add no scripts or dependencies."
+        - "Use Não verificado or report an unresolved inconsistency rather than inventing command output or resolving technical behavior by guesswork."
+      relevant_context:
+        - ".github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md: normative structure, navigation, safety, and validation rules."
+        - "docs/recipes/gateway-headscale-podman-rootless.md: primary source procedure; the staged heading is `5. Criação da bridge rootless`."
+        - "docs/recipes/gateway-headscale-podman-rootfull.md: retained cookbook to label and link as a legacy reference."
+        - ".agent/contracts/ARCHITECTURE.md: rootless is the target; rootful remains an implemented runtime alternative."
+        - ".agent/memory/historico-dev.md: historical rootless lab evidence and limits; use only claims supported there."
+        - "README.md currently directs readers to the rootless recipe; README is outside the authorized file scope."
+        - ".github/agents/gem-documentation-writer.agent.md receives the explicit editor in the prerequisite; .github/agents/janitor.agent.md is the precedent."
+      high_risk_signals:
+        - security_sensitive
+      critic_signals: []
+
+  - id: verify-headscale-recipe-docs
+    title: Independently validate recipe structure and preservation
+    description: >-
+      [reuse] Review the completed two-file documentation change without editing
+      it. Use existing repository documentation tooling when available, otherwise
+      focused checks and renderer preview where available; add no dependencies.
+      Report the checks and their results.
+    wave: 3
+    depends_on:
+      - harmonize-headscale-recipes
+    agent: gem-reviewer
+    status: blocked
+    blocking_reason: "Depends on the blocked recipe harmonization task; no recipe changes exist to validate."
+    retries_used: 0
+    acceptance_criteria:
+      - "Recipe changes are confined to the two authorized recipe files and retain the user's staged bridge-creation title change; the separate editor prerequisite is confined to its approved agent definitions."
+      - "The rootless recipe is the primary procedure; the rootful cookbook is present, labeled as a legacy reference, and linked consistently without a runtime deprecation claim."
+      - "The rootless index matches every top-level section in order; headings, step numbering, anchors, and return-to-top links conform to both repository guides."
+      - "Markdown fences are balanced and language-tagged; tables and navigation render or pass focused structural checks; internal relative links and fragments resolve to the intended targets."
+      - "Both light and dark return-arrow image paths resolve relative to the changed pages, and referenced local files exist."
+      - "Compare technical values and command behavior against the pre-change rootless recipe; report any discrepancy, and do not treat documentation checks as runtime validation."
+      - "Return concise evidence naming the tooling or focused checks used, pass/fail results, renderer-preview status, and any remaining blockers; make no file edits."
+    handoff:
+      constraints:
+        - "Follow .github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md."
+        - "Read-only verification; do not fix issues in place or broaden scope."
+        - "Do not use shell-based file writes; make no file edits."
+        - "Prefer existing documentation tooling; if unavailable, use focused checks without adding scripts or dependencies."
+        - "Do not execute deployment, host-preparation, or other operational commands; document checks are not runtime tests."
+      relevant_context:
+        - "Review only docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md."
+        - ".github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md define required structure and validation."
+        - ".agent/contracts/ARCHITECTURE.md distinguishes the rootless target from the rootful runtime alternative."
+        - ".agent/memory/historico-dev.md records existing rootless verification evidence and its limits."
+        - "The rootless step-5 bridge-creation heading was staged by the user before this task; check the combined final change."
+      high_risk_signals:
+        - security_sensitive
+      critic_signals: []
