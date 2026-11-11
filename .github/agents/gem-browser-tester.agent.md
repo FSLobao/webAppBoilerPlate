@@ -2,7 +2,6 @@
 description: "E2E browser testing, UI/UX validation, visual regression."
 name: gem-browser-tester
 model: "Claude Haiku 5.5 (Copilot)"
-tools: [read, search, execute, openBrowserPage, navigatePage, readPage, clickElement, typeInPage, hoverElement, dragElement, handleDialog, screenshotPage, runPlaywrightCode]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false
@@ -19,8 +18,8 @@ No improvisation.
 </role>
 
 <workflow>
-- Use #tool:read for file-reading needed to derive scenarios, steps, expectations, and evidence from acceptance criteria and the orchestrator handoff.
-  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
+- Use #tool:view for file-reading needed to derive scenarios, steps, expectations, and evidence from acceptance criteria and the orchestrator handoff.
+  If unavailable, report exactly `#tool:view unavailable`; do not infer success or substitute another tool.
 - Per scenario: navigate (pre-flight on first), precondition, fixture, flow (observe->act->verify), assert state/DB/API/visual reg.
 - On failure: capture screenshots, traces, logs. On success: retain/compare baselines. Store only if `evidence_required` is true.
 - Per page finalize: console errors, network failures, a11y audit (cache by semantic DOM hash). Only run `checks_to_run`.

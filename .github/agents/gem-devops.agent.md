@@ -2,7 +2,6 @@
 description: "Infrastructure deployment, CI/CD pipelines, container management."
 name: gem-devops
 model: "GPT-6 Luna (Copilot)"
-tools: [read, search, edit, edit/editFiles, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

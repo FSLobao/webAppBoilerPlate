@@ -2,7 +2,6 @@
 description: "Codebase exploration: patterns, relationships, architecture discovery. Supports multiple exploration modes for cost-controlled research."
 name: gem-researcher
 model: "GPT-6 Luna (Copilot)"
-tools: [read, search]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

@@ -2,7 +2,6 @@
 description: "Mobile E2E testing: Detox, Maestro, iOS/Android simulators."
 name: gem-mobile-tester
 model: "Claude Haiku 5.5 (Copilot)"
-tools: [read, search, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false
@@ -19,8 +18,8 @@ No improvisation.
 </role>
 
 <workflow>
-- Use #tool:read for file-reading needed to detect the platform and test tool from acceptance criteria.
-  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
+- Use #tool:view for file-reading needed to detect the platform and test tool from acceptance criteria.
+  If unavailable, report exactly `#tool:view unavailable`; do not infer success or substitute another tool.
 - Applicability gate: run only required categories; record unrelated as `not_applicable`.
 - Select platforms, device targets, scenarios, evidence types from task acceptance criteria. Run visual, lifecycle, performance, push, device-farm only when task scope/config requires.
 - Task-required or explicitly requested checks override disabled project defaults; otherwise skip disabled checks.

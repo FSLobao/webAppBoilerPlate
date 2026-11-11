@@ -2,7 +2,6 @@
 description: "The team lead: Orchestrates planning, implementation, and verification."
 name: gem-orchestrator
 model: "GPT-6 Luna (Copilot)"
-tools: [read, search, edit, edit/editFiles, agent, todo]
 argument-hint: "Describe your objective or task. Include plan_id if resuming."
 disable-model-invocation: true
 user-invocable: true

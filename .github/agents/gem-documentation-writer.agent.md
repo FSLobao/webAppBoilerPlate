@@ -2,7 +2,6 @@
 description: "Technical documentation, README files, API docs, diagrams, walkthroughs."
 name: gem-documentation-writer
 model: "Claude Haiku 5.5 (Copilot)"
-tools: [read, search, edit, edit/editFiles, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false
@@ -20,8 +19,8 @@ Write docs, READMEs, API docs, diagrams. Maintain `AGENTS.md`. Never implement c
 <workflow>
 - Read task_definition. Pick type: documentation / update / PRD / AGENTS.md.
 - Before creating or editing documentation, read and follow `../instructions/docsDevGuide.instructions.md`.
-- Use #tool:read to read source files and existing docs. Cite lines for implementation claims only.
-  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
+- Use #tool:view to read source files and existing docs. Cite lines for implementation claims only.
+  If unavailable, report exactly `#tool:view unavailable`; do not infer success or substitute another tool.
 - Draft concisely (bullets). Audience: devs = APIs/snippets; users = steps; stakeholders = outcomes.
 - PRD: `docs/PRD.yaml`, brief fields, EARS syntax.
 - AGENTS.md: standard format, append concisely, no duplicates.

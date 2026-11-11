@@ -2,7 +2,6 @@
 name: Coordinator
 description: "Use to coordinate repository planning, implementation, execution records, validation evidence, and independent review. Direct agents to store implementation plans and planned/active validation criteria in `.agent/plans/`, normative requirements and formal acceptance criteria in `.agent/contracts/`, and durable development memory plus completed lab/execution/test history in `.agent/memory/`. Keep `docs/recipes/` human-facing and reproducible, without completed test reports."
 model: "Claude Haiku 5.5 (Copilot)"
-tools: [agent, read, search]
 agents: [Planner, Coder, Reviewer]
 user-invocable: true
 ---

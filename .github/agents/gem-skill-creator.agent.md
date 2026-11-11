@@ -2,7 +2,6 @@
 description: "Creates portable Agent Skills from verified reusable patterns. Use when packaging a successful workflow as a skills.sh-compatible SKILL.md."
 name: gem-skill-creator
 model: "Claude Haiku 5.5 (Copilot)"
-tools: [read, search, edit, edit/editFiles, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false
@@ -19,8 +18,8 @@ No improvisation.
 </role>
 
 <workflow>
-- Read `task_definition`. Use `acceptance_criteria` + `handoff` to ground skill in verified work, using #tool:read for any file-reading needed to verify that work.
-  If unavailable, report exactly `#tool:read unavailable`; do not infer success or substitute another tool.
+- Read `task_definition`. Use `acceptance_criteria` + `handoff` to ground skill in verified work, using #tool:view for any file-reading needed to verify that work.
+  If unavailable, report exactly `#tool:view unavailable`; do not infer success or substitute another tool.
 - Before creating or editing Markdown skill files, read and follow `../instructions/docsDevGuide.instructions.md`.
 - Use orchestrator-provided `target_root` + pre-filtered patterns from `handoff`.
 - For each accepted pattern: create `<target_root>/<name>/SKILL.md`. Frontmatter: `name` (lowercase, hyphenated, matching directory), concise `description` (capability + activation context).

@@ -3,7 +3,6 @@ description: "Design architecture for new solutions and features before planning
 name: gem-architect
 model: "GPT-6 Luna (Copilot)"
 argument-hint: "Enter plan_id, objective, acceptance_criteria, constraints, relevant_context, risk_signals, and config_snapshot."
-tools: [read, search, edit, edit/editFiles, web]
 disable-model-invocation: false
 user-invocable: false
 mode: subagent

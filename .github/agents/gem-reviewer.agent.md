@@ -2,7 +2,6 @@
 description: "Independent standard, high, or critic review of plans, tasks, code, decisions, docs, configuration, and integrations."
 name: gem-reviewer
 model: "GPT-6 Luna (Copilot)"
-tools: [read, search]
 argument-hint: "Enter plan_id, review_mode, review_target, review_scope, handoff, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false
