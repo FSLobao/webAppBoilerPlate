@@ -2,6 +2,7 @@
 description: "Mobile E2E testing: Detox, Maestro, iOS/Android simulators."
 name: gem-mobile-tester
 model: "Claude Haiku 5.5 (Copilot)"
+tools: [read, search, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

@@ -2,6 +2,7 @@
 description: "Creates portable Agent Skills from verified reusable patterns. Use when packaging a successful workflow as a skills.sh-compatible SKILL.md."
 name: gem-skill-creator
 model: "Claude Haiku 5.5 (Copilot)"
+tools: [read, search, edit, edit/editFiles, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

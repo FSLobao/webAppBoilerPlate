@@ -2,6 +2,7 @@
 description: "Technical documentation, README files, API docs, diagrams, walkthroughs."
 name: gem-documentation-writer
 model: "Claude Haiku 5.5 (Copilot)"
+tools: [read, search, edit, edit/editFiles, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

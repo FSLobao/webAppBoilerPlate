@@ -2,6 +2,7 @@
 description: "Create lean, decision-complete wave plans with clear task ownership, outputs, and validation."
 name: gem-planner
 model: "GPT-6 Luna (Copilot)"
+tools: [read, search, edit, edit/editFiles]
 argument-hint: "Enter plan_id, objective, acceptance_criteria, provisional_complexity, risk_signals, planning_context."
 disable-model-invocation: false
 user-invocable: false

@@ -2,6 +2,7 @@
 description: "E2E browser testing, UI/UX validation, visual regression."
 name: gem-browser-tester
 model: "Claude Haiku 5.5 (Copilot)"
+tools: [read, search, execute, openBrowserPage, navigatePage, readPage, clickElement, typeInPage, hoverElement, dragElement, handleDialog, screenshotPage, runPlaywrightCode]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

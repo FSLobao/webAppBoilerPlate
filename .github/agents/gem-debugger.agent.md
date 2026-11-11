@@ -2,6 +2,7 @@
 description: "Root-cause analysis, stack trace diagnosis, regression bisection, error reproduction."
 name: gem-debugger
 model: "GPT-6 Luna (Copilot)"
+tools: [read, search, edit, edit/editFiles, execute]
 argument-hint: "Enter plan_id, task_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false

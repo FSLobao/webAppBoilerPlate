@@ -288,7 +288,7 @@ Registre, sem alterar, rotas do host, LAN/corporativas, prefixo VPN e CIDR da al
   <br><br>
 </div>
 
-## 5. Prova de conceito descartável
+## 5. Criação da bridge rootless
 
 Execute como `<GATEWAY_USER>` na sessão real e na raiz do repositório. Use a rede `gateway-vpn` planejada na seção 3 e criada nesta seção 5; não conecte containers de produção durante a prova. As imagens dos probes e a imagem gateway podem ser baixadas/construídas no store rootless.
 

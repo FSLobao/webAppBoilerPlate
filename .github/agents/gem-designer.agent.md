@@ -2,6 +2,7 @@
 description: "UI/UX design specialist: layouts, themes, color schemes, design systems, accessibility."
 name: gem-designer
 model: "GPT-6 Luna (Copilot)"
+tools: [read, search, edit, edit/editFiles, openBrowserPage, navigatePage, readPage, screenshotPage]
 argument-hint: "Enter execution_id, task_id, optional plan_id, task_definition, and role-scoped config_snapshot."
 disable-model-invocation: false
 user-invocable: false
