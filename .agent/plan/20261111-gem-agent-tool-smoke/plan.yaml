@@ -1,0 +1,369 @@
+plan_id: 20261111-gem-agent-tool-smoke
+status: completed
+tldr: |
+  Run one read-only tool smoke per explicitly listed gem subagent. Each agent reads its own
+  definition and reports the tool used or a specific limitation. Run in seven waves of at most
+  two agents; make no repository changes or temporary files.
+created_at: "2026-11-11T12:18:53+01:00"
+created_by: gem-planner
+revision: 1
+replan_count: 0
+planner_revision_used: false
+
+decisions:
+  - "The explicit 13-agent acceptance roster is authoritative; gem-orchestrator is mode: primary, not a subagent."
+  - "Use the configured read tool for each check; it is present in all 13 listed definitions, so no edit-based check or temporary-file cleanup is needed."
+  - "Partition the independent checks into seven waves of at most two agents, the minimum number of waves under the concurrency cap."
+  - "Aggregate each task's agent, tool, result, and any limitation into the final per-agent report; no separate reporting task is needed."
+
+assumptions:
+  - "The supplied default agent configuration applies because .gem-team.yaml is absent."
+
+tasks:
+  - id: smoke-architect
+    title: "Smoke gem-architect read tool"
+    description: "[reuse > native tool] Use gem-architect's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not produce architecture work."
+    wave: 1
+    depends_on: []
+    agent: gem-architect
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-architect
+      observed_tools: [read, search, edit, edit/editFiles, web]
+      note: "Agent also returned unexplained fail=fixable metadata."
+    acceptance_criteria:
+      - "Report the actual gem-architect read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-architect.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-browser-tester
+    title: "Smoke gem-browser-tester read tool"
+    description: "[reuse > native tool] Use gem-browser-tester's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not run browser scenarios."
+    wave: 1
+    depends_on: []
+    agent: gem-browser-tester
+    status: blocked
+    retries_used: 0
+    execution_handoff:
+      verdict: blocked
+      limitation: "No read tool; browser-only tools were available. Definition was not read."
+    acceptance_criteria:
+      - "Report the actual gem-browser-tester read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-browser-tester.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-code-simplifier
+    title: "Smoke gem-code-simplifier read tool"
+    description: "[reuse > native tool] Use gem-code-simplifier's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not simplify or edit code."
+    wave: 2
+    depends_on: []
+    agent: gem-code-simplifier
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-code-simplifier
+      observed_tools: [read, search, edit, edit/editFiles, execute]
+    acceptance_criteria:
+      - "Report the actual gem-code-simplifier read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-code-simplifier.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-debugger
+    title: "Smoke gem-debugger read tool"
+    description: "[reuse > native tool] Use gem-debugger's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not diagnose or reproduce a bug."
+    wave: 2
+    depends_on: []
+    agent: gem-debugger
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-debugger
+      observed_tools: [read, search, edit, edit/editFiles, execute]
+      note: "Agent also returned unexplained fail=fixable metadata."
+    acceptance_criteria:
+      - "Report the actual gem-debugger read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-debugger.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-designer
+    title: "Smoke gem-designer read tool"
+    description: "[reuse > native tool] Use gem-designer's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not create or validate a design."
+    wave: 3
+    depends_on: []
+    agent: gem-designer
+    status: blocked
+    retries_used: 0
+    execution_handoff:
+      verdict: blocked
+      limitation: "Configured read tool was unavailable; definition fields were not obtained."
+    acceptance_criteria:
+      - "Report the actual gem-designer read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-designer.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-devops
+    title: "Smoke gem-devops read tool"
+    description: "[reuse > native tool] Use gem-devops's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not run infrastructure operations."
+    wave: 3
+    depends_on: []
+    agent: gem-devops
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-devops
+      observed_tools: [read, search, edit, edit/editFiles, execute]
+    acceptance_criteria:
+      - "Report the actual gem-devops read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-devops.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-documentation-writer
+    title: "Smoke gem-documentation-writer read tool"
+    description: "[reuse > native tool] Use gem-documentation-writer's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not write documentation."
+    wave: 4
+    depends_on: []
+    agent: gem-documentation-writer
+    status: blocked
+    retries_used: 0
+    execution_handoff:
+      verdict: blocked
+      limitation: "Toolset exposed view, grep, glob, and bash tools, but no read tool."
+    acceptance_criteria:
+      - "Report the actual gem-documentation-writer read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-documentation-writer.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-implementer
+    title: "Smoke gem-implementer read tool"
+    description: "[reuse > native tool] Use gem-implementer's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not implement or test code."
+    wave: 4
+    depends_on: []
+    agent: gem-implementer
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-implementer
+      observed_tools: [read, search, edit, edit/editFiles, execute]
+    acceptance_criteria:
+      - "Report the actual gem-implementer read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-implementer.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-mobile-tester
+    title: "Smoke gem-mobile-tester read tool"
+    description: "[reuse > native tool] Use gem-mobile-tester's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not launch a mobile target."
+    wave: 5
+    depends_on: []
+    agent: gem-mobile-tester
+    status: blocked
+    retries_used: 0
+    execution_handoff:
+      verdict: blocked
+      limitation: "Toolset exposed view, grep, glob, and bash tools, but no read tool."
+    acceptance_criteria:
+      - "Report the actual gem-mobile-tester read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-mobile-tester.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-planner
+    title: "Smoke gem-planner read tool"
+    description: "[reuse > native tool] Use gem-planner's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not create or revise a plan."
+    wave: 5
+    depends_on: []
+    agent: gem-planner
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-planner
+      observed_tools: [read, search, edit, edit/editFiles]
+      note: "Full-file read was too large; line-range read succeeded."
+    acceptance_criteria:
+      - "Report the actual gem-planner read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-planner.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-researcher
+    title: "Smoke gem-researcher read tool"
+    description: "[reuse > native tool] For this focused question-mode smoke, use gem-researcher's configured read tool on its own agent definition and report the returned name and tools fields. Do not expand repository research."
+    wave: 6
+    depends_on: []
+    agent: gem-researcher
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-researcher
+      observed_tools: [read, search]
+    acceptance_criteria:
+      - "Report the actual gem-researcher read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    exploration_mode: question
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-researcher.agent.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-reviewer
+    title: "Smoke gem-reviewer read tool"
+    description: "[reuse > native tool] Use gem-reviewer's configured read tool on its own agent definition and the required caveman skill when not already in context; report the definition's name and tools fields. Do not perform an artifact review."
+    wave: 6
+    depends_on: []
+    agent: gem-reviewer
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      tool: read
+      observed_name: gem-reviewer
+      observed_tools: [read, search]
+      note: "Full-file read was too large; forceReadLargeFiles succeeded."
+    acceptance_criteria:
+      - "Report the actual gem-reviewer read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Follow the role's required caveman-skill precondition if its content is not already in context."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only; use read only on the listed paths."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If a required read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-reviewer.agent.md"
+        - ".github/skills/caveman/SKILL.md"
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: smoke-skill-creator
+    title: "Smoke gem-skill-creator read tool"
+    description: "[reuse > native tool] Use gem-skill-creator's configured read tool on its own agent definition and report the returned name and tools fields. This is a bounded tool smoke only; do not create a skill."
+    wave: 7
+    depends_on: []
+    agent: gem-skill-creator
+    status: blocked
+    retries_used: 0
+    execution_handoff:
+      verdict: blocked
+      limitation: "Toolset had no read tool; view was not substituted."
+    acceptance_criteria:
+      - "Report the actual gem-skill-creator read-tool invocation result as success or blocked."
+      - "On success, identify tool: read and include the observed name and tools fields; on blockage, name the precise limitation."
+      - "Create, edit, and delete no repository files; create no temporary files."
+    handoff:
+      constraints:
+        - "Read-only: invoke only read on the listed definition path."
+        - "Do not edit, create, delete, execute commands, or create temporary files."
+        - "If read is unavailable or fails, report the exact limitation; do not infer success or substitute another tool."
+      relevant_context:
+        - ".github/agents/gem-skill-creator.agent.md"
+      high_risk_signals: []
+      critic_signals: []

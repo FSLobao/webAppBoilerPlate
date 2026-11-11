@@ -1,0 +1,209 @@
+plan_id: 20261111-gem-agent-config-fixes
+status: completed
+finalization:
+  commit: 0f33cb721f67c8f2d77ecd7f774e7a1af2967955
+  tag: gate/agent-config-fixes
+  staged_paths: 13 agent definitions only
+tldr: |
+  Preserve the completed read-reference and designer-visibility changes. Treat
+  the five failed read smokes as unresolved host-level evidence, not execution
+  prerequisites. Make failure-only `fail` metadata optional across all 13
+  gem-agent output contracts, explicitly omit it from completed outputs, then
+  validate and independently review the final definitions.
+created_at: "2026-11-11T12:42:30.736+01:00"
+created_by: gem-planner
+revision: 4
+replan_count: 3
+planner_revision_used: true
+
+decisions:
+  - "Keep the completed `clarify-read-tools` changes; literal `#tool:read` references improve discoverability but do not establish host-level tool exposure."
+  - "Remove the five blocked read-smoke tasks from the active sequence because their recorded host toolsets lacked `read`; preserve the exact limitations as evidence and do not call them passes."
+  - "The five smoke results are not prerequisites for editing output contracts; one gem-implementer task owns the coalesced 13-file contract change, followed by gem-reviewer for independent verification."
+  - "Preserve each agent role, status/output semantics, and failure classification; change only the `fail` optionality and directly related completed-output guidance."
+
+assumptions:
+  - "The existing `key?` notation for optional output fields is the repository's convention for optional schema metadata."
+  - "Recorded read-smoke limitations remain unresolved; no new runtime evidence establishes host-level `read` availability."
+  - "The scope remains the 13 gem-agent definitions with `fail` fields and the five completed read-reference/designer-visibility changes; no other agents are in scope."
+
+high_risk_signals:
+  - contract_change
+
+baseline:
+  objective: "Fix verified tool discoverability and output-contract limitations in gem agent definitions."
+  acceptance_criteria:
+    - "Make read discoverable for all five agents whose smoke runs lacked it."
+    - "Remove gem-designer's hidden flag while preserving subagent-only use."
+    - "Allow successful outputs to omit failure-only fail metadata across affected agents."
+    - "Validate relevant configuration and output schemas; report unresolved host limitations."
+  captured_at: "2026-11-11T12:42:30.736+01:00"
+
+replan:
+  reason: >-
+    Reviewer found that optional `fail` fields remained contradicted by required
+    output guidance. The five post-edit read smokes are blocked by missing
+    host-level tools and do not affect the independent output-contract work;
+    remove them as execution gates, preserve their evidence, and continue with
+    implementation plus independent review.
+  changed_tasks:
+    - make-fail-metadata-optional
+    - review-agent-config-changes
+  added_tasks: []
+  removed_tasks:
+    - smoke-browser-tester
+    - smoke-designer
+    - smoke-documentation-writer
+    - smoke-mobile-tester
+    - smoke-skill-creator
+  preserved_acceptance_criteria:
+    - "Five read-limited agent definitions include documented `#tool:read` references; report unresolved host-level read absence honestly."
+    - "gem-designer no longer has `hidden: true` and remains subagent-only."
+    - "All 13 failure-only `fail` fields are optional, and successful completed outputs omit `fail` consistently."
+    - "Preserve all failure classifications and agent roles."
+    - "Validate configuration and output schemas; independently review final changes."
+  new_risks: []
+  progress_signal: >-
+    `clarify-read-tools` is complete. Post-edit smoke evidence: browser tester
+    had no `read` and tool_search returned no matches; designer's active toolset
+    did not provide `read`; documentation writer, mobile tester, and skill
+    creator exposed only view, grep, glob, bash, read_bash, stop_bash, and
+    list_bash. These are blocked host-level checks, not successful reads.
+    Continue with output-contract changes without claiming the workspace edits
+    repair host exposure.
+  revised_tasks:
+    - make-fail-metadata-optional
+    - review-agent-config-changes
+  invalidated_tasks: []
+  invalidated_assumptions: []
+
+tasks:
+  - id: clarify-read-tools
+    title: Clarify read-tool use and designer visibility
+    description: >-
+      [reuse > declared tools] Add the documented literal `#tool:read`
+      reference in the relevant read workflow step for gem-browser-tester,
+      gem-designer, gem-documentation-writer, gem-mobile-tester, and
+      gem-skill-creator. Remove only gem-designer's `hidden: true` field while
+      preserving its intended subagent-only invocation settings.
+    wave: 1
+    depends_on: []
+    agent: gem-implementer
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      changed_files:
+        - ".github/agents/gem-browser-tester.agent.md"
+        - ".github/agents/gem-designer.agent.md"
+        - ".github/agents/gem-documentation-writer.agent.md"
+        - ".github/agents/gem-mobile-tester.agent.md"
+        - ".github/agents/gem-skill-creator.agent.md"
+      validation: "Frontmatter and read-reference checks passed; no temp files created."
+      runtime_status: "Host-level read availability remains unresolved; see replan.progress_signal."
+    acceptance_criteria:
+      - "Changes are limited to the five named definitions."
+      - "Each definition has a literal `#tool:read` reference in its relevant workflow step, directs use of that tool, and requires exact reporting of unavailability without inferring success or substituting another tool."
+      - "Each existing frontmatter `tools` list is preserved with `read` exactly once; no tool alias, permission, or other frontmatter field is added or changed."
+      - "gem-designer has no `hidden: true` and preserves `user-invocable: false`, `mode: subagent`, `disable-model-invocation: false`, and all other role and permission settings."
+      - "Frontmatter and literal read references are validated; no temporary files, dependencies, or validation scripts are added."
+      - "Static validation is not treated as runtime proof; the recorded smoke outcomes remain unresolved host-level evidence."
+    handoff:
+      constraints:
+        - "Follow `.github/instructions/docsDevGuide.instructions.md` and the official VS Code Custom Agents reference: https://code.visualstudio.com/docs/copilot/customization/custom-agents."
+        - "Use the documented literal `#tool:read` body reference; do not add tool aliases or frontmatter permissions."
+        - "Only modify the five named definitions; preserve their roles, instructions, frontmatter tools, and permissions except removal of gem-designer's `hidden: true`."
+        - "Do not introduce unsupported frontmatter fields or claim workspace configuration controls host-level tool exposure."
+      relevant_context:
+        - "All five definitions already list `read` in frontmatter."
+        - "gem-designer preserves `user-invocable: false`, `disable-model-invocation: false`, and `mode: subagent`."
+        - "The official customization reference documents literal `#tool:<name>` body references."
+        - "Prior smoke evidence: `.agent/plan/20261111-gem-agent-tool-smoke/plan.yaml`."
+      high_risk_signals: []
+      critic_signals: []
+
+  - id: make-fail-metadata-optional
+    title: Make failure-only metadata optional on success
+    description: >-
+      [reuse > existing schema convention] Update all 13 affected gem-agent
+      output contracts to mark `fail` optional and explicitly direct agents to
+      omit it when `status` is `completed`. In architect and implementer
+      guidance require every required field; update the ten Minimal payload
+      clauses without changing other omission behavior; add the same success
+      rule to designer guidance. Preserve agent roles, status semantics, all
+      other output fields, and every failure classification.
+    wave: 2
+    depends_on:
+      - clarify-read-tools
+    agent: gem-implementer
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: pass
+      changed_files: 13
+      validation: "Frontmatter and output-contract checks passed; classifications and statuses unchanged; git diff --check passed."
+      runtime_read_limitation: "Five post-edit smoke tests remain blocked because the active host toolsets lack read."
+    acceptance_criteria:
+      - "The output schemas in exactly these 13 files mark `fail` optional using the existing `fail?` convention: `.github/agents/gem-architect.agent.md`, `.github/agents/gem-browser-tester.agent.md`, `.github/agents/gem-code-simplifier.agent.md`, `.github/agents/gem-debugger.agent.md`, `.github/agents/gem-designer.agent.md`, `.github/agents/gem-devops.agent.md`, `.github/agents/gem-documentation-writer.agent.md`, `.github/agents/gem-implementer.agent.md`, `.github/agents/gem-mobile-tester.agent.md`, `.github/agents/gem-planner.agent.md`, `.github/agents/gem-researcher.agent.md`, `.github/agents/gem-reviewer.agent.md`, and `.github/agents/gem-skill-creator.agent.md`."
+      - "Each of the 13 output guides explicitly says to omit `fail` when `status` is `completed`; existing failure behavior and all classifications remain unchanged."
+      - "In architect and implementer, replace 'Include every field' with 'Include every required field' and explicitly permit omitting optional `fail` on successful completion."
+      - "In the ten agents whose guidance uses 'Minimal payload: omit fields only when omission == explicit empty/null', allow omission of optional `fail` on completed status while preserving the rule for every other field: browser-tester, code-simplifier, debugger, devops, documentation-writer, mobile-tester, planner, researcher, reviewer, and skill-creator."
+      - "In designer, explicitly direct omission of `fail` when status is `completed` while preserving its minimal JSON guidance."
+      - "Preserve all 13 existing `fail` classification values, status values, other output fields, agent names, descriptions, tools, and role instructions."
+      - "Preserve the five `#tool:read` references and gem-designer's subagent-only settings from `clarify-read-tools`; do not assert that workspace edits repair host-level `read` availability."
+      - "Validate YAML frontmatter and each output contract for valid structure, optional `fail?` metadata, completed-output omission guidance, and unchanged classifications. Report the focused evidence without claiming schema enforcement beyond what was actually used."
+      - "Limit edits to the 13 named agent definitions; add no dependencies, validation scripts, or temporary files."
+    handoff:
+      constraints:
+        - "Follow `.github/instructions/docsDevGuide.instructions.md` and the official VS Code Custom Agents reference: https://code.visualstudio.com/docs/copilot/customization/custom-agents."
+        - "Only edit `fail` optionality and directly related completed-output guidance in the 13 named definitions; preserve unrelated content, agent roles, fields, tools, status semantics, and classifications."
+        - "Use the existing optional-key convention; do not add new output fields, statuses, failure classifications, or frontmatter settings."
+        - "Run only focused frontmatter and output-contract validation; use existing validation capabilities and add no scripts or dependencies."
+        - "Treat the recorded read-tool smokes as host-level limitations, not passes or proof of a workspace-level repair."
+      relevant_context:
+        - "The 13 target paths and exact guidance changes are in this task's acceptance criteria."
+        - "Existing output examples use optional-key notation such as `evidence_path?` and `reproduction?`."
+        - "Architect and implementer currently say 'Include every field'; ten agents restrict omission to explicit empty/null; designer has no completed-output omission rule."
+        - "Recorded post-edit smoke limitations: browser tester had no `read` and tool_search returned no matches; designer's active toolset lacked `read`; documentation writer, mobile tester, and skill creator listed only view, grep, glob, bash, read_bash, stop_bash, list_bash."
+        - "Read the documentation guide at `.github/instructions/docsDevGuide.instructions.md`."
+      high_risk_signals:
+        - contract_change
+      critic_signals: []
+
+  - id: review-agent-config-changes
+    title: Independently review agent configuration changes
+    description: >-
+      [reuse > independent review] Read-only independent review of the final 13
+      gem-agent definitions and focused validation evidence against the
+      optional failure metadata, completed-output guidance, preserved roles,
+      read references, designer invocation settings, and recorded host limit.
+    wave: 3
+    depends_on:
+      - make-fail-metadata-optional
+    agent: gem-reviewer
+    status: completed
+    retries_used: 0
+    execution_handoff:
+      verdict: warning
+      actionable_findings: 0
+      reviewed_files: 13
+      unresolved_limit: "Host-level read remains unavailable to five active subagent toolsets."
+    acceptance_criteria:
+      - "Review the final diff and confirm changes are confined to the 13 named definitions and approved read-reference, visibility, optional-field, and directly related success-guidance edits."
+      - "Independently verify all 13 frontmatter blocks and output contracts, including optional `fail?`, completed-output omission guidance, and exact preservation of every failure classification and agent role."
+      - "Verify architect and implementer require only required fields; verify the ten Minimal payload clauses preserve other omission behavior; verify designer explicitly omits `fail` on completed outputs."
+      - "Verify all five `read` entries remain exactly once with literal `#tool:read` references, and gem-designer remains `user-invocable: false` and `mode: subagent` without `hidden: true`."
+      - "Review the recorded smoke limitations and report host-level `read` absence as unresolved; do not treat workspace edits as runtime repair."
+      - "Report any unmet criterion with exact file and evidence references."
+    handoff:
+      constraints:
+        - "Read-only review; do not edit files or run build, test, lint, or validation commands."
+        - "Use `review_mode: standard` and `review_scope: config`; follow `.github/instructions/docsDevGuide.instructions.md` and the official VS Code Custom Agents reference: https://code.visualstudio.com/docs/copilot/customization/custom-agents."
+        - "Independently review the implementer's diff and focused validation evidence; do not claim runtime verification absent explicit evidence."
+      relevant_context:
+        - "Target set: the 13 agent definitions listed in `make-fail-metadata-optional`; the first five also contain the completed read-reference or designer-visibility changes."
+        - "Post-edit host limitations are recorded in `replan.progress_signal` and `make-fail-metadata-optional.handoff.relevant_context`."
+        - "Read the documentation guide at `.github/instructions/docsDevGuide.instructions.md`."
+      high_risk_signals:
+        - contract_change
+      critic_signals: []
