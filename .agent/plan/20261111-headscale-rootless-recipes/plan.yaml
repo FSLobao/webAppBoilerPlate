@@ -1,32 +1,39 @@
 plan_id: 20261111-headscale-rootless-recipes
 status: blocked
 tldr: |
-  Harmonize the rootless Headscale recipe with repository documentation and recipe
-  rules, preserve its supported procedure and the user's staged step-title change,
-  label the rootful cookbook as a legacy reference, then independently validate
-  the two-file documentation change. First expose the concrete VS Code file editor
-  to existing write-enabled custom agents that currently declare only the `edit`
-  alias.
-created_at: "2026-11-11T10:15:37+01:00"
+  Preserve the completed two-recipe harmonization. Research confirms the
+  supported host-preparation script cannot meet the architecture contract within
+  the authorized documentation-only scope: its default apply path changes
+  SELinux and firewall configuration, and it has no supported sysctl-only
+  option. Stop without inventing replacement commands. Remaining recipe
+  corrections and independent validation await scope/contract resolution.
+architecture_path: .agent/contracts/ARCHITECTURE.md
+created_at: "2026-11-11T22:08:22+01:00"
 created_by: gem-planner
-revision: 2
-replan_count: 1
+revision: 4
+replan_count: 3
 planner_revision_used: true
 
 decisions:
-  - "A wave-1 capability prerequisite uses Universal Janitor, whose existing definition already has `edit/editFiles`; only existing write-enabled definitions missing that concrete tool are changed."
-  - "One gem-documentation-writer task owns both linked recipe files; the shared documentation concern and reciprocal links make separate editing tasks redundant."
-  - "A dependent gem-reviewer task independently checks preservation and Markdown validity because the acceptance contract explicitly requires validation and the rootless recipe documents host-wide changes."
-  - "Legacy labeling applies to the rootful cookbook as a reference only; it does not change the runtime support status stated by the architecture contract."
-  - "Preserve the staged step-5 bridge-creation title's intent while converting headings and numbering as needed to meet the recipe guide; do not restore the superseded proof-of-concept title."
+  - "Keep the completed editor prerequisite and initial two-file harmonization as completed work; limit the revised sequence to the newly identified correction and validation needs."
+  - "The completed read-only scan finds no supported documentation-only path for Step 1: the script has no sysctl-only option, and its default apply path changes SELinux and firewall configuration."
+  - "Do not replace the script with guessed sysctl/firewall commands or use the conditional --check path rejected by the latest independent review; stop the correction task until an authorized scope or contract resolution exists."
+  - "Keep corrections and independent read-only validation as separate ordered milestones; validation cannot start until the blocked documentation correction is resolved."
+  - "Treat the 2026-11-05 host reboot result as historical evidence, distinct from the user-manager restart procedure; do not imply a new host reboot is required or was performed."
+  - "Retain the rootless step-5 bridge-creation intent and the rootful legacy-reference label; do not change runtime architecture or broaden the recipe file scope."
+  - "Preserve the exact `Passo 5: Criar a bridge rootless` heading and procedure. Keep the Passo 2 five-command deviation visible as an unresolved guide-compliance decision unless a safe content-preserving correction is established; Step 3 now has five checks."
 
 assumptions:
-  - "Existing rootless recipe commands, configuration values, operational behavior, and recorded verification evidence are the baseline; this is a documentation-only change."
-  - "The rootless procedure remains the supported primary recipe. The rootful cookbook remains available and is labeled legacy without asserting that the rootful runtime is deprecated."
-  - "No new scripts or dependencies are authorized; recipe changes stay within the two named recipe files and the editor prerequisite stays within its specified agent definitions. If full guide compliance appears to require broader recipe changes, report the blocker rather than expanding scope."
+  - "The existing recipe edits and user-staged bridge-creation title are the baseline for the bounded corrections."
+  - "The original acceptance criteria remain unchanged; only the affected remaining sequence is revised."
+  - "No runtime files, README, other recipes, scripts, or dependencies are in scope."
 
 baseline:
-  objective: "Harmonize the rootless Headscale recipe with repository documentation and recipe rules, preserve its supported procedure and the user's staged step-title change, label the rootful cookbook as a legacy reference, then independently validate the two-file documentation change."
+  objective: >-
+    Harmonize the rootless Headscale recipe with repository documentation and recipe
+    rules, preserve its supported procedure and the user's staged step-title change,
+    label the rootful cookbook as a legacy reference, then independently validate
+    the two-file documentation change.
   acceptance_criteria:
     - "Recipe edits are limited to docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md."
     - "Rootless remains the supported primary procedure; rootful remains a legacy cookbook reference without a runtime deprecation claim."
@@ -36,25 +43,39 @@ baseline:
   captured_at: "2026-11-11T11:58:01+01:00"
 
 replan:
-  reason: "The documentation writer remained blocked because its `edit` alias did not expose the concrete `edit/editFiles` editor. Add a bounded agent-definition prerequisite before resuming recipe implementation."
+  reason: >-
+    The required script-side-effect research is complete and establishes that no
+    compliant documentation-only Step 1 exists: the script has no sysctl-only
+    interface and its default apply path changes SELinux and firewall
+    configuration, contrary to ARCHITECTURE.md. The latest review also rejects
+    the conditional --check workaround. Stop rather than invent commands or
+    expand the authorized scope. Preserve the remaining corrections and
+    independent validation as blocked work pending scope/contract resolution.
   changed_tasks:
-    - harmonize-headscale-recipes
     - verify-headscale-recipe-docs
-  added_tasks:
-    - enable-concrete-file-editor
+    - correct-reviewed-recipe-findings
+  added_tasks: []
   removed_tasks: []
   preserved_acceptance_criteria:
-    - "Recipe edits remain limited to the two named Headscale recipe files."
-    - "Rootless remains the supported primary procedure; rootful remains a legacy reference without a runtime deprecation claim."
+    - "Recipe edits remain limited to docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md."
+    - "Rootless remains the supported primary procedure; rootful remains a legacy cookbook reference without a runtime deprecation claim."
     - "The staged step-5 bridge-creation title and its procedure remain intact."
-    - "Existing technical values, commands, safety guidance, and supported behavior remain preserved; no unverified claims are invented."
-    - "The existing detailed recipe-structure, navigation, safety, and Markdown validation criteria remain in the harmonization and independent review tasks."
-    - "A separate gem-reviewer task performs read-only documentation validation after implementation."
+    - "Existing technical values, command behavior, safety guidance, and supported procedure are preserved; unverified claims are not invented."
+    - "An independent read-only review validates the completed two-file documentation change."
   new_risks: []
-  progress_signal: "Revision 1 recorded harmonize-headscale-recipes as blocked after one retry because the spawned writer had no approved editor despite the `edit` alias; verify-headscale-recipe-docs was blocked on that dependency. No recipe edits or completed validation evidence exist. The user's staged heading `5. Criação da bridge rootless` remains the required baseline."
+  progress_signal: >-
+    The editor prerequisite, initial two-file harmonization, and read-only
+    host-preparation research are complete. Research found no compliant
+    documentation-only Step 1 path under the current scope and architecture
+    contract; the reviewer rejected the previously proposed conditional check
+    path. Rollback, mixed-row route verification, auth-key syntax evidence or
+    unverified labeling, enrollment status, G9 criteria, and the Passo 2
+    command-limit deviation remain unresolved. Existing structural checks passed,
+    but renderer preview failed/unavailable and independent review is blocked.
   revised_tasks:
-    - harmonize-headscale-recipes
     - verify-headscale-recipe-docs
+    - inspect-host-preparation-side-effects
+    - correct-reviewed-recipe-findings
   invalidated_tasks: []
   invalidated_assumptions: []
 
@@ -62,115 +83,179 @@ tasks:
   - id: enable-concrete-file-editor
     title: Expose concrete editor to write-enabled agents
     description: >-
-      [reuse] Add the concrete VS Code file editor `edit/editFiles` to the
-      existing write-enabled custom-agent definitions that currently declare
-      the `edit` alias without that concrete tool. Use the existing Janitor
-      definition as the repository precedent; do not change unrelated
-      permissions or agent behavior.
+      [reuse] Completed prerequisite: expose the concrete file editor to the
+      approved write-enabled custom agents so the recipe writer could edit the
+      authorized files.
     wave: 1
     depends_on: []
     agent: Universal Janitor
     status: completed
     retries_used: 0
     acceptance_criteria:
-      - "Add `edit/editFiles` to the tools lists in exactly gem-architect.agent.md, coder.agent.md, gem-implementer.agent.md, gem-skill-creator.agent.md, gem-code-simplifier.agent.md, gem-debugger.agent.md, gem-designer.agent.md, gem-devops.agent.md, gem-documentation-writer.agent.md, gem-orchestrator.agent.md, gem-planner.agent.md, and planner.agent.md."
-      - "Preserve every pre-existing tool entry and all unrelated file content in those definitions; make no other permission, description, model, or behavior changes."
-      - "Leave gem-reviewer.agent.md, reviewer.agent.md, coordinator.agent.md, gem-researcher.agent.md, gem-browser-tester.agent.md, and gem-mobile-tester.agent.md unchanged; do not grant edit access to read-only or test-only agents."
-      - "All 12 changed tool lists remain valid frontmatter and contain the concrete editor exactly once; janitor.agent.md remains the unchanged precedent."
+      - "The approved agent definitions expose the concrete editor while preserving their existing permissions and unrelated content."
+      - "Read-only and test-only agent definitions remain unchanged."
     handoff:
       constraints:
-        - "Use approved file-edit tooling only; do not use shell-based file writes."
-        - "Limit edits to adding `edit/editFiles` in the specified tools lists; preserve all existing permissions and unrelated user changes."
-        - "Do not add `execute` or any other tool to a definition that did not already have it."
+        - "No further changes to agent definitions are in scope."
       relevant_context:
-        - ".github/agents/janitor.agent.md already declares `edit/editFiles` and is the concrete-tool precedent."
-        - ".github/agents/gem-architect.agent.md, coder.agent.md, gem-implementer.agent.md, gem-skill-creator.agent.md, gem-code-simplifier.agent.md, gem-debugger.agent.md, gem-designer.agent.md, gem-devops.agent.md, gem-documentation-writer.agent.md, gem-orchestrator.agent.md, gem-planner.agent.md, and planner.agent.md currently declare the `edit` alias without the concrete editor."
-        - "Read-only reviewer, coordinator, researcher, and test-only agent definitions are explicitly outside this task."
-      high_risk_signals:
-        - security_sensitive
+        - "Completed prerequisite recorded in revision 2 of this plan."
+      high_risk_signals: []
       critic_signals: []
 
   - id: harmonize-headscale-recipes
     title: Harmonize rootless recipe and mark rootful legacy
     description: >-
-      [reuse] Reorganize the existing rootless cookbook into the repository's
-      Brazilian Portuguese recipe structure, retaining its technical procedure
-      and the user's staged bridge-creation title change. Mark and link the
-      rootful cookbook as a legacy reference without changing runtime support
-      claims. Follow the documentation and recipe guides.
+      [reuse] Completed initial documentation milestone: restructure and
+      cross-link the rootless primary recipe and rootful legacy reference while
+      preserving the existing procedure and bridge-creation title intent.
     wave: 2
     depends_on:
       - enable-concrete-file-editor
     agent: gem-documentation-writer
-    status: blocked
-    blocking_reason: "The spawned documentation writer still lacks edit/editFiles although its repository definition now declares it; updated definitions are not loaded in this runtime."
+    status: completed
     retries_used: 1
     acceptance_criteria:
-      - "Only docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md are edited."
-      - "The rootless recipe follows the guide's ordered required sections—Visão geral, Ambiente e versões, Pré-requisitos e variáveis, consecutive Passo N sections, Verificação final, Solução de problemas, Reversão e desinstalação, and Referências—plus applicable conditional sections."
-      - "The rootless page uses Brazilian Portuguese, a first-rendered collapsible index synchronized with all top-level sections, valid heading hierarchy, and the guide's responsive return-to-top block at each section end."
-      - "Each procedural step has one purpose, no more than five commands, and the guide's objective, context when applicable, copy-ready language-tagged commands, expected output, and success verification; non-verified behavior is labeled rather than asserted."
-      - "Destructive and security-weakening operations retain the required warnings, risk rationale, backup and rollback guidance, and troubleshooting/reference links."
-      - "The staged step-5 rename remains represented as bridge creation; it is not reverted to the prior proof-of-concept title, and its procedure remains intact."
-      - "Rootless remains explicitly the supported primary procedure; existing technical values, commands, sequence, and operational behavior are not silently changed. Any necessary presentation-only command-block split is semantically equivalent."
-      - "The rootful cookbook remains present and usable as a legacy reference, is clearly labeled as such, and links to the primary rootless recipe; the rootless recipe links back with the legacy label."
-      - "Existing verification claims are preserved only where supported by the recipe or .agent/memory/historico-dev.md; no test date, command output, or runtime validation is invented."
+      - "Initial recipe edits are confined to the two authorized Headscale recipe files."
+      - "Rootless is identified as the primary procedure; rootful is labeled as a legacy reference without a runtime deprecation claim."
+      - "The step-5 bridge-creation title and procedure remain represented."
     handoff:
       constraints:
-        - "Follow .github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md."
-        - "Use the concrete `edit/editFiles` file editor after the agent-definition prerequisite is complete; do not use shell-based file writes."
-        - "Before editing recipes, confirm the newly spawned documentation writer exposes `edit/editFiles`; if unavailable, stop and report the blocker without editing."
-        - "Preserve all existing configuration values, command behavior, safety warnings, rollback semantics, and supported rootless procedure; do not modify runtime files."
-        - "Do not reset, discard, stage, or otherwise overwrite the user's pre-existing staged change."
-        - "Do not change README.md or any recipe other than the two named files; add no scripts or dependencies."
-        - "Use Não verificado or report an unresolved inconsistency rather than inventing command output or resolving technical behavior by guesswork."
+        - "This completed milestone is preserved as the baseline for the bounded review corrections."
       relevant_context:
-        - ".github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md: normative structure, navigation, safety, and validation rules."
-        - "docs/recipes/gateway-headscale-podman-rootless.md: primary source procedure; the staged heading is `5. Criação da bridge rootless`."
-        - "docs/recipes/gateway-headscale-podman-rootfull.md: retained cookbook to label and link as a legacy reference."
-        - ".agent/contracts/ARCHITECTURE.md: rootless is the target; rootful remains an implemented runtime alternative."
-        - ".agent/memory/historico-dev.md: historical rootless lab evidence and limits; use only claims supported there."
-        - "README.md currently directs readers to the rootless recipe; README is outside the authorized file scope."
-        - ".github/agents/gem-documentation-writer.agent.md receives the explicit editor in the prerequisite; .github/agents/janitor.agent.md is the precedent."
+        - "docs/recipes/gateway-headscale-podman-rootless.md"
+        - "docs/recipes/gateway-headscale-podman-rootfull.md"
       high_risk_signals:
         - security_sensitive
-      critic_signals: []
+      critic_signals:
+        - architecture
 
-  - id: verify-headscale-recipe-docs
-    title: Independently validate recipe structure and preservation
+  - id: inspect-host-preparation-side-effects
+    title: Inspect host-preparation side effects
     description: >-
-      [reuse] Review the completed two-file documentation change without editing
-      it. Use existing repository documentation tooling when available, otherwise
-      focused checks and renderer preview where available; add no dependencies.
-      Report the checks and their results.
+      [reuse] Read-only scan of the Step 1 call path and
+      deploy/scripts/prepare-rootless-host.sh. Establish which operations the
+      script performs and whether its supported interface can prepare the
+      required non-SELinux host settings without writing or changing SELinux.
+      Do not execute the script. Report a source-grounded, scope-preserving
+      documentation path; if none exists, identify the precise blocker rather
+      than inventing a replacement procedure.
     wave: 3
-    depends_on:
-      - harmonize-headscale-recipes
-    agent: gem-reviewer
-    status: blocked
-    blocking_reason: "Depends on the blocked recipe harmonization task; no recipe changes exist to validate."
+    depends_on: []
+    agent: gem-researcher
+    exploration_mode: scan
+    status: completed
     retries_used: 0
     acceptance_criteria:
-      - "Recipe changes are confined to the two authorized recipe files and retain the user's staged bridge-creation title change; the separate editor prerequisite is confined to its approved agent definitions."
-      - "The rootless recipe is the primary procedure; the rootful cookbook is present, labeled as a legacy reference, and linked consistently without a runtime deprecation claim."
-      - "The rootless index matches every top-level section in order; headings, step numbering, anchors, and return-to-top links conform to both repository guides."
-      - "Markdown fences are balanced and language-tagged; tables and navigation render or pass focused structural checks; internal relative links and fragments resolve to the intended targets."
-      - "Both light and dark return-arrow image paths resolve relative to the changed pages, and referenced local files exist."
-      - "Compare technical values and command behavior against the pre-change rootless recipe; report any discrepancy, and do not treat documentation checks as runtime validation."
-      - "Return concise evidence naming the tooling or focused checks used, pass/fail results, renderer-preview status, and any remaining blockers; make no file edits."
+      - "Report the script's documented and source-visible side effects, especially every SELinux read or write and the changes to firewall/sysctl configuration."
+      - "Determine whether an existing supported option permits the required non-SELinux setup while honoring ARCHITECTURE.md; do not infer behavior or execute host-preparation commands."
+      - "Give exact source paths and symbols/lines supporting the finding, and state whether a compliant documentation-only correction is possible without changing runtime files."
+      - "If no compliant path exists within the authorized recipe scope, return that as a blocker for orchestrator/user resolution instead of proposing unverified commands."
+    handoff:
+      constraints:
+        - "Read-only repository inspection; do not edit files or run host-preparation/deployment commands."
+        - "ARCHITECTURE.md is normative: validate that SELinux is already disabled and do not change it."
+      relevant_context:
+        - ".agent/contracts/ARCHITECTURE.md: line 96 requires SELinux already disabled and forbids changing it."
+        - "docs/recipes/gateway-headscale-podman-rootless.md: Step 1 currently invokes prepare-rootless-host.sh and states it changes SELinux."
+        - "The recipe edit scope remains limited to the two authorized recipe files."
+      high_risk_signals:
+        - security_sensitive
+      critic_signals:
+        - architecture
+
+  - id: correct-reviewed-recipe-findings
+    title: Correct reviewed recipe findings
+    description: >-
+      [reuse] Blocked pending authorized resolution of the Step 1 contract
+      conflict. Research establishes that the supported script cannot be used
+      within the architecture contract: it has no sysctl-only option, and its
+      default apply path changes SELinux and firewall configuration. Do not
+      invent replacement commands, restore the rejected conditional --check
+      workaround, or expand file scope. Once unblocked, make only source-supported
+      documentation corrections for rollback route removal, mixed-row route
+      verification, rootless enrollment status and auth-key syntax, G9 historical
+      reboot evidence, and the Passo 2 five-command deviation. Preserve all
+      unrelated values, commands, safety guidance, supported procedure, exact
+      staged step-5 heading/procedure, and rootful legacy label.
+    wave: 4
+    depends_on:
+      - inspect-host-preparation-side-effects
+      - harmonize-headscale-recipes
+    agent: gem-documentation-writer
+    status: blocked
+    blocking_reason: "Research confirms no compliant documentation-only Step 1 path within current scope: the script has no sysctl-only option and default apply changes SELinux/firewall configuration, contrary to ARCHITECTURE.md. Latest review rejects the conditional --check workaround. Stop rather than invent commands; route, auth-key, Passo 2, and other review corrections also remain."
+    retries_used: 0
+    acceptance_criteria:
+      - "Only docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md are changed; no runtime, script, README, or other recipe files are modified."
+      - "Step 1 requires SELinux already be Disabled, does not instruct a change to SELinux, and does not direct execution of any interface that the research task confirms writes SELinux configuration; other host-preparation behavior is retained only through a source-supported compliant path."
+      - "Rollback removes the installed VPN route and exact FORWARD/POSTROUTING rules using the defined variables or safe equivalent substitutions; commands are repeatable or clearly handle an absent namespace/entry without treating unrelated failures as success."
+      - "Route verification uses a valid documented `ip` command and states a criterion that checks the expected destination, next hop, and interface; no unverified `ip route get` behavior or output is asserted."
+      - "Enrollment text accurately distinguishes the lab-tested helper workaround from the still-pending rootless enrollment integration, based on .agent/memory/historico-dev.md; it does not present the helper as generally supported or invent a test result."
+      - "G9's goal, table criterion, procedure, and verification agree on the user-manager restart; the 2026-11-05 host reboot remains separately identified as historical evidence and is not represented as a new required or completed test."
+      - "Passo 2's five-command deviation is resolved only by a source-supported, content-preserving change; otherwise retain and explicitly report it as an unresolved guide-compliance decision. Preserve Step 3's five checks."
+      - "The exact `Passo 5: Criar a bridge rootless` heading and its procedure remain intact."
+      - "Rootless remains the supported primary procedure, rootful remains a legacy cookbook reference with no runtime deprecation claim, and the staged step-5 bridge-creation title and procedure remain intact."
+      - "All other technical values, commands, command behavior, safety guidance, and supported procedure remain unchanged; no unverified claims are introduced."
+      - "Recipe structure, index, section ordering, links, and return-to-top blocks remain compliant with the two repository documentation guides."
     handoff:
       constraints:
         - "Follow .github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md."
-        - "Read-only verification; do not fix issues in place or broaden scope."
-        - "Do not use shell-based file writes; make no file edits."
-        - "Prefer existing documentation tooling; if unavailable, use focused checks without adding scripts or dependencies."
-        - "Do not execute deployment, host-preparation, or other operational commands; document checks are not runtime tests."
+        - "Use approved concrete file-edit tooling; do not use shell-based file writes."
+        - "Apply the research result verbatim as evidence; if it reports no compliant documentation-only path, stop and report the blocker."
+        - "Do not execute deployment, host-preparation, reboot, route, firewall, or enrollment commands."
+        - "Do not stage, reset, discard, or overwrite the user's pre-existing staged change."
+        - "Do not modify runtime files or broaden the two-file recipe scope."
       relevant_context:
-        - "Review only docs/recipes/gateway-headscale-podman-rootless.md and docs/recipes/gateway-headscale-podman-rootfull.md."
-        - ".github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md define required structure and validation."
-        - ".agent/contracts/ARCHITECTURE.md distinguishes the rootless target from the rootful runtime alternative."
-        - ".agent/memory/historico-dev.md records existing rootless verification evidence and its limits."
-        - "The rootless step-5 bridge-creation heading was staged by the user before this task; check the combined final change."
+        - ".agent/contracts/ARCHITECTURE.md: SELinux must already be disabled; deployment must not change its configuration."
+        - ".agent/memory/historico-dev.md: rootless enrollment helper was a lab workaround; rootless integration remains pending; host reboot passed on 2026-11-05; route-check methods absent from the log remain unverified."
+        - "Research result: deploy/scripts/prepare-rootless-host.sh has no sysctl-only option; default apply includes sysctl, firewall, and SELinux stages. Do not execute it or infer a replacement procedure."
+        - "Latest independent review rejects the conditional --check path because the default apply may change SELinux/firewall configuration."
+        - ".github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md."
+        - "Research result from inspect-host-preparation-side-effects; use its source paths and findings."
+        - "Preserve the staged step-5 bridge-creation title and procedure."
       high_risk_signals:
         - security_sensitive
-      critic_signals: []
+      critic_signals:
+        - architecture
+
+  - id: verify-headscale-recipe-docs
+    title: Independently validate corrected recipe documentation
+    description: >-
+      [reuse] Independently review the completed, corrected two-file documentation
+      change without editing it. Check preservation and command changes against
+      the recorded baseline, validate Markdown/navigation/links and renderer
+      evidence using existing tools where available, and report unavailability
+      rather than adding dependencies or claiming runtime validation.
+    wave: 5
+    depends_on:
+      - correct-reviewed-recipe-findings
+    agent: gem-reviewer
+    status: blocked
+    blocking_reason: "Independent read-only review remains pending until the blocked corrections have an authorized, source-supported resolution; do not represent existing focused checks as completion of the required independent review."
+    retries_used: 0
+    acceptance_criteria:
+      - "Read-only review confirms changes are confined to the two authorized recipe files and retain the staged step-5 bridge-creation intent."
+      - "Rootless is the primary procedure and rootful remains a linked legacy reference without a runtime deprecation claim."
+      - "Review confirms the SELinux instructions respect ARCHITECTURE.md and that rollback, route verification, enrollment limitation, and G9 criteria meet the correction requirements."
+      - "Compare technical values and command behavior with the pre-correction recipe and historical evidence; report discrepancies without treating documentation checks as runtime tests."
+      - "Check heading hierarchy, ordered index entries, code fences, tables, fragment and relative links, and both light/dark arrow image paths against the repository guides."
+      - "Use an available Markdown renderer/preview and report its result; if unavailable, state that explicitly and provide focused structural/link evidence without adding tools or dependencies."
+      - "Return concise evidence naming checks, pass/fail results, renderer status, and remaining blockers; make no file edits."
+    handoff:
+      constraints:
+        - "Follow .github/instructions/recipeDevGuide.instructions.md and .github/instructions/docsDevGuide.instructions.md."
+        - "Read-only review only; do not repair issues, run operational commands, or broaden scope."
+        - "Review both authorized recipe files and relevant baseline/contract/history; do not modify any file."
+        - "No new scripts or dependencies; documentation validation is not runtime validation."
+      relevant_context:
+        - "docs/recipes/gateway-headscale-podman-rootless.md"
+        - "docs/recipes/gateway-headscale-podman-rootfull.md"
+        - ".agent/contracts/ARCHITECTURE.md"
+        - ".agent/memory/historico-dev.md"
+        - ".github/instructions/recipeDevGuide.instructions.md"
+        - ".github/instructions/docsDevGuide.instructions.md"
+        - "Pre-correction versions available from the task baseline and review report."
+      high_risk_signals:
+        - security_sensitive
+      critic_signals:
+        - architecture

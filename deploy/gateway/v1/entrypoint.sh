@@ -66,6 +66,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 install -d -m 0755 /run/gateway /run/tailscale
+install -d -o headscale -g headscale -m 0750 /run/headscale
 /usr/local/bin/headscale configtest
 /usr/sbin/nginx -t -c /etc/nginx/nginx.conf
 

@@ -36,19 +36,25 @@ para pré-requisitos, configuração da conta e passos completos.
 
 ### Etapa 1 — Preparar o host (root)
 
-Em RHEL 9, na raiz do checkout, execute uma vez por host. Primeiro confira o estado; aplique a
-preparação somente após revisar o resultado:
+Em RHEL 9, na raiz do checkout, use `--sysctl-only` para preparar somente o sysctl:
+
+```bash
+sudo deploy/scripts/prepare-rootless-host.sh --sysctl-only
+```
+
+Esse modo configura e aplica `net.ipv4.ip_unprivileged_port_start=443`. Não inspeciona nem altera
+SELinux ou firewall, e seu sucesso não confirma que o host atende aos requisitos de implantação.
+
+`--check` continua sendo uma verificação ampla e somente leitura; não é uma verificação exclusiva
+do sysctl:
 
 ```bash
 sudo deploy/scripts/prepare-rootless-host.sh --check
 ```
 
-```bash
-sudo deploy/scripts/prepare-rootless-host.sh
-```
-
-O script configura `net.ipv4.ip_unprivileged_port_start=443`, desativa `firewalld` e `nftables`
-quando instalados e define `SELINUX=disabled` em `/etc/selinux/config`. O código de saída `3`
+Sem argumentos, o script mantém a aplicação ampla legada: configura o sysctl, desativa
+`firewalld` e `nftables` quando instalados e define `SELINUX=disabled` em `/etc/selinux/config`.
+Use essa forma somente quando essas alterações amplas forem intencionais. O código de saída `3`
 indica que é necessário reiniciar o host antes de continuar.
 
 ### Etapa 2 — Implantar como `podman_user` (rootless)
@@ -125,7 +131,7 @@ uv run pytest
 | Alternativa rootful | `deploy/scripts/enroll-gateway.sh` | Inscrição prevista para a variante rootful; integração rootless permanece pendente |
 | Alternativa rootful | `deploy/webapp/**` (exceto os YAML de `kube/`, compartilhados abaixo) | Quadlet e configuração do deploy rootful |
 | Alternativa rootful | `docs/recipes/gateway-headscale-podman-rootfull.md` | Receita rootful implementada e mantida |
-| Alvo rootless | `deploy/scripts/prepare-rootless-host.sh` | Etapa 1 rootful de preparação do host para o alvo rootless |
+| Alvo rootless | `deploy/scripts/prepare-rootless-host.sh` | Preparação do sysctl com `--sysctl-only`; sem argumentos, mantém a aplicação ampla legada |
 | Alvo rootless | `deploy/scripts/deploy-webapp-rootless.sh` | Deploy rootless da webapp |
 | Alvo rootless | `docs/recipes/gateway-headscale-podman-rootless.md` | Receita do Gateway rootless |
 | Compartilhado | `webapp/**` | Código-fonte da aplicação |

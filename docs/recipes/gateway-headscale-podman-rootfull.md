@@ -15,7 +15,8 @@
 
 # Gateway VPN com Headscale, Headplane e Tailscale
 
-> **Alternativa rootful (implementada, mantida).**
+> **Referência legada do procedimento rootful.** O runtime rootful continua implementado e mantido.
+> Para o procedimento primário, siga a [receita rootless](gateway-headscale-podman-rootless.md).
 
 Receita manual para RHEL 9.8, Podman 5.8.2 e Quadlet. Execute os comandos em Bash, a partir da raiz
 do repositório (o diretório que contém `deploy/` e `docs/`), e execute os comandos de host como

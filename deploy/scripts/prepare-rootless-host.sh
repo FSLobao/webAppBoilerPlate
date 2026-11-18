@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prepare host settings required by the approved rootless deployment.
 #
-# Usage: deploy/scripts/prepare-rootless-host.sh [--check|-h|--help]
+# Usage: deploy/scripts/prepare-rootless-host.sh [--check|--sysctl-only|-h|--help]
 # Applies host settings by default. --check is root-only and reports state without changing anything.
 # Exit codes: 0 success, 1 error, 3 SELinux reboot required.
 # Steps run in order (sysctl, firewall services, SELinux config); a failure stops the run and rerunning converges.
@@ -20,8 +20,14 @@ declare -A FIREWALL_ACTIVE_STATE=()
 declare -A FIREWALL_NEEDS_CHANGE=()
 
 CHECK_ONLY=false
+SYSCTL_ONLY=false
 HELP_REQUESTED=false
 TEMP_FILE=""
+SYSCTL_MUTATION_STARTED=false
+SYSCTL_FILE_WAS_PRESENT=false
+SYSCTL_FILE_CONTENT=""
+SYSCTL_FILE_MODE=""
+SYSCTL_RUNTIME_BEFORE=""
 SELINUX_CONFIG_PRESENT=false
 SELINUX_CONFIG_CURRENT=absent
 SELINUX_RUNTIME=""
@@ -51,9 +57,10 @@ log() {
 # Output streams: stdout.
 # Return status: 0.
 usage() {
-  printf 'Usage: %s [--check|-h|--help]\n' "${BASH_SOURCE[0]}"
+  printf 'Usage: %s [--check|--sysctl-only|-h|--help]\n' "${BASH_SOURCE[0]}"
   printf 'Prepare rootless host settings; default mode applies changes.\n'
   printf -- '--check is root-only and reports state without changing anything.\n'
+  printf -- '--sysctl-only applies only the unprivileged-port sysctl setting.\n'
   printf 'Exit codes: 0 success, 1 error, 3 SELinux reboot required.\n'
   printf 'Exit code 3: apply found SELinux runtime not Disabled; --check predicts reboot only when config would change.\n'
 }
@@ -61,7 +68,7 @@ usage() {
 
 # Parses the supported command-line options.
 # Arguments: the command-line arguments.
-# Global state changed: CHECK_ONLY, HELP_REQUESTED.
+# Global state changed: CHECK_ONLY, SYSCTL_ONLY, HELP_REQUESTED.
 # Output streams: stderr on invalid arguments.
 # Return status: 0 on success, 1 on invalid arguments.
 parse_args() {
@@ -74,6 +81,9 @@ parse_args() {
         --check)
           CHECK_ONLY=true
           ;;
+        --sysctl-only)
+          SYSCTL_ONLY=true
+          ;;
         -h|--help)
           HELP_REQUESTED=true
           ;;
@@ -84,7 +94,7 @@ parse_args() {
       esac
       ;;
     *)
-      fail "Expected no arguments, --check, or -h|--help."
+      fail "Expected no arguments, --check, --sysctl-only, or -h|--help."
       return 1
       ;;
   esac
@@ -258,7 +268,7 @@ compare_file_line() {
 
 # Installs the sysctl setting with an atomic replacement when content differs.
 # Arguments: none.
-# Global state read or changed: SYSCTL_FILE, SYSCTL_SETTING, TEMP_FILE.
+# Global state read or changed: SYSCTL_FILE, SYSCTL_SETTING, SYSCTL_ONLY, SYSCTL_MUTATION_STARTED, TEMP_FILE.
 # Output streams: stderr on failure.
 # Return status: 0 on success, 1 on failure.
 write_sysctl_config() {
@@ -274,6 +284,9 @@ write_sysctl_config() {
     fail "Could not set mode 0644 on ${TEMP_FILE}."
     return 1
   fi
+  if [[ "${SYSCTL_ONLY}" == true ]]; then
+    SYSCTL_MUTATION_STARTED=true
+  fi
   if ! mv -T -- "${TEMP_FILE}" "${SYSCTL_FILE}"; then
     fail "Could not install ${SYSCTL_FILE}."
     return 1
@@ -284,7 +297,7 @@ write_sysctl_config() {
 
 # Applies or reports the sysctl file and runtime value.
 # Arguments: none.
-# Global state read or changed: CHECK_ONLY, SYSCTL_FILE, SYSCTL_KEY, SYSCTL_VALUE, SYSCTL_SETTING, TEMP_FILE.
+# Global state read or changed: CHECK_ONLY, SYSCTL_ONLY, SYSCTL_FILE, SYSCTL_KEY, SYSCTL_VALUE, SYSCTL_SETTING, SYSCTL_MUTATION_STARTED, TEMP_FILE.
 # Output streams: summary to stdout, diagnostics to stderr.
 # Return status: 0 on success, 1 on failure.
 prepare_sysctl() {
@@ -334,10 +347,16 @@ prepare_sysctl() {
   if [[ "${file_changed}" == true ]]; then
     write_sysctl_config || return
   elif [[ "${mode_changed}" == true ]]; then
+    if [[ "${SYSCTL_ONLY}" == true ]]; then
+      SYSCTL_MUTATION_STARTED=true
+    fi
     if ! chmod 0644 -- "${SYSCTL_FILE}"; then
       fail "Could not set mode 0644 on ${SYSCTL_FILE}."
       return 1
     fi
+  fi
+  if [[ "${SYSCTL_ONLY}" == true ]]; then
+    SYSCTL_MUTATION_STARTED=true
   fi
   if ! sysctl -p "${SYSCTL_FILE}"; then
     fail "Could not apply ${SYSCTL_FILE}."
@@ -356,6 +375,133 @@ prepare_sysctl() {
   else
     log "Sysctl: unchanged (file=${SYSCTL_SETTING}, mode=0644, runtime=${runtime_after})."
   fi
+}
+# ---------------------------------- #
+
+# Validates sysctl-only prerequisites and snapshots every rollback input before mutation.
+# Arguments: none.
+# Global state read: SYSCTL_FILE, SYSCTL_KEY.
+# Global state changed: SYSCTL_FILE_WAS_PRESENT, SYSCTL_FILE_CONTENT, SYSCTL_FILE_MODE, SYSCTL_RUNTIME_BEFORE.
+# Output streams: stderr on failure.
+# Return status: 0 when prerequisites and state reads succeed, 1 otherwise.
+sysctl_only_preflight() {
+  local command_name runtime_character file_descriptor
+  for command_name in sysctl cmp mktemp mv chmod stat rm; do
+    if ! command -v "${command_name}" >/dev/null 2>&1; then
+      fail "Missing command: ${command_name}"
+      return 1
+    fi
+  done
+  if [[ ! -d "${SYSCTL_FILE%/*}" ]]; then
+    fail "${SYSCTL_FILE%/*} is missing or not a directory."
+    return 1
+  fi
+  if [[ -e "${SYSCTL_FILE}" || -L "${SYSCTL_FILE}" ]]; then
+    if [[ ! -f "${SYSCTL_FILE}" || -L "${SYSCTL_FILE}" ]]; then
+      fail "${SYSCTL_FILE} must be a regular file, not a symlink."
+      return 1
+    fi
+    SYSCTL_FILE_WAS_PRESENT=true
+    if ! exec {file_descriptor}<"${SYSCTL_FILE}"; then
+      fail "Could not read ${SYSCTL_FILE}."
+      return 1
+    fi
+    SYSCTL_FILE_CONTENT=""
+    while IFS= read -r -N 1 runtime_character <&"${file_descriptor}"; do
+      SYSCTL_FILE_CONTENT+="${runtime_character}"
+    done
+    exec {file_descriptor}<&-
+    if ! cmp -s <(printf '%s' "${SYSCTL_FILE_CONTENT}") "${SYSCTL_FILE}"; then
+      fail "Could not capture the exact contents of ${SYSCTL_FILE}."
+      return 1
+    fi
+    if ! SYSCTL_FILE_MODE=$(stat -c '%a' -- "${SYSCTL_FILE}"); then
+      fail "Could not read mode for ${SYSCTL_FILE}."
+      return 1
+    fi
+    if [[ ! "${SYSCTL_FILE_MODE}" =~ ^[0-7]{3,4}$ ]]; then
+      fail "Could not validate mode for ${SYSCTL_FILE}."
+      return 1
+    fi
+  else
+    SYSCTL_FILE_WAS_PRESENT=false
+    SYSCTL_FILE_CONTENT=""
+    SYSCTL_FILE_MODE=""
+  fi
+  if ! SYSCTL_RUNTIME_BEFORE=$(sysctl -n "${SYSCTL_KEY}"); then
+    fail "Could not read ${SYSCTL_KEY}."
+    return 1
+  fi
+  if [[ -z "${SYSCTL_RUNTIME_BEFORE}" ]]; then
+    fail "Read an empty value for ${SYSCTL_KEY}."
+    return 1
+  fi
+}
+# ---------------------------------- #
+
+# Restores the prior sysctl file state and runtime independently on transaction failure.
+# Arguments: none.
+# Global state read: SYSCTL_FILE, SYSCTL_FILE_WAS_PRESENT, SYSCTL_FILE_CONTENT, SYSCTL_FILE_MODE, SYSCTL_KEY, SYSCTL_RUNTIME_BEFORE, TEMP_FILE.
+# Global state changed: TEMP_FILE.
+# Output streams: stderr for each restoration failure.
+# Return status: 0 when all feasible restoration steps succeed, 1 otherwise.
+restore_sysctl_state() {
+  local rollback_failed=0 runtime_after
+  if [[ "${SYSCTL_FILE_WAS_PRESENT}" == true ]]; then
+    if ! TEMP_FILE=$(mktemp --tmpdir="${SYSCTL_FILE%/*}" .90-rootless-ports.conf.rollback.XXXXXX); then
+      fail "Could not create a temporary file to restore ${SYSCTL_FILE}."
+      rollback_failed=1
+    elif ! printf '%s' "${SYSCTL_FILE_CONTENT}" > "${TEMP_FILE}"; then
+      fail "Could not write saved contents for ${SYSCTL_FILE}."
+      rollback_failed=1
+    elif ! chmod "${SYSCTL_FILE_MODE}" -- "${TEMP_FILE}"; then
+      fail "Could not restore mode ${SYSCTL_FILE_MODE} on ${SYSCTL_FILE}."
+      rollback_failed=1
+    elif ! mv -T -- "${TEMP_FILE}" "${SYSCTL_FILE}"; then
+      fail "Could not restore ${SYSCTL_FILE}."
+      rollback_failed=1
+    else
+      TEMP_FILE=""
+    fi
+  elif [[ -e "${SYSCTL_FILE}" || -L "${SYSCTL_FILE}" ]]; then
+    if ! rm -f -- "${SYSCTL_FILE}"; then
+      fail "Could not remove newly created ${SYSCTL_FILE}."
+      rollback_failed=1
+    fi
+  fi
+
+  if ! sysctl -w "${SYSCTL_KEY}=${SYSCTL_RUNTIME_BEFORE}" >/dev/null; then
+    fail "Could not restore runtime sysctl value ${SYSCTL_KEY}=${SYSCTL_RUNTIME_BEFORE}."
+    rollback_failed=1
+  elif ! runtime_after=$(sysctl -n "${SYSCTL_KEY}"); then
+    fail "Could not verify restored runtime sysctl value ${SYSCTL_KEY}."
+    rollback_failed=1
+  elif [[ "${runtime_after}" != "${SYSCTL_RUNTIME_BEFORE}" ]]; then
+    fail "Restored runtime sysctl value is ${runtime_after}; expected ${SYSCTL_RUNTIME_BEFORE}."
+    rollback_failed=1
+  fi
+  return "${rollback_failed}"
+}
+# ---------------------------------- #
+
+# Runs sysctl-only preflight and the shared sysctl operation with best-effort rollback.
+# Arguments: none.
+# Global state read or changed: SYSCTL_ONLY, SYSCTL_MUTATION_STARTED and sysctl snapshot variables.
+# Output streams: shared sysctl summary; errors and rollback diagnostics to stderr.
+# Return status: 0 on success; otherwise preserves the original operation failure status.
+apply_sysctl_only() {
+  local operation_status
+  sysctl_only_preflight || return
+  if prepare_sysctl; then
+    return 0
+  else
+    operation_status=$?
+  fi
+  if [[ "${SYSCTL_MUTATION_STARTED}" == true ]]; then
+    # Restoration reports its own failures; retain the original operation status.
+    restore_sysctl_state || true
+  fi
+  return "${operation_status}"
 }
 # ---------------------------------- #
 
@@ -595,8 +741,8 @@ finish_selinux() {
 
 # Runs argument handling, root validation, preflight, and host preparation in order.
 # Arguments: the command-line arguments.
-# Global state read: EUID, CHECK_ONLY, HELP_REQUESTED, FIREWALL_UNITS.
-# Global state changed: CHECK_ONLY, HELP_REQUESTED (set by parse_args), TEMP_FILE, FIREWALL_* and SELINUX_* arrays and values.
+# Global state read: EUID, CHECK_ONLY, SYSCTL_ONLY, HELP_REQUESTED, FIREWALL_UNITS.
+# Global state changed: CHECK_ONLY, SYSCTL_ONLY, HELP_REQUESTED (set by parse_args), TEMP_FILE, FIREWALL_* and SELINUX_* arrays and values.
 # Output streams: help, progress, and summaries to stdout; errors to stderr.
 # Return status: 0 on success, 1 on error, 3 when SELinux reboot is required.
 main() {
@@ -613,6 +759,10 @@ main() {
     return 1
   fi
   trap cleanup_temp EXIT
+  if [[ "${SYSCTL_ONLY}" == true ]]; then
+    apply_sysctl_only || return
+    return 0
+  fi
   preflight || return
   prepare_sysctl || return
   local unit

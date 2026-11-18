@@ -1,0 +1,178 @@
+plan_id: 20261112-rootless-sysctl-only
+status: completed
+architecture_path: .agent/plan/20261112-rootless-sysctl-only/architecture.md
+tldr: |
+  Add --sysctl-only to the existing host-preparation script using its current sysctl
+  implementation, with read-before-mutation preflight and best-effort rollback. Add
+  isolated shell behavior tests and update the CLI-facing README and rootless recipe.
+  Complete an independent architecture-focused review after implementation and docs.
+created_at: "2026-11-12T11:18:07+01:00"
+created_by: Planner
+revision: 2
+replan_count: 1
+planner_revision_used: true
+
+baseline:
+  objective: "Add --sysctl-only to prepare-rootless-host.sh; test it safely and update README and the rootless recipe."
+  acceptance_criteria:
+    - "`--sysctl-only` writes only `/etc/sysctl.d/90-rootless-ports.conf` as `net.ipv4.ip_unprivileged_port_start=443\\n` with mode `0644`, applies it through the existing `sysctl -p` path, and verifies the runtime value is `443`."
+    - "Its dispatch path does not call `preflight`, firewall inspection/mutation helpers, SELinux inspection/mutation helpers, or `systemctl`."
+    - "Root, sysctl-specific commands, `/etc/sysctl.d`, the target path type, the current runtime value, and existing file contents/mode are checked before any persistent or runtime mutation."
+    - "All inputs, prerequisites, and rollback state (target-file presence, contents, mode, and current runtime value) are read before mutation. Preflight/read failure guarantees the target file and runtime value remain unchanged. After a config/runtime mutation starts, failure triggers best-effort restoration of the previous file presence/content/mode and runtime value where feasible; restoration failures are reported. Absolute rollback cannot be guaranteed under OS, filesystem, or kernel failures."
+    - "Repeated successful runs converge to the same exact content, mode, and runtime setting. Existing no-argument apply, `--check`, and help continue to work with their existing success/error conventions."
+    - "Tests use disposable state and safe command fakes; they do not alter host sysctls, SELinux, firewall state, or services and introduce no dependency."
+    - "Documentation clearly distinguishes the isolated sysctl mode from broad legacy apply, and separately preserves the architecture's SELinux and external-firewall requirements for deployment."
+  captured_at: "2026-11-12T11:49:30.312+01:00"
+
+replan:
+  reason: "The documentation writer lacked file-edit tools after a scoped retry; reassign only the bounded README and rootless-recipe task to Coder while preserving completed implementation and the dependent review."
+  changed_tasks:
+    - update-sysctl-mode-documentation
+  added_tasks: []
+  removed_tasks: []
+  preserved_acceptance_criteria:
+    - "All acceptance criteria of implement-sysctl-only-and-tests remain unchanged."
+    - "All acceptance criteria of update-sysctl-mode-documentation remain unchanged."
+    - "All acceptance criteria of review-sysctl-only-contract remain unchanged."
+  new_risks: []
+  progress_signal: "The script and focused test task is completed with bash -n, shellcheck, the focused harness, and git diff --check reported passing; documentation remains incomplete after two writer tool-blocked attempts; review remains pending."
+  revised_tasks:
+    - update-sysctl-mode-documentation
+  invalidated_tasks: []
+  invalidated_assumptions: []
+
+decisions:
+  - "Add one --sysctl-only mode to the existing script and reuse prepare_sysctl/write_sysctl_config; this avoids duplicated sysctl behavior and preserves the existing CLI."
+  - "Keep the focused shell harness with the script implementation task; it shares the same behavior and disposable-copy test context."
+  - "Run implementation and documentation in parallel against the approved interface, then require a separate review wave because the operation changes persistent and runtime host state."
+  - "Keep broad no-argument apply and --check behavior unchanged; the new mode skips broad preflight and all firewall/SELinux processing."
+  - "Reassign only the blocked documentation task to Coder, requiring source-controlled apply_patch edits and no shell writes; keep review in wave 2 behind both wave-1 tasks."
+assumptions:
+  - "The test harness can isolate root-only behavior using a disposable script copy, temporary paths, and fake commands without adding a production override or dependency."
+  - "The existing recipe backup and reversal procedure remains authoritative and will be aligned with the new narrow apply path without changing its safety scope."
+
+tasks:
+  - id: implement-sysctl-only-and-tests
+    title: "Adding sysctl-only apply mode and focused tests"
+    description: "[Reuse] Extend deploy/scripts/prepare-rootless-host.sh with --sysctl-only; use the approved sysctl preflight, snapshot, transaction, and rollback design; reuse existing sysctl config/apply/verification functions. Add a dependency-free focused Bash behavior harness using disposable script copies, fake commands, and temporary directories. Do not change broad no-argument apply or --check."
+    wave: 1
+    depends_on: []
+    agent: gem-implementer
+    status: in_progress
+    retries_used: 1
+    attempt_history:
+      - attempt: 1
+        agent: gem-implementer
+        status: completed
+        result: "Added sysctl-only mode and five focused test groups; validation passed."
+      - attempt: 2
+        agent: gem-implementer
+        status: completed
+        result: "Fake sysctl -p emits expected output; exact stdout and empty stderr are asserted for changed and unchanged runs; focused checks passed."
+    status: completed
+    acceptance_criteria:
+      - "The CLI accepts --sysctl-only, updates usage/help, and preserves existing no-argument apply, --check, help, invalid-argument, and root-check behavior."
+      - "The sysctl-only branch validates only its required commands (sysctl, cmp, mktemp, mv, chmod, stat, rm), sysctl directory, safe target type, runtime value, and prior file presence/content/mode before mutation."
+      - "The branch reuses existing sysctl config and verification behavior and never invokes broad preflight, firewall or SELinux inspection/mutation helpers, or systemctl."
+      - "Preflight and state-read failures leave target-file presence/content/mode and runtime sysctl unchanged."
+      - "After mutation begins, each operation or verification failure independently attempts restoration of prior file presence/content/mode and runtime value; rollback failures are reported without replacing the original nonzero operation failure, and diagnostics do not promise absolute restoration."
+      - "Successful and repeated runs produce exactly net.ipv4.ip_unprivileged_port_start=443 followed by one newline, mode 0644, and runtime value 443."
+      - "Focused tests prove success, idempotency, exact output/content/mode, preflight non-mutation, post-mutation rollback, rollback-failure diagnostics, and absence of firewall/SELinux/systemctl inspection or mutation."
+      - "Tests use only safe fakes, disposable copies, and temporary directories; no host sysctl/service or privileged host command runs, and no dependency is added."
+      - "Changed shell files pass bash -n, shellcheck -s bash, and the focused behavior harness."
+    handoff:
+      constraints:
+        - "Read .github/skills/modular-script-development/SKILL.md and .github/instructions/shellDevGuide.instructions.md before planning, implementation, or review of Bash changes."
+        - "Keep changes limited to deploy/scripts/prepare-rootless-host.sh and the focused shell test harness; no production test override, new dependency, host/runtime mutation, architecture-contract change, or broad-path change."
+        - "Use fake commands and temporary paths for all host-facing behavior tests; do not invoke real sysctl, systemctl, SELinux, firewall, or privileged host commands."
+        - "Do not claim absolute rollback under OS, filesystem, or kernel failures."
+      relevant_context:
+        - ".agent/plan/20261112-rootless-sysctl-only/architecture.md"
+        - "deploy/scripts/prepare-rootless-host.sh: parse_args, preflight, compare_file_line, write_sysctl_config, prepare_sysctl, and main"
+        - ".agent/contracts/ARCHITECTURE.md:89-96, 358-360, 887"
+        - "No focused shell behavior harness or Bats dependency is present; architecture recommends a small Bash harness with command fakes."
+      high_risk_signals:
+        - security_sensitive
+        - data_flow_change
+      critic_signals:
+        - architecture
+
+  - id: update-sysctl-mode-documentation
+    title: "Documenting sysctl-only host preparation"
+    description: "[Reuse] Update only README.md usage references and the rootless Gateway recipe to describe --sysctl-only alongside the broad legacy apply and broad read-only --check; retain the recipe's operator backup/reversal procedure and separate deployment gates."
+    wave: 1
+    depends_on: []
+    agent: Coder
+    status: completed
+    retries_used: 1
+    attempt_history:
+      - attempt: 1
+        agent: gem-documentation-writer
+        status: blocked
+        result: "No edit/create/apply_patch tools were available; README.md and the recipe were unchanged."
+      - attempt: 2
+        agent: gem-documentation-writer
+        status: blocked
+        result: "Scoped retry confirmed the same file-edit tool blocker; shell writes are prohibited; README.md and the recipe remain unchanged."
+      - attempt: 3
+        agent: Coder
+        status: completed
+        result: "Updated README.md and rootless recipe using apply_patch; no files staged or committed."
+    acceptance_criteria:
+      - "README.md distinguishes --sysctl-only apply from the existing broad no-argument apply and broad read-only --check."
+      - "The rootless recipe uses --sysctl-only for the narrow sysctl preparation and accurately explains that the mode neither inspects nor changes SELinux or firewall state."
+      - "The recipe continues to require SELinux disabled and an externally managed firewall policy for deployment, independently of sysctl preparation."
+      - "The warning that the 443 threshold permits unprivileged binds from ports 443 through 1023 remains prominent."
+      - "The existing sysctl backup and reversal procedure remains actionable and preserves prior file presence/content/mode and saved runtime-value restoration guidance."
+      - "Changed user-facing documentation remains in Brazilian Portuguese, preserves valid navigation/links, and does not present unverified behavior as tested."
+    handoff:
+      constraints:
+        - "Read .github/instructions/docsDevGuide.instructions.md; for the recipe, also read .github/instructions/recipeDevGuide.instructions.md."
+        - "Keep changes limited to README.md and docs/recipes/gateway-headscale-podman-rootless.md."
+        - "Preserve the architecture contract, existing backup/reversal procedure, and explicit distinction between sysctl preparation and deployment qualification."
+        - "Make source-controlled edits with apply_patch only; do not use shell writes."
+      relevant_context:
+        - ".agent/plan/20261112-rootless-sysctl-only/architecture.md"
+        - "README.md:43-48,128-132"
+        - "docs/recipes/gateway-headscale-podman-rootless.md:129-130, 213-219, 232-258, 1794-1861"
+        - ".agent/contracts/ARCHITECTURE.md:89-96, 358-360, 887"
+      high_risk_signals:
+        - security_sensitive
+        - data_flow_change
+      critic_signals:
+        - architecture
+
+  - id: review-sysctl-only-contract
+    title: "Reviewing sysctl-only isolation and rollback"
+    description: "[Reuse] Independently compare the implementation, focused tests, and documentation against the approved architecture and acceptance criteria. Review only; report concrete findings without editing files."
+    wave: 2
+    depends_on:
+      - implement-sysctl-only-and-tests
+      - update-sysctl-mode-documentation
+    agent: gem-reviewer
+    status: completed
+    handoff:
+      verdict: pass
+      findings: []
+      evidence:
+        - "Independent review confirmed sysctl-only isolation, snapshot and rollback path, and architecture/doc alignment."
+        - "Exact-output test gap fixed; fake sysctl output and changed/unchanged stdout are asserted."
+    retries_used: 0
+    acceptance_criteria:
+      - "Review confirms --sysctl-only cannot reach broad preflight, firewall/SELinux inspection or mutation, or systemctl, while no-argument apply and --check remain unchanged."
+      - "Review verifies that sysctl prerequisites and snapshots precede mutation, and that rollback independently attempts file and runtime restoration while retaining the original failure."
+      - "Review checks that focused tests cover the requested success, idempotency, exact-state, failure, rollback-diagnostic, and forbidden-call cases without host/runtime effects."
+      - "Review confirms README and recipe distinguish narrow preparation from broad apply and preserve the architecture gates, security warning, and backup/reversal procedure."
+      - "The review report lists evidence and any remaining findings; no unresolved blocking architecture or safety finding remains."
+    handoff:
+      constraints:
+        - "Read .github/skills/modular-script-development/SKILL.md and .github/instructions/shellDevGuide.instructions.md for the Bash review; read .github/instructions/docsDevGuide.instructions.md and .github/instructions/recipeDevGuide.instructions.md for documentation review."
+        - "Review the completed diff and submitted test evidence only; do not run commands or edit files."
+      relevant_context:
+        - ".agent/plan/20261112-rootless-sysctl-only/architecture.md"
+        - ".agent/contracts/ARCHITECTURE.md:89-96, 358-360, 887"
+      high_risk_signals:
+        - security_sensitive
+        - data_flow_change
+      critic_signals:
+        - architecture

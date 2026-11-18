@@ -82,7 +82,7 @@ Os comandos exigem OpenSSL no host e uma estação de trabalho controlada com Ba
 O certificado unificado deve incluir todos os Subject Alternative Names (SANs exigidos pelos dois serviços):
 
 - **Acesso ao Cockpit:** `DNS:localhost` e `IP:127.0.0.1` para acesso por túnel SSH (`https://localhost:9443/`). Se o acesso direto ao Cockpit pela rede estiver autorizado, adicione o nome DNS ou o IP de gerenciamento do host.
-- **Acesso ao Headscale:** `DNS:<HEADSCALE_FQDN>` (por exemplo, `vpn.example.com`), resolvido por DNS externo ou corporativo antes de estabelecer a VPN.
+- **Acesso ao Headscale:** `DNS:<HEADSCALE_FQDN>` (por exemplo, `vpn.example.com`), exatamente o hostname usado pelos clientes na URL `https://<HEADSCALE_FQDN>`. Esse nome deve resolver para o host Gateway por DNS externo ou corporativo antes de estabelecer a VPN. Ele não precisa ser igual ao hostname local do sistema; deve corresponder ao nome usado para acessar o endpoint.
 - **Acesso ao Headplane:** `DNS:dev-gateway.dev.anatel`, resolvido pelo split DNS do Aardvark depois da conexão à VPN (`https://dev-gateway.dev.anatel/admin`).
 
 Portas não fazem parte de um SAN. Um único certificado que cubra esses nomes atende a todos os requisitos sem precisar de certificados ou CAs separados.
@@ -109,8 +109,8 @@ Na estação de trabalho de assinatura, execute isto uma vez em um diretório pr
 (
   set -Eeuo pipefail
   umask 077
-  mkdir -m 0700 gateway-cockpit-ca
-  cd gateway-cockpit-ca
+  mkdir -m 0700 gateway-ca
+  cd gateway-ca
   openssl genpkey -algorithm RSA -aes-256-cbc \
     -pkeyopt rsa_keygen_bits:3072 -out gateway-dev-ca.key
   openssl req -new -x509 -sha256 -days 1825 \
@@ -137,7 +137,7 @@ O OpenSSL solicitará a frase secreta da chave da CA. Não a inclua em comandos,
 
 ## 3. Gere a chave do servidor e o CSR
 
-No host Gateway, abra uma sessão de administrador. Substitua `<HEADSCALE_FQDN>` pelo nome de host externo aprovado (por exemplo, `vpn.example.com`):
+No host Gateway, abra uma sessão de administrador. Substitua `<HEADSCALE_FQDN>` pelo hostname exato que os clientes usarão na URL do Headscale (por exemplo, `vpn.example.com`). Confirme que DNS externo ou corporativo resolve esse nome para o host Gateway antes da VPN:
 
 ```bash
 sudo bash <<'BASH'
@@ -162,7 +162,7 @@ BASH
 
 A chave do servidor não é criptografada intencionalmente para que os serviços iniciem sem intervenção. A propriedade de `root`, o modo `0600` e o diretório pai restrito a protegem. Se a geração falhar, inspecione quaisquer arquivos parciais antes de tentar novamente; não exclua um certificado ou uma chave em uso.
 
-Transfira somente `gateway.csr` para a estação de trabalho de assinatura por um canal autenticado de administração. Por exemplo, um administrador pode exibi-lo com `sudo cat /etc/gateway/tls/gateway.csr` e salvar o bloco PEM completo como `gateway.csr` dentro de `gateway-cockpit-ca`. O CSR é público; a chave privada permanece no host.
+Transfira somente `gateway.csr` para a estação de trabalho de assinatura por um canal autenticado de administração. Por exemplo, um administrador pode exibi-lo com `sudo cat /etc/gateway/tls/gateway.csr` e salvar o bloco PEM completo como `gateway.csr` dentro de `gateway-ca`. O CSR é público; a chave privada permanece no host.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -176,7 +176,7 @@ Transfira somente `gateway.csr` para a estação de trabalho de assinatura por u
 
 ## 4. Assine o certificado do servidor
 
-Na estação de trabalho de assinatura, dentro de `gateway-cockpit-ca`, substitua `<HEADSCALE_FQDN>` pelo mesmo nome de host externo usado na etapa 3:
+Na estação de trabalho de assinatura, dentro de `gateway-ca`, substitua `<HEADSCALE_FQDN>` pelo mesmo hostname usado na URL dos clientes e no CSR da etapa 3:
 
 ```bash
 (
