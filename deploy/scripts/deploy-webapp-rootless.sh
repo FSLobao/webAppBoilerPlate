@@ -2,19 +2,14 @@
 # Deploy the webapp stack (webapp-db, webapp, app-proxy) with user Quadlet units.
 #
 # Usage: deploy/scripts/deploy-webapp-rootless.sh --source DIR [--no-build]
-# Stage the repository as root with:
-#   git archive HEAD | tar -x -C <dir>
-# Then chown the staged tree to podman_user.
 #
 # Idempotent: generated configuration is reinstalled; secrets and volumes are
 # never overwritten or removed. webapp and app-proxy restart every run;
 # webapp-db restarts only when its pending-restart marker exists. Runs as
-# podman_user with rootless Podman.
+# the invoking non-root user with rootless Podman.
 # Re-pulling the same postgres tag does not restart webapp-db unless webapp-db.yaml or the Quadlet changes.
 set -Eeuo pipefail
 
-readonly EXPECTED_USER=podman_user
-readonly EXPECTED_UID=1001
 readonly IMAGE=localhost/webapp:0.1.0
 readonly POSTGRES_UID=999
 readonly WEBAPP_UID=10001
@@ -73,9 +68,7 @@ log() {
 usage() {
   printf 'Usage: %s --source DIR [--no-build]\n' "${0##*/}"
   printf 'Restart policy: webapp.service and app-proxy.service restart every run; webapp-db.service restarts only when its pending marker exists.\n'
-  printf 'Stage the repository as root with:\n'
-  printf '  git archive HEAD | tar -x -C <dir>\n'
-  printf 'Then chown the staged tree to podman_user.\n'
+  printf 'Run as the non-root account that owns the rootless Podman services.\n'
 }
 # ---------------------------------- #
 
@@ -152,7 +145,7 @@ set_user_paths() {
     return 1
   fi
   [[ -O "${HOME_DIR}" ]] || {
-    fail "The home directory is not owned by podman_user."
+    fail "The home directory is not owned by the current user."
     return 1
   }
 
@@ -233,14 +226,13 @@ verify_image_volume() {
 
 # Validates source files, user paths, rootless services, network, cgroups, and volumes.
 # Arguments: none.
-# Global state read: SOURCE_DIR, NO_BUILD, IMAGE, EXPECTED_USER, EXPECTED_UID,
-#   GATEWAY_NETWORK, DEPLOYMENT_MAP.
+# Global state read: SOURCE_DIR, NO_BUILD, IMAGE, GATEWAY_NETWORK, DEPLOYMENT_MAP.
 # Global state changed: runtime bus variables, user paths, DB_VOLUME_EXISTS.
 # Output streams: diagnostics to stderr.
 # Return status: 0 when all checks pass, nonzero otherwise.
 preflight() {
   (( EUID != 0 )) || {
-    fail "Run as podman_user, not root."
+    fail "Run as the non-root account that owns the rootless Podman services."
     return 1
   }
 
@@ -253,13 +245,7 @@ preflight() {
   done
 
   local current_user
-  local current_uid
   current_user=$(id -un) || return 1
-  current_uid=$(id -u) || return 1
-  [[ "${current_user}" == "${EXPECTED_USER}" && "${current_uid}" == "${EXPECTED_UID}" ]] || {
-    fail "Run as ${EXPECTED_USER} (UID ${EXPECTED_UID}); current user is ${current_user} (UID ${current_uid})."
-    return 1
-  }
   if [[ -n "${USER:-}" && "${USER}" != "${current_user}" ]]; then
     fail "USER must match the current user ${current_user}."
     return 1
@@ -524,7 +510,7 @@ validate_destination_paths() {
 
   if [[ -e "${SECRETS_DIR}" ]]; then
     [[ -O "${SECRETS_DIR}" ]] || {
-      fail "Secrets directory must be owned by ${EXPECTED_USER}."
+      fail "Secrets directory must be owned by the current user."
       return 1
     }
   fi
@@ -848,7 +834,7 @@ ensure_secrets() {
   local api_password=""
   install -d -m 0700 -- "${SECRETS_DIR}" || return
   [[ -O "${SECRETS_DIR}" ]] || {
-    fail "Secrets directory must be owned by ${EXPECTED_USER}."
+    fail "Secrets directory must be owned by the current user."
     return 1
   }
   chmod 0700 -- "${SECRETS_DIR}" || return

@@ -373,7 +373,7 @@ Preserve o IP VPN de origem. Não anuncie rota default nem transforme o Gateway 
 padrão rootful `podman` é a alternativa mantida.
 
 O endpoint de controle do Headscale e o endpoint VPN usam diretamente TCP 443 no host, acessível
-pela LAN antes da VPN; não encaminhe TCP 443 para 8443. Headplane e Portainer exigem HTTPS,
+pela LAN antes da VPN. Headplane e Portainer exigem HTTPS,
 autenticação própria e acesso de operadores pela VPN. O Gateway não oferece bastion, listener de
 shell nem transporte alternativo para desenvolvedores.
 

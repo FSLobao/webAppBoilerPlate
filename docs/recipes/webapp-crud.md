@@ -4,6 +4,7 @@
         <li><a href="#objetivo">Objetivo</a></li>
         <li><a href="#pré-requisitos">Pré-requisitos</a></li>
         <li><a href="#implantar">Implantar</a></li>
+        <li><a href="#alternativa-legada-rootful">Alternativa legada rootful</a></li>
         <li><a href="#verificar">Verificar</a></li>
         <li><a href="#operar">Operar</a></li>
         <li><a href="#desenvolver">Desenvolver</a></li>
@@ -15,7 +16,9 @@
 
 ## Objetivo
 
-Esta receita implanta a SPA de cadastro de usuários em um host Podman rootful.
+Esta receita implanta a SPA de cadastro de usuários em um host Podman rootless.
+O fluxo padrão usa a conta de operação rootless e suas unidades Quadlet de usuário.
+`podman_user` é um exemplo de nome para essa conta.
 
 Ao final, o host atende:
 
@@ -36,8 +39,11 @@ Ao final, o host atende:
 ## Pré-requisitos
 
 - Linux com systemd e Podman 5 com Quadlet.
-- Execução como `root`.
-- Rede padrão `podman` com DNS habilitado. Confira com `podman network inspect podman --format '{{.DNSEnabled}}'`.
+- Conta não root dedicada ao Podman rootless, com ranges em `/etc/subuid` e `/etc/subgid`
+  e linger habilitado. `podman_user` é um exemplo válido; o UID pode variar.
+- Sessão rootless com Podman, user bus e `systemctl --user` funcionais.
+- Rede rootless `gateway-vpn` com subnet `10.90.0.0/24` e DNS habilitado.
+- Preparação do host conforme a [receita rootless do Gateway](gateway-headscale-podman-rootless.md).
 - SELinux `Disabled`.
 - Porta TCP 8080 livre no host.
 - Acesso às imagens `docker.io/library/postgres:18-trixie`, `docker.io/library/nginx:1.28-alpine`, `docker.io/library/python:3.13-slim-trixie` e `ghcr.io/astral-sh/uv:0.9-python3.13-trixie-slim`.
@@ -57,29 +63,74 @@ Ao final, o host atende:
 
 > [!WARNING]
 > O deploy reinicia a aplicação e o proxy, causando indisponibilidade temporária.
-> Os secrets e os volumes guardam o estado da aplicação. Não apague `/etc/webapp/secrets/`
-> com o volume `webapp-db-data` presente. O script recusa continuar nesse caso, porque
-> as senhas novas não corresponderiam ao banco.
+> Os secrets em `~/.local/share/webapp/secrets/` e os volumes guardam o estado da aplicação.
+> Não apague os secrets com o volume `webapp-db-data` presente. O script recusa continuar
+> nesse caso, porque as senhas novas não corresponderiam ao banco.
 
-Na raiz do repositório, execute:
+Execute os passos desta seção com a conta que controla o Podman rootless e as unidades de
+usuário. O exemplo usa `podman_user`; substitua-a pela conta adotada no host.
+
+Na conta dedicada, obtenha uma cópia versionada do repositório na pasta home:
+
+```bash
+git clone https://github.com/FSLobao/webAppBoilerPlate.git "${HOME}/webAppBoilerPlate"
+```
+
+Em uma sessão de login dessa mesma conta, com user bus ativo, execute o script:
+
+```bash
+"${HOME}/webAppBoilerPlate/deploy/scripts/deploy-webapp-rootless.sh" \
+  --source "${HOME}/webAppBoilerPlate"
+```
+
+Não execute o script com `sudo`. Ele identifica o usuário executor e armazena configurações,
+secrets, volumes e unidades no escopo rootless dessa conta.
+
+O script é idempotente. Ele executa, nesta ordem:
+
+1. verifica o usuário executor, comandos, user bus, linger e rede `gateway-vpn`;
+2. atualiza as imagens-base e constrói `localhost/webapp:0.1.0`;
+3. cria os secrets ausentes em `~/.local/share/webapp/secrets/` sem sobrescrever os existentes;
+4. instala YAML, SQL de inicialização, configuração NGINX e unidades Quadlet de usuário;
+5. cria os volumes `webapp-db-data` e `webapp-images`;
+6. executa `systemctl --user daemon-reload` e inicia ou reinicia as três unidades;
+7. espera até 90 s pelo health da API pelo NGINX.
+
+Para reaplicar apenas a configuração sem reconstruir a imagem, acrescente `--no-build`.
+Alterações no frontend e seus assets só aparecem após reconstruir a imagem;
+`--no-build` mantém a imagem anterior.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
+## Alternativa legada rootful
+
+> [!WARNING]
+> Esta variante usa Podman rootful e não deve operar no mesmo host que o deploy rootless.
+> Ela usa a rede `podman`, unidades systemd globais e secrets em `/etc/webapp/secrets/`.
+
+Use esta alternativa somente em host Linux com Podman 5, rede padrão `podman` com DNS
+habilitado e SELinux `Disabled`.
+
+Na raiz do repositório, execute como administrador:
 
 ```bash
 sudo deploy/scripts/deploy-webapp.sh
 ```
 
-O script é idempotente. Ele executa, nesta ordem:
+O script rootful é idempotente. Ele escreve configuração em `/etc`, instala unidades em
+`/etc/containers/systemd` e usa `systemctl` global. Para manter a imagem existente, use:
 
-1. verifica `root`, comandos, SELinux e DNS da rede `podman`;
-2. constrói a imagem `localhost/webapp:0.1.0`;
-3. cria os secrets ausentes em `/etc/webapp/secrets/` sem sobrescrever os existentes;
-4. instala YAML, SQL de inicialização, configuração NGINX e unidades `.kube`;
-5. cria o volume `webapp-images` com dono `10001`;
-6. executa `systemctl daemon-reload`, inicia `webapp-db.service` e reinicia `webapp.service` e `app-proxy.service`;
-7. espera até 90 s pelo health da API pelo NGINX.
-
-Para reaplicar apenas a configuração sem reconstruir a imagem, use `--no-build`.
-Alterações no frontend e seus assets só aparecem após reconstruir a imagem;
-`--no-build` mantém a imagem anterior.
+```bash
+sudo deploy/scripts/deploy-webapp.sh --no-build
+```
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -160,13 +211,16 @@ A tabela da tela principal funciona assim. Os desvios em relação ao padrão GO
 
 ## Operar
 
+Execute os comandos desta seção com a mesma conta usada no deploy, em sessão rootless com
+user bus ativo. No exemplo, essa conta é `podman_user`.
+
 | Tarefa | Comando |
 |---|---|
-| Estado das unidades | `systemctl status webapp-db.service webapp.service app-proxy.service` |
-| Logs da API | `journalctl -u webapp.service -f` ou `podman logs -f webapp-api` |
+| Estado das unidades | `systemctl --user status webapp-db.service webapp.service app-proxy.service` |
+| Logs da API | `journalctl --user -u webapp.service -f` ou `podman logs -f webapp-api` |
 | Logs do NGINX | `podman logs -f app-proxy-nginx` |
 | Logs do PostgreSQL | `podman logs -f webapp-db-postgres` |
-| Reiniciar a aplicação | `systemctl restart webapp.service` |
+| Reiniciar a aplicação | `systemctl --user restart webapp.service` |
 | Testar a configuração NGINX | `podman exec app-proxy-nginx nginx -t` |
 | Abrir `psql` | `podman exec -it webapp-db-postgres psql -U webapp_owner -d db_webapp` |
 
@@ -249,7 +303,7 @@ Depois de alterar backend ou frontend, execute o deploy novamente para reconstru
 | Sintoma | Causa provável | Ação |
 |---|---|---|
 | Upload retorna `500` com `PermissionError` | volume `webapp-images` sem dono `10001` | faça backup das imagens, remova o volume com os pods parados e execute o deploy |
-| `502 Bad Gateway` em `/webapp/` | pod `webapp` parado ou iniciando | `systemctl status webapp.service` e `podman logs webapp-api` |
+| `502 Bad Gateway` em `/webapp/` | pod `webapp` parado ou iniciando | `systemctl --user status webapp.service` e `podman logs webapp-api` |
 | Health falha com erro de autenticação no banco | secrets diferentes dos usados na criação do volume | restaure os secrets originais |
 | Mudança em SQL de init sem efeito | scripts de init rodam só com volume vazio | aplique a mudança com `psql` ou recrie o volume em ambiente descartável |
 | `413 Request Entity Too Large` | imagem acima de 6 MiB no NGINX | envie imagem de até 5 MiB |

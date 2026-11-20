@@ -57,14 +57,15 @@ Sem argumentos, o script mantém a aplicação ampla legada: configura o sysctl,
 Use essa forma somente quando essas alterações amplas forem intencionais. O código de saída `3`
 indica que é necessário reiniciar o host antes de continuar.
 
-### Etapa 2 — Implantar como `podman_user` (rootless)
+### Etapa 2 — Implantar com a conta de operação rootless
 
-Siga a receita do Gateway rootless. Para a webapp, como `root`, prepare `<DIR>` com `mkdir -p <DIR>`,
-extraia `git archive HEAD | tar -x -C <DIR>` e ajuste a propriedade com
-`chown -R podman_user:podman_user <DIR>`. Depois, execute como `podman_user`:
+Siga a receita do Gateway rootless. Execute com a conta dedicada que controla Podman
+rootless e as unidades de usuário; `podman_user` é um exemplo. Obtenha o repositório nessa
+conta e, a partir de uma sessão com user bus ativo, execute:
 
 ```bash
-deploy/scripts/deploy-webapp-rootless.sh --source <DIR>
+"${HOME}/webAppBoilerPlate/deploy/scripts/deploy-webapp-rootless.sh" \
+  --source "${HOME}/webAppBoilerPlate"
 ```
 
 Depois, abra `http://localhost:8080/webapp/index.html`.

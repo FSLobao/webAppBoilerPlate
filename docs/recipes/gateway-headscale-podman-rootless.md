@@ -37,16 +37,9 @@
         <li><a href="#passo-30-criar-auth-key-de-laboratório">Passo 30: Criar auth key de laboratório</a></li>
         <li><a href="#passo-31-inscrever-o-gateway-em-laboratório">Passo 31: Inscrever o Gateway em laboratório</a></li>
         <li><a href="#passo-32-aprovar-a-rota-rootless">Passo 32: Aprovar a rota rootless</a></li>
-        <li><a href="#passo-33-preparar-o-corte-para-tcp-443">Passo 33: Preparar o corte para TCP 443</a></li>
-        <li><a href="#passo-34-reiniciar-e-validar-tcp-443">Passo 34: Reiniciar e validar TCP 443</a></li>
-        <li><a href="#passo-35-criar-auth-key-para-o-gateway">Passo 35: Criar auth key para o Gateway</a></li>
-        <li><a href="#passo-36-reautenticar-o-gateway">Passo 36: Reautenticar o Gateway</a></li>
-        <li><a href="#passo-37-reautenticar-o-cliente-linux">Passo 37: Reautenticar o cliente Linux</a></li>
-        <li><a href="#passo-38-confirmar-nós-e-rota">Passo 38: Confirmar nós e rota</a></li>
-        <li><a href="#passo-39-remover-a-publicação-tcp-8443">Passo 39: Remover a publicação TCP 8443</a></li>
-        <li><a href="#passo-40-validar-tráfego-vpn-sem-snat">Passo 40: Validar tráfego VPN sem SNAT</a></li>
-        <li><a href="#passo-41-validar-dns-na-vpn">Passo 41: Validar DNS na VPN</a></li>
-        <li><a href="#passo-42-validar-acesso-https-e-headplane">Passo 42: Validar acesso HTTPS e Headplane</a></li>
+        <li><a href="#passo-33-validar-tráfego-vpn-sem-snat">Passo 33: Validar tráfego VPN sem SNAT</a></li>
+        <li><a href="#passo-34-validar-dns-na-vpn">Passo 34: Validar DNS na VPN</a></li>
+        <li><a href="#passo-35-validar-acesso-https-e-headplane">Passo 35: Validar acesso HTTPS e Headplane</a></li>
         <li><a href="#verificação-final">Verificação final</a></li>
         <li><a href="#solução-de-problemas">Solução de problemas</a></li>
         <li><a href="#reversão-e-desinstalação">Reversão e desinstalação</a></li>
@@ -125,7 +118,7 @@ Interfaces reais dos scripts:
 
 | Decisão | Risco | Justificativa | Mitigação |
 | --- | --- | --- | --- |
-| Definir `net.ipv4.ip_unprivileged_port_start=443` | Qualquer usuário não privilegiado pode vincular TCP/UDP 443–1023 | `rootlessport` precisa publicar TCP 443 sem encaminhamento para 8443 | Usar `--sysctl-only` para preparar somente o sysctl; guardar valor e arquivo anteriores; validar SELinux e firewall separadamente antes da implantação |
+| Definir `net.ipv4.ip_unprivileged_port_start=443` | Qualquer usuário não privilegiado pode vincular TCP/UDP 443–1023 | `rootlessport` precisa publicar diretamente TCP 443 | Usar `--sysctl-only` para preparar somente o sysctl; guardar valor e arquivo anteriores; validar SELinux e firewall separadamente antes da implantação |
 | Exigir SELinux já desativado | O host não tem controles SELinux ativos | Decisão de arquitetura existente, não alterada por esta receita | Confirmar `Disabled` antes de aplicar; parar se script propuser alterar SELinux |
 
 <div>
@@ -171,18 +164,17 @@ Interfaces reais dos scripts:
 | `GATEWAY_USER` / `<GATEWAY_USER>` | Conta local dedicada ao Podman rootless | `podman_user` | Passos 1 |
 | `<GATEWAY_HOME>` | Home absoluta da conta, obtida pelo sexto campo de `getent passwd "$GATEWAY_USER"` | `/home/podman_user` | Passos 20 e 23 |
 | `SUBUID_RANGE`, `SUBGID_RANGE` | Faixas exclusivas e sem sobreposição. Somente necessárias se a conta ainda não tiver faixas atribuídas ou houver necessidade de definir novas faixas | `200000-65535` | Passo 1 |
-| `ROOTLESS_SUBNET` / `<ROOTLESS_SUBNET>` | Subnet dedicada da bridge rootless | `10.100.0.0/24` | Passos 4–42 |
-| `ROOTLESS_BRIDGE_IP` / `<ROOTLESS_BRIDGE_IP>` | Gateway da bridge e resolver Aardvark | `10.100.0.1` | Passos 4–42 |
-| `ROOTLESS_BRIDGE_IFACE` / `<ROOTLESS_BRIDGE_IFACE>` | Interface na namespace rootless | `podman1` | Passos 10, 22–28 e 40 |
-| `GATEWAY_IP` / `<GATEWAY_IP>` | IP estático do container Gateway | `10.100.0.2` | Passos 10, 22–28 e 40 |
-| `VPN_PREFIX` / `<VPN_PREFIX>` | Prefixo VPN anunciado e usado na rota de retorno | `100.101.0.0/24` | Passos 10, 22–28 e 40 |
-| `HEADSCALE_FQDN` / `<HEADSCALE_FQDN>` | FQDN público do endpoint Headscale | `headscale.dev.anatel` | Passos 15, 18, 31 e 33–42 |
-| `GATEWAY_LAN_IP` / `<GATEWAY_LAN_IP>` | IP LAN usado para verificar o acesso Headplane pela LAN | `192.0.2.10` | Passo 42 |
-| `APP_ALIAS` / `<APP_ALIAS>` | Alias DNS do container de aplicação | `webapp.dev.anatel` | Passos 41–42 |
-| `AUTH_KEY_FILE` | Arquivo local, fora do repositório, para chave de re-inscrição do cliente | `$HOME/.config/tailscale/auth-key` | Passo 37 |
+| `ROOTLESS_SUBNET` / `<ROOTLESS_SUBNET>` | Subnet dedicada da bridge rootless | `10.100.0.0/24` | Passos 4–35 |
+| `ROOTLESS_BRIDGE_IP` / `<ROOTLESS_BRIDGE_IP>` | Gateway da bridge e resolver Aardvark | `10.100.0.1` | Passos 4–35 |
+| `ROOTLESS_BRIDGE_IFACE` / `<ROOTLESS_BRIDGE_IFACE>` | Interface na namespace rootless | `podman1` | Passos 10, 22–28 e 33 |
+| `GATEWAY_IP` / `<GATEWAY_IP>` | IP estático do container Gateway | `10.100.0.2` | Passos 10, 22–28 e 33 |
+| `VPN_PREFIX` / `<VPN_PREFIX>` | Prefixo VPN anunciado e usado na rota de retorno | `100.101.0.0/24` | Passos 10, 22–28 e 33 |
+| `HEADSCALE_FQDN` / `<HEADSCALE_FQDN>` | FQDN público do endpoint Headscale | `headscale.dev.anatel` | Passos 15, 18, 31 e 35 |
+| `GATEWAY_LAN_IP` / `<GATEWAY_LAN_IP>` | IP LAN usado para verificar o acesso Headplane pela LAN | `192.0.2.10` | Passo 35 |
+| `APP_ALIAS` / `<APP_ALIAS>` | Alias DNS do container de aplicação | `webapp.dev.anatel` | Passos 33–35 |
 | `TLS_STAGE` / `<TLS_STAGE>` | Diretório seguro com certificado e chave entregues à conta | `/home/podman_user/tls-stage` | Passo 19 |
 | `CA_FILE` / `<CA_FILE>` | Certificado público da CA que assinou o endpoint Headscale | `/home/podman_user/tls-stage/gateway-dev-ca.crt` | Passo 19 |
-| `<ID_DO_USUÁRIO>`, `<ID_DO_NÓ>` | IDs retornados pelo Headscale | Valores da listagem | Passos 29–38 |
+| `<ID_DO_USUÁRIO>`, `<ID_DO_NÓ>` | IDs retornados pelo Headscale | Valores da listagem | Passos 29–32 |
 
 Antes do [Passo 1](#passo-1-preparar-o-host), como `root`, guarde o valor atual do sysctl em diretório restrito:
 
@@ -1502,7 +1494,7 @@ podman exec gateway headscale users create "$HEADSCALE_USER_NAME"
   <br><br>
 </div>
 
-## Passo 30: Criar auth key de laboratório
+## Passo 30: Criar auth key para o Gateway
 
 Obtenha o ID do usuário Headscale criado no passo anterior e atribua este à variável `HEADSCALE_USER_ID`, diretamente ou à partir da variável `HEADSCALE_USER_NAME` com o seguinte comando:
 
@@ -1532,13 +1524,7 @@ podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; he
   <br><br>
 </div>
 
-## Passo 31: Inscrever o Gateway em laboratório
-
-**Objetivo:** Usar o workaround de laboratório sem apresentá-lo como integração rootless suportada.
-
-**Contexto:** Execute como `<GATEWAY_USER>` em laboratório aprovado; mantenha a auth key fora do terminal e do histórico.
-
-Carregue as constantes aprovadas:
+## Passo 31: Inscrever o Gateway no Headscale
 
 ```bash
 source "$HOME/.config/gateway-vpn/load-env.sh"
@@ -1599,7 +1585,7 @@ podman exec gateway tailscale status
 
 **Resultado esperado:** O terminal solicita o ID do Gateway. Informe o ID listado. Headscale aprova somente `<ROOTLESS_SUBNET>` e o nó permanece online.
 
-**Verificação:** Confirme a rota aprovada antes de iniciar uma migração de endpoint.
+**Verificação:** Confirme a rota aprovada antes de validar o tráfego VPN.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -1611,233 +1597,9 @@ podman exec gateway tailscale status
   <br><br>
 </div>
 
-## Passo 33: Preparar o corte para TCP 443
+## Passo 33: Validar tráfego VPN sem SNAT
 
-   **Objetivo:** Publicar TCP 443 e 8443 em paralelo e atualizar o endpoint Headscale.
-
-   **Contexto:** Execute como `<GATEWAY_USER>` em janela aprovada. Mantenha 8443 até concluir os Passos 34–38; não remova antes de confirmar nós e rota.
-
-   Carregue as constantes aprovadas:
-
-   ```bash
-   source "$HOME/.config/gateway-vpn/load-env.sh"
-   ```
-
-   ```bash
-   if grep -qx 'PublishPort=8443:443/tcp' "$HOME/.config/containers/systemd/gateway.container"; then
-     printf "TCP 8443 já está publicado; revise a unidade antes de continuar.\n" >&2
-   fi
-   sed -i 's|^PublishPort=443:443/tcp$|PublishPort=8443:443/tcp\nPublishPort=443:443/tcp|' "$HOME/.config/containers/systemd/gateway.container"
-   sed -i "s|^server_url: .*|server_url: \"https://${HEADSCALE_FQDN}\"|" "$HOME/.config/gateway-vpn/headscale.yaml"
-   ```
-
-   **Resultado esperado:** Quadlet publica TCP 443 e 8443; `server_url` usa `${HEADSCALE_FQDN}`.
-
-   **Verificação:** Revise as duas diretivas `PublishPort=` e `server_url` antes de reiniciar.
-
-   <div>
-     <a href="#top" title="De volta ao topo da página">
-       <picture>
-         <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-         <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-       </picture>
-     </a>
-     <br><br>
-   </div>
-
-## Passo 34: Reiniciar e validar TCP 443
-
-   **Objetivo:** Confirmar que Headscale responde em TCP 443 antes de reautenticar nós.
-
-   **Contexto:** Execute como `<GATEWAY_USER>` após o Passo 33.
-
-   Carregue as constantes aprovadas:
-
-   ```bash
-   source "$HOME/.config/gateway-vpn/load-env.sh"
-   ```
-
-   ```bash
-   systemctl --user restart gateway.service
-   curl --fail --show-error "https://${HEADSCALE_FQDN}/health"
-   ```
-
-   **Resultado esperado:** A health endpoint responde com sucesso em TCP 443.
-
-   **Verificação:** Não prossiga se a conexão ou a validação TLS falhar.
-
-   <div>
-     <a href="#top" title="De volta ao topo da página">
-       <picture>
-         <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-         <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-       </picture>
-     </a>
-     <br><br>
-   </div>
-
-## Passo 35: Criar auth key para o Gateway
-
-**Objetivo:** Criar auth key nova de uso único para reautenticar o nó Gateway.
-
-**Contexto:** Execute como `<GATEWAY_USER>` e não exiba a chave.
-
-Repita a criação de auth key do [Passo 30](#passo-30-criar-auth-key-de-laboratório):
-
-```bash
-read -r -p 'ID do usuário Headscale: ' HEADSCALE_USER_ID
-podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; headscale preauthkeys create --user "$1" --expiration 1h > /run/tailscale-auth/authkey' sh "$HEADSCALE_USER_ID"
-```
-
-**Resultado esperado:** O terminal solicita o ID do usuário Headscale. Informe o ID listado. A chave fica no bind mount e não aparece no terminal.
-
-**Verificação:** Confirme que o comando terminou sem imprimir a chave.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Passo 36: Reautenticar o Gateway
-
-**Objetivo:** Reautenticar o nó Gateway em TCP 443 sem alterar anúncio ou rotas.
-
-**Contexto:** Execute como `<GATEWAY_USER>` após criar auth key no Passo 35.
-
-Carregue as constantes aprovadas:
-
-```bash
-source "$HOME/.config/gateway-vpn/load-env.sh"
-```
-
-```bash
-podman exec gateway tailscale up --login-server="https://${HEADSCALE_FQDN}" \
-  --auth-key=file:/run/tailscale-auth/authkey --advertise-routes="${ROOTLESS_SUBNET}" \
-  --snat-subnet-routes=false --advertise-exit-node=false --exit-node= \
-  --accept-dns=false --accept-routes=false --force-reauth
-podman exec gateway rm -f -- /run/tailscale-auth/authkey
-```
-
-**Resultado esperado:** Gateway reautentica no endpoint TCP 443 e preserva a subnet anunciada.
-
-**Verificação:** Confira o estado Tailscale antes de reautenticar o cliente.
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Passo 37: Reautenticar o cliente Linux
-
-   **Objetivo:** Reautenticar o cliente Linux no endpoint TCP 443 e manter a rota VPN.
-
-   **Contexto:** Execute no cliente Linux com chave própria em arquivo protegido.
-
-   No cliente, revise o loader aprovado e carregue sua cópia segura:
-
-   ```bash
-   source "$HOME/.config/gateway-vpn/load-env.sh"
-   ```
-
-   ```bash
-   AUTH_KEY_FILE="$HOME/.config/tailscale/auth-key"
-
-   sudo tailscale up --login-server="https://${HEADSCALE_FQDN}" \
-     --auth-key="file:${AUTH_KEY_FILE}" --accept-routes=true --accept-dns=true --force-reauth
-   rm -- "${AUTH_KEY_FILE}"
-   ```
-
-   **Resultado esperado:** O cliente reautentica e mantém as rotas aceitas.
-
-   **Verificação:** Confirme que a chave foi removida e que o cliente está online.
-
-   <div>
-     <a href="#top" title="De volta ao topo da página">
-       <picture>
-         <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-         <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-       </picture>
-     </a>
-     <br><br>
-   </div>
-
-## Passo 38: Confirmar nós e rota
-
-   **Objetivo:** Confirmar Gateway e cliente online e aprovar somente a subnet rootless.
-
-   **Contexto:** Execute os comandos do Gateway como `<GATEWAY_USER>`; execute `tailscale status` no cliente Linux.
-
-   No host Gateway, carregue as constantes aprovadas:
-
-   ```bash
-   source "$HOME/.config/gateway-vpn/load-env.sh"
-   ```
-
-   ```bash
-   podman exec gateway headscale nodes list
-   podman exec gateway tailscale status
-   read -r -p 'ID do nó Gateway: ' NODE_ID
-   podman exec gateway headscale nodes approve-routes --identifier "$NODE_ID" --routes "${ROOTLESS_SUBNET}"
-   ```
-
-   No cliente Linux, confirme o estado do nó:
-
-   ```bash
-   tailscale status
-   ```
-
-   **Resultado esperado:** O terminal solicita o ID do nó Gateway. Informe o ID listado. Ambos os nós ficam online e Headscale aprova somente `${ROOTLESS_SUBNET}`.
-
-   **Verificação:** Confirme a identidade dos dois nós e o estado aprovado antes de remover 8443.
-
-   <div>
-     <a href="#top" title="De volta ao topo da página">
-       <picture>
-         <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-         <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-       </picture>
-     </a>
-     <br><br>
-   </div>
-
-## Passo 39: Remover a publicação TCP 8443
-
-   **Objetivo:** Remover 8443 somente após confirmar os nós online e a rota aprovada.
-
-   **Contexto:** Execute como `<GATEWAY_USER>` na janela aprovada.
-
-   ```bash
-   sed -i '/^PublishPort=8443:443\/tcp$/d' "$HOME/.config/containers/systemd/gateway.container"
-   systemctl --user restart gateway.service
-   ```
-
-   **Resultado esperado:** Quadlet publica somente `PublishPort=443:443/tcp`.
-
-   **Verificação:** Confira a unidade e a saúde do Gateway após o restart.
-
-   <div>
-     <a href="#top" title="De volta ao topo da página">
-       <picture>
-         <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-         <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-       </picture>
-     </a>
-     <br><br>
-   </div>
-
-## Passo 40: Validar tráfego VPN sem SNAT
-
-   **Objetivo:** Confirmar que a aplicação recebe o IP VPN original após o corte.
+   **Objetivo:** Confirmar que a aplicação recebe o IP VPN original.
 
    **Contexto:** Use um listener descartável em container de aplicação e um cliente VPN autorizado.
 
@@ -1859,7 +1621,7 @@ podman exec gateway rm -f -- /run/tailscale-auth/authkey
   <br><br>
 </div>
 
-## Passo 41: Validar DNS na VPN
+## Passo 34: Validar DNS na VPN
 
 **Objetivo:** Confirmar consultas UDP e TCP ao resolver Aardvark pelo cliente VPN.
 
@@ -1899,7 +1661,7 @@ dig +tcp @"${ROOTLESS_BRIDGE_IP}" "${APP_ALIAS}" A
   <br><br>
 </div>
 
-## Passo 42: Validar acesso HTTPS e Headplane
+## Passo 35: Validar acesso HTTPS e Headplane
 
 **Objetivo:** Confirmar Headscale em TCP 443 e restringir Headplane ao prefixo VPN.
 
@@ -1911,7 +1673,9 @@ Carregue uma cópia revisada do loader em cada cliente:
 source "$HOME/.config/gateway-vpn/load-env.sh"
 ```
 
-**Gate G8 — bloqueante.** O endpoint de controle e VPN atende diretamente em TCP 443 no host, tanto pela LAN como pela VPN; não encaminhe 443 para 8443. Acesse `https://dev-gateway.dev.anatel/admin` pela VPN e de um cliente LAN sem VPN:
+**Gate G8 — bloqueante.** O endpoint de controle e VPN atende diretamente em TCP 443 no host,
+tanto pela LAN como pela VPN. Acesse `https://dev-gateway.dev.anatel/admin` pela VPN e de um
+cliente LAN sem VPN:
 
 ```bash
 curl --fail --show-error "https://${HEADSCALE_FQDN}/health"
@@ -2040,8 +1804,7 @@ curl --fail --show-error https://dev-gateway.dev.anatel/admin
 | Healthcheck falha ao resolver `/proc/<pid>/exe` com `Permission denied` | UID `0` não pode inspecionar processos de outros UIDs no Podman rootless | Reconstrua a imagem com o comando do [Passo 11](#passo-11-construir-a-imagem-gateway) e execute `systemctl --user restart gateway.service` |
 | Unidade não fica `healthy` ou UIDs não leem configs | Caminho, mapeamento ou modo de arquivo incorreto | Revise os [Passos 17–20](#passo-17-instalar-configurações-de-base) e [Passos 23–28](#passo-23-instalar-a-unidade-quadlet) |
 | Cliente não recebe o IP VPN original | Rota ou regras de retorno ausentes | Pare e revise os [Passos 22–28](#passo-22-criar-drop-in-de-rota) |
-| `/admin` falha pela VPN ou abre pela LAN | Origem vista pelo NGINX ou regra `allow`/`deny` incorreta | Não relaxe a regra; revise o [Passo 42](#passo-42-validar-acesso-https-e-headplane) |
-| Gateway fica offline após remover TCP 8443 | Nó não foi reinscrito em TCP 443 | Reaplique a sequência dos [Passos 33–38](#passo-33-preparar-o-corte-para-tcp-443) |
+| `/admin` falha pela VPN ou abre pela LAN | Origem vista pelo NGINX ou regra `allow`/`deny` incorreta | Não relaxe a regra; revise o [Passo 35](#passo-35-validar-acesso-https-e-headplane) |
 | `tailscale up` trava e o log mostra `x509: certificate signed by unknown authority` | `tailscaled` não confia na CA do certificado Headscale | Corrija o bundle e `SSL_CERT_FILE` nos [Passos 19](#passo-19-instalar-tls-e-segredo-headplane) e [23](#passo-23-instalar-a-unidade-quadlet) |
 
 <div>
