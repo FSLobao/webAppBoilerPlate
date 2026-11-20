@@ -42,7 +42,8 @@ Ao final, o host atende:
 - Conta não root dedicada ao Podman rootless, com ranges em `/etc/subuid` e `/etc/subgid`
   e linger habilitado. `podman_user` é um exemplo válido; o UID pode variar.
 - Sessão rootless com Podman, user bus e `systemctl --user` funcionais.
-- Rede rootless `gateway-vpn` com subnet `10.90.0.0/24` e DNS habilitado.
+- Rede rootless `gateway-vpn` com DNS e ao menos uma subnet IPv4 habilitados. O CIDR efetivo
+  vem das variáveis do deploy do Gateway; `10.100.0.0/24` é um exemplo.
 - Preparação do host conforme a [receita rootless do Gateway](gateway-headscale-podman-rootless.md).
 - SELinux `Disabled`.
 - Porta TCP 8080 livre no host.
@@ -88,13 +89,16 @@ secrets, volumes e unidades no escopo rootless dessa conta.
 
 O script é idempotente. Ele executa, nesta ordem:
 
-1. verifica o usuário executor, comandos, user bus, linger e rede `gateway-vpn`;
+1. verifica o usuário executor, comandos, user bus, linger, DNS e subnet existente em `gateway-vpn`;
 2. atualiza as imagens-base e constrói `localhost/webapp:0.1.0`;
 3. cria os secrets ausentes em `~/.local/share/webapp/secrets/` sem sobrescrever os existentes;
 4. instala YAML, SQL de inicialização, configuração NGINX e unidades Quadlet de usuário;
 5. cria os volumes `webapp-db-data` e `webapp-images`;
 6. executa `systemctl --user daemon-reload` e inicia ou reinicia as três unidades;
 7. espera até 90 s pelo health da API pelo NGINX.
+
+O Podman atribui endereços IPv4 dinamicamente aos pods. O deploy configura apenas aliases DNS
+estáveis; não derive nem fixe IPs dos serviços da webapp no script.
 
 Para reaplicar apenas a configuração sem reconstruir a imagem, acrescente `--no-build`.
 Alterações no frontend e seus assets só aparecem após reconstruir a imagem;

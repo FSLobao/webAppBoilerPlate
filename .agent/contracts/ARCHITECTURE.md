@@ -39,9 +39,10 @@ solução aprovada para conectividade de desenvolvedores. O alvo de runtime é P
 Quadlet; a variante rootful permanece implementada e mantida como alternativa. O deploy do Gateway
 rootless como código continua pendente em [TODO.md](../plans/TODO.md).
 **Revisão da rede de containers:** o alvo rootless usa exclusivamente a bridge `gateway-vpn`,
-`10.90.0.0/24`, com Netavark e Aardvark DNS, resolver `10.90.0.1` e Gateway `10.90.0.2`. A rede
-padrão rootful `podman` permanece como alternativa. Não haverá redes por aplicação; preserve o IP
-de origem VPN.
+cujo CIDR efetivo é definido pelas variáveis de ambiente do deployment do Gateway. Neste contrato,
+`10.100.0.0/24`, resolver `10.100.0.1` e Gateway `10.100.0.2` são somente um exemplo. A rede padrão
+rootful `podman` permanece como alternativa. Não haverá redes por aplicação; preserve o IP de
+origem VPN.
 
 **Revisão da administração:** Portainer será a interface de gestão de containers, em container
 dedicado na rede padrão `podman`, acessível somente por operadores pela VPN. A integração ainda
@@ -60,7 +61,7 @@ O boilerplate deve privilegiar:
 - simplicidade operacional;
 - reprodutibilidade;
 - baixo esforço administrativo;
-- uma única rede rootless `gateway-vpn` (`10.90.0.0/24`) para todos os containers, com DNS nativo e autenticação por serviço; a rede padrão rootful `podman` permanece como alternativa;
+- uma única rede rootless `gateway-vpn` para todos os containers, com CIDR definido pelo deployment do Gateway (exemplo `10.100.0.0/24`), DNS nativo e autenticação por serviço; a rede padrão rootful `podman` permanece como alternativa;
 - desenvolvimento remoto por VS Code;
 - manutenção direta dos containers;
 - deployment reproduzível a partir do host;
@@ -365,9 +366,11 @@ Headscale, Headplane e `tailscaled` compartilham o Gateway. Headscale coordena i
 e rotas; Headplane administra usuários e dispositivos; `tailscaled` atua como subnet router.
 Clientes Tailscale conectam-se ao Headscale auto-hospedado.
 
-A VPN é split tunnel IPv4. O Gateway rootless anuncia somente `10.90.0.0/24`, da rede
-`gateway-vpn`; o resolver Aardvark é `10.90.0.1` e o Gateway usa `10.90.0.2`. Clientes autorizados
-aceitam essa rota. Headscale usa o prefixo IPv4 `100.96.0.0/24`. Desative SNAT com
+A VPN é split tunnel IPv4. O Gateway rootless anuncia somente o CIDR definido em
+`ROOTLESS_SUBNET`, da rede `gateway-vpn`. `ROOTLESS_BRIDGE_IP` define o resolver Aardvark e
+`GATEWAY_IP` define o endereço do Gateway. Por exemplo, esses valores podem ser
+`10.100.0.0/24`, `10.100.0.1` e `10.100.0.2`, respectivamente. Clientes autorizados aceitam essa
+rota. Headscale usa o prefixo IPv4 `100.96.0.0/24`. Desative SNAT com
 `--snat-subnet-routes=false` e instale a rota de retorno ao prefixo VPN na namespace rootless.
 Preserve o IP VPN de origem. Não anuncie rota default nem transforme o Gateway em exit node. A rede
 padrão rootful `podman` é a alternativa mantida.
@@ -528,21 +531,23 @@ o emulador da seção 8.2, a implementar e fora do escopo atual; consulte [TODO.
 
 # 9. Rede Podman e DNS de desenvolvimento
 
-O alvo rootless usa exclusivamente a rede bridge `gateway-vpn` (`10.90.0.0/24`), com backend
-Netavark e DNS Aardvark. Não criar redes por aplicação nem recriar automaticamente rede em uso.
-O deployment inspeciona a rede e confirma DNS habilitado. A rede padrão rootful `podman` permanece
-como alternativa.
+O alvo rootless usa exclusivamente a rede bridge `gateway-vpn`, com backend Netavark e DNS
+Aardvark. O CIDR é definido por `ROOTLESS_SUBNET` no deployment do Gateway; `10.100.0.0/24` é
+somente exemplo. Não criar redes por aplicação nem recriar automaticamente rede em uso. O
+deployment inspeciona a rede existente e confirma DNS habilitado. A rede padrão rootful `podman`
+permanece como alternativa.
 
 Containers podem comunicar-se diretamente; não há isolamento de rede entre aplicações ou banco.
 Cada serviço deve aplicar autenticação e autorização próprias. A rede publica somente endereços
 IPv4 de serviços; isso não exige desativar IPv6 no host.
 
-O Gateway usa `10.90.0.2` na rede `gateway-vpn`; o resolver Aardvark é `10.90.0.1`. Os outros
-containers do alvo rootless usam a mesma rede. Endereços e aliases estão definidos na seção 10.
+O Gateway usa `GATEWAY_IP` na rede `gateway-vpn`; `ROOTLESS_BRIDGE_IP` identifica o resolver
+Aardvark. No exemplo vigente, esses valores são `10.100.0.2` e `10.100.0.1`. Os outros containers
+do alvo rootless usam a mesma rede. Endereços e aliases estão definidos na seção 10.
 
 ## 9.1 DNS nativo do Podman
 
-Netavark e Aardvark DNS mantêm o registro dos nomes e aliases dos containers na rede `gateway-vpn` durante seu ciclo de vida. Containers usam o resolver da bridge rootless `10.90.0.1`, sem arquivos manuais de endereços ou banco de registros mantido pelo Gateway.
+Netavark e Aardvark DNS mantêm o registro dos nomes e aliases dos containers na rede `gateway-vpn` durante seu ciclo de vida. Containers usam o resolver da bridge definido por `ROOTLESS_BRIDGE_IP` (exemplo `10.100.0.1`), sem arquivos manuais de endereços ou banco de registros mantido pelo Gateway.
 
 Não haverá serviço DNS independente para manter registros de containers. O deployment deve
 validar nomes curtos, aliases completos e atualização após recriação na versão-alvo.
@@ -582,8 +587,9 @@ dev-gateway.dev.anatel
 ```
 
 Esses nomes são aliases registrados no DNS nativo da rede rootless `gateway-vpn`. Headscale
-distribui split DNS de `dev.anatel` para o resolver Aardvark `10.90.0.1`. Esse endereço pertence
-ao CIDR anunciado pelo Gateway; não confunda o resolver/bridge com o container Gateway `10.90.0.2`.
+distribui split DNS de `dev.anatel` para o resolver Aardvark definido por `ROOTLESS_BRIDGE_IP`
+(exemplo `10.100.0.1`). Esse endereço pertence ao CIDR anunciado pelo Gateway; não confunda o
+resolver/bridge com o container Gateway definido por `GATEWAY_IP` (exemplo `10.100.0.2`).
 
 Clientes Tailscale devem aceitar DNS e rotas. A política VPN e as regras do host devem permitir
 consultas UDP e TCP 53 ao resolver somente pelas origens autorizadas, com retorno ao prefixo VPN.
@@ -616,12 +622,12 @@ Os namespaces interno e externo não devem ser tratados como equivalentes.
 
 ## 9.4 Containers recriados
 
-No alvo rootless, o deployment declara endereços estáveis para os containers da webapp. Os aliases
-DNS permanecem como nomes de acesso e são atualizados pelo Podman quando containers são recriados.
-Outros endereços individuais não constituem identidade permanente.
+No alvo rootless, o Podman atribui dinamicamente os endereços dos containers da webapp. Os aliases
+DNS permanecem como nomes estáveis de acesso e são atualizados pelo Podman quando containers são
+recriados. Endereços individuais não constituem identidade permanente.
 
-A rota VPN cobre `10.90.0.0/24` e não depende dos endereços individuais. Caches DNS devem respeitar
-os TTLs do resolver.
+A rota VPN cobre `ROOTLESS_SUBNET` (exemplo `10.100.0.0/24`) e não depende dos endereços individuais.
+Caches DNS devem respeitar os TTLs do resolver.
 
 O desenvolvedor continuará utilizando o mesmo nome lógico.
 
@@ -635,8 +641,8 @@ backend.project-a.dev.anatel
 ## 9.5 Escopo
 
 O DNS Podman cobre os containers da rede rootless `gateway-vpn`. A VPN fornece aos desenvolvedores
-acesso roteado a essa rede e ao resolver `10.90.0.1`. Registros DNS não criam conectividade nem
-concedem acesso; a rede `podman` é a alternativa rootful.
+acesso roteado a essa rede e ao resolver `ROOTLESS_BRIDGE_IP` (exemplo `10.100.0.1`). Registros DNS
+não criam conectividade nem concedem acesso; a rede `podman` é a alternativa rootful.
 
 ## 9.6 Serviços publicados no DNS
 
@@ -656,17 +662,18 @@ sua própria autenticação e autorização.
 
 # 10. Endereçamento da rede Podman
 
-O alvo rootless usa a rede `gateway-vpn` (`10.90.0.0/24`), com resolver Aardvark
-`10.90.0.1` e endereço do Gateway `10.90.0.2`. Headscale usa o prefixo IPv4 `100.96.0.0/24`.
-A rota de retorno ao prefixo VPN fica na namespace rootless.
+O alvo rootless usa a rede `gateway-vpn`. Os valores efetivos de rede são definidos pelas variáveis
+de ambiente do deployment do Gateway: `ROOTLESS_SUBNET`, `ROOTLESS_BRIDGE_IP` e `GATEWAY_IP`.
+`10.100.0.0/24`, `10.100.0.1` e `10.100.0.2` são exemplos, não constantes arquiteturais. Headscale
+usa o prefixo IPv4 `100.96.0.0/24`. A rota de retorno ao prefixo VPN fica na namespace rootless.
 
-A webapp usa endereços fixos na rede rootless:
+A webapp usa endereços IPv4 atribuídos dinamicamente pelo Podman e aliases DNS estáveis:
 
-| Serviço | Endereço | Alias de desenvolvimento |
+| Serviço | Exemplo de endereço atribuído | Alias de desenvolvimento |
 | --- | --- | --- |
-| `webapp-db` | `10.90.0.10` | `webapp-db.dev.anatel` |
-| `webapp` | `10.90.0.11` | `webapp.dev.anatel` |
-| `app-proxy` | `10.90.0.12` | `app-proxy.dev.anatel` |
+| `webapp-db` | Endereço dinâmico no CIDR, por exemplo `10.100.0.10` | `webapp-db.dev.anatel` |
+| `webapp` | Endereço dinâmico no CIDR, por exemplo `10.100.0.11` | `webapp.dev.anatel` |
+| `app-proxy` | Endereço dinâmico no CIDR, por exemplo `10.100.0.12` | `app-proxy.dev.anatel` |
 
 Antes de instalar estado, compare os prefixos rootless e VPN com redes e rotas relevantes do host,
 da LAN e do ambiente corporativo. O endpoint Headscale está disponível diretamente em TCP 443 no
@@ -874,9 +881,9 @@ O repositório deve conter scripts para:
 3. criar a estrutura de diretórios, volumes e secrets sem sobrescrever dados existentes;
 4. validar `gateway-vpn` conforme os requisitos da seção 9, sem recriar rede em uso;
 5. construir/atualizar containers através de Quadlet;
-6. conectar containers rootless somente a `gateway-vpn`, reservando `10.90.0.2` para o Gateway;
+6. conectar containers rootless somente a `gateway-vpn`, reservando `GATEWAY_IP` para o Gateway;
 7. declarar nomes e aliases conforme a seção 9;
-8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente `10.90.0.0/24` e instalar a rota de retorno na namespace rootless sem SNAT;
+8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente `ROOTLESS_SUBNET` e instalar a rota de retorno na namespace rootless sem SNAT;
 9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080; o emulador de desenvolvimento está a implementar, fora do escopo atual, conforme [TODO.md](../plans/TODO.md);
 10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados; SSH está a implementar, fora do escopo atual, conforme [TODO.md](../plans/TODO.md);
 11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
@@ -1181,13 +1188,13 @@ As seguintes decisões são consideradas parte do contrato:
 | Identidade HTTP | Perímetro real autentica em produção; emulador de headers sintéticos a implementar, fora do escopo atual; aplicação autoriza; consulte [TODO.md](../plans/TODO.md) |
 | Autorização HTTP | Gate de deployment exige restrição efetiva ao perímetro confiável ou proveniência verificada; lista exata de campos e mecanismo permanecem pré-requisitos |
 | DNS e nomes | Requisitos internos e externos, incluindo split DNS, definidos na seção 9 |
-| Rede de containers | Somente `gateway-vpn` (`10.90.0.0/24`) no alvo rootless; rede padrão `podman` na alternativa rootful |
-| Interface Podman do Gateway | Uma interface em `gateway-vpn`, endereço `10.90.0.2`; resolver Aardvark `10.90.0.1` |
+| Rede de containers | Somente `gateway-vpn` no alvo rootless; CIDR definido por `ROOTLESS_SUBNET`, exemplo `10.100.0.0/24`; rede padrão `podman` na alternativa rootful |
+| Interface Podman do Gateway | Uma interface em `gateway-vpn`, endereço `GATEWAY_IP`; resolver `ROOTLESS_BRIDGE_IP`; exemplo `10.100.0.2` e `10.100.0.1` |
 | Acesso do Gateway | A todos os serviços em `gateway-vpn`; componente administrativo confiável |
 | Configuração de rede | Adequar `config/host_config.json` à rede rootless `gateway-vpn`, sem inventário por aplicação; rede padrão `podman` é alternativa rootful |
-| CIDR de containers | Alvo rootless fixo `10.90.0.0/24`; alternativa rootful descobre a rede `podman` por inspeção (`10.88.0.0/16` é padrão upstream, não garantido) |
-| Endereços fixos da webapp rootless | `10.90.0.10` `webapp-db`; `10.90.0.11` `webapp`; `10.90.0.12` `app-proxy` |
-| Acesso remoto | Clientes Tailscale inscritos no Headscale; split tunnel IPv4 para `10.90.0.0/24`, prefixo VPN `100.96.0.0/24`, sem SNAT; origem VPN e default route preservadas |
+| CIDR de containers | Alvo rootless definido pelas variáveis do deployment do Gateway; exemplo `10.100.0.0/24`; alternativa rootful descobre a rede `podman` por inspeção (`10.88.0.0/16` é padrão upstream, não garantido) |
+| Endereços da webapp rootless | IPs dinâmicos atribuídos pelo Podman; aliases DNS estáveis |
+| Acesso remoto | Clientes Tailscale inscritos no Headscale; split tunnel IPv4 para `ROOTLESS_SUBNET`, prefixo VPN `100.96.0.0/24`, sem SNAT; origem VPN e default route preservadas |
 | Inscrição | Headplane gerencia usuários/dispositivos e tokens de uso único; chaves privadas geradas nos clientes; OIDC corporativo opcional |
 | Retorno da VPN | `--snat-subnet-routes=false` e rota determinística ao prefixo VPN na namespace rootless |
 | Egress de containers | Saída normal do Podman rootless pelo host; alternativa rootful pode usar masquerading |
@@ -1246,12 +1253,12 @@ altera a política do host.
 Uma implementação do boilerplate será considerada aderente quando:
 
 - uma aplicação puder ser implantada sem alterar manualmente o host na operação normal;
-- containers do alvo usarem somente a rede rootless `gateway-vpn` (`10.90.0.0/24`); a rede padrão `podman` fica como alternativa rootful;
+- containers do alvo usarem somente a rede rootless `gateway-vpn`, no CIDR `ROOTLESS_SUBNET` (exemplo `10.100.0.0/24`); a rede padrão `podman` fica como alternativa rootful;
 - conectividade direta entre containers ser intencional e protegida por autenticação de serviço, sem alegar isolamento por aplicação;
 - configuração de serviços e aliases estiver declarada, sem inventário de redes por aplicação;
-- Gateway possuir `10.90.0.2` em `gateway-vpn` e anunciar somente `10.90.0.0/24`;
+- Gateway possuir o endereço `GATEWAY_IP` em `gateway-vpn` e anunciar somente `ROOTLESS_SUBNET`;
 - deployment e testes de DNS em `gateway-vpn` cumprirem integralmente a seção 9, sem recriar rede em uso;
-- webapp usar endereços fixos `10.90.0.10` (`webapp-db`), `10.90.0.11` (`webapp`) e `10.90.0.12` (`app-proxy`);
+- webapp receber endereços dinâmicos do Podman e expor os aliases estáveis dos serviços;
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
 - desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
 - o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
@@ -1264,12 +1271,12 @@ Uma implementação do boilerplate será considerada aderente quando:
 - rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
 - serviços não HTTP de usuário usarem publicação direta explicitamente configurada, sem confundir isso com o acesso de desenvolvimento via Gateway;
 - Headscale, Headplane e `tailscaled` executarem no Gateway como única solução de acesso remoto de desenvolvedores;
-- clientes inscritos alcançarem `10.90.0.0/24`, inclusive PostgreSQL, por split tunnel IPv4 sem SNAT, preservando endereço VPN de origem e rota default local;
+- clientes inscritos alcançarem `ROOTLESS_SUBNET`, inclusive PostgreSQL, por split tunnel IPv4 sem SNAT, preservando endereço VPN de origem e rota default local;
 - `--snat-subnet-routes=false` e rota de retorno determinística na namespace rootless permitirem respostas aos dispositivos VPN;
 - inscrição via Headplane usar tokens individuais de uso único e curta validade, sem distribuição de chaves privadas de dispositivos;
 - expirar token não ser tratado como revogação de dispositivo; testar expiração/revogação do dispositivo, auditoria e bloqueio de novos acessos;
-- prefixo VPN `100.96.0.0/24` não se sobrepor a `10.90.0.0/24` nem às redes/rotas relevantes do host, LAN e ambiente corporativo;
-- anúncio, aprovação e aceitação de `10.90.0.0/24` funcionarem sem anunciar rota default nem aceitar rotas da alternativa rootful no próprio Gateway;
+- prefixo VPN `100.96.0.0/24` não se sobrepor a `ROOTLESS_SUBNET` nem às redes/rotas relevantes do host, LAN e ambiente corporativo;
+- anúncio, aprovação e aceitação de `ROOTLESS_SUBNET` funcionarem sem anunciar rota default nem aceitar rotas da alternativa rootful no próprio Gateway;
 - endpoint Headscale estar disponível diretamente em TCP 443 antes da VPN e conectividade direta/relay funcionar conforme política de infraestrutura;
 - endpoints administrativos dos containers exigirem autenticação e acesso de operador pela VPN, sem API administrativa pública nem socket Podman no Headplane; Cockpit do host usar o acesso corporativo independente da seção 2.2;
 - reinícios preservarem identidades e inscrições; falhas dos processos serem explícitas, com comportamento de reconexão e recuperação validado;

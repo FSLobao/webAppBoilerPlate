@@ -15,9 +15,11 @@
 ## Visão geral
 
 Boilerplate de aplicação web em containers Podman. O alvo é rootless, com Quadlet na rede
-`gateway-vpn` (`10.90.0.0/24`); a variante rootful implementada e mantida usa a rede padrão
-`podman`. A aplicação de exemplo é uma SPA CRUD de usuários com nome, email, localização e imagem
-de perfil. Ela usa FastAPI, PostgreSQL 18 e um NGINX compartilhado publicado na porta 8080 do host.
+`gateway-vpn`, cujo CIDR é definido pelas variáveis de ambiente do deployment do Gateway
+(`10.100.0.0/24` é somente um exemplo); a variante rootful implementada e mantida usa a rede padrão
+`podman`. Os IPs dos pods da webapp são atribuídos dinamicamente pelo Podman. A aplicação de
+exemplo é uma SPA CRUD de usuários com nome, email, localização e imagem de perfil. Ela usa
+FastAPI, PostgreSQL 18 e um NGINX compartilhado publicado na porta 8080 do host.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

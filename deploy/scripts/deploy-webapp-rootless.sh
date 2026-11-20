@@ -15,9 +15,9 @@ readonly POSTGRES_UID=999
 readonly WEBAPP_UID=10001
 readonly GATEWAY_NETWORK=gateway-vpn
 readonly DEPLOYMENT_MAP=(
-  "webapp-db.service|webapp-db|10.90.0.10|webapp-db.dev.anatel"
-  "webapp.service|webapp|10.90.0.11|webapp.dev.anatel"
-  "app-proxy.service|app-proxy|10.90.0.12|app-proxy.dev.anatel"
+  "webapp-db.service|webapp-db|webapp-db.dev.anatel"
+  "webapp.service|webapp|webapp.dev.anatel"
+  "app-proxy.service|app-proxy|app-proxy.dev.anatel"
 )
 readonly BASE_IMAGES=(
   docker.io/library/postgres:18-trixie
@@ -160,10 +160,9 @@ set_user_paths() {
   local mapping_entry
   local unit_name
   local pod_name
-  local fixed_ip
   local network_alias
   for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-    IFS='|' read -r unit_name pod_name fixed_ip network_alias <<< "${mapping_entry}"
+    IFS='|' read -r unit_name pod_name network_alias <<< "${mapping_entry}"
     if [[ "${pod_name}" == webapp-db ]]; then
       DB_PENDING_RESTART_MARKER="${PENDING_RESTART_DIR}/${unit_name}"
       break
@@ -292,17 +291,25 @@ preflight() {
     return 1
   }
 
-  local network_info
-  network_info=$(podman network inspect "${GATEWAY_NETWORK}" --format '{{.DNSEnabled}} {{range .Subnets}}{{.Subnet}}{{end}}') || {
+  local network_dns_enabled
+  network_dns_enabled=$(podman network inspect "${GATEWAY_NETWORK}" --format '{{.DNSEnabled}}') || {
     fail "Could not inspect network gateway-vpn."
     return 1
   }
-  [[ "${network_info}" == 'true 10.90.0.0/24' ]] || {
-    fail "Network gateway-vpn must have DNS enabled and subnet 10.90.0.0/24 (found: ${network_info})."
+  [[ "${network_dns_enabled}" == true ]] || {
+    fail "Network gateway-vpn must have DNS enabled (found: ${network_dns_enabled})."
     return 1
   }
 
-  validate_fixed_ip_owners || return
+  local network_subnets
+  network_subnets=$(podman network inspect "${GATEWAY_NETWORK}" --format '{{range .Subnets}}{{.Subnet}} {{end}}') || {
+    fail "Could not inspect subnets on network gateway-vpn."
+    return 1
+  }
+  [[ "${network_subnets}" =~ (^|[[:space:]])([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}([[:space:]]|$) ]] || {
+    fail "Network gateway-vpn has no configured IPv4 subnet (found: ${network_subnets})."
+    return 1
+  }
 
   local cgroup_manager
   cgroup_manager=$(podman info --format '{{.Host.CgroupManager}}') || {
@@ -319,89 +326,6 @@ preflight() {
     fail "Image ${IMAGE} not found; run without --no-build."
     return 1
   fi
-}
-# ---------------------------------- #
-
-# Rejects fixed gateway IPs held by containers other than each expected pod's
-# infra container.
-# Arguments: none.
-# Global state read: DEPLOYMENT_MAP, GATEWAY_NETWORK.
-# Output streams: diagnostics to stderr.
-# Return status: 0 when target addresses are free or deployment-owned, 1 otherwise.
-validate_fixed_ip_owners() {
-  local attachment_output
-  local mapping_entry
-  local pod_name
-  local pod_status
-  local infra_id
-  local infra_name
-  local entry
-  local entry_name
-  local entry_ip
-  local fixed_ip
-  local expected_infra_name
-  local -A allowed_infra_names=()
-  local -a attachments=()
-
-  attachment_output=$(podman network inspect "${GATEWAY_NETWORK}" --format "{{range .Containers}}{{.Name}}|{{range .Interfaces}}{{range .Subnets}}{{.IPNet}}{{end}}{{end}};{{end}}") || {
-    fail "Could not inspect containers attached to ${GATEWAY_NETWORK}."
-    return 1
-  }
-
-  for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-    IFS='|' read -r _ pod_name _ _ <<< "${mapping_entry}"
-    if podman pod exists "${pod_name}"; then
-      infra_id=$(podman pod inspect --format "{{.InfraContainerID}}" "${pod_name}") || {
-        fail "Could not inspect deployment pod ${pod_name}."
-        return 1
-      }
-      [[ -n "${infra_id}" ]] || {
-        fail "Deployment pod ${pod_name} has no infra container."
-        return 1
-      }
-      infra_name=$(podman inspect --format "{{.Name}}" "${infra_id}") || {
-        fail "Could not inspect infra container for ${pod_name}."
-        return 1
-      }
-      allowed_infra_names["${pod_name}"]=${infra_name#/}
-    else
-      pod_status=$?
-      ((pod_status == 1)) || {
-        fail "Could not check deployment pod ${pod_name}."
-        return 1
-      }
-    fi
-  done
-
-  IFS=";" read -r -a attachments <<< "${attachment_output}" || return
-  for entry in "${attachments[@]}"; do
-    [[ -n "${entry}" ]] || continue
-    [[ "${entry}" == *"|"* ]] || {
-      fail "Could not parse a container attachment on ${GATEWAY_NETWORK}."
-      return 1
-    }
-    entry_name=${entry%%|*}
-    entry_ip=${entry#*|}
-    entry_ip=${entry_ip%%/*}
-    [[ -n "${entry_name}" && -n "${entry_ip}" ]] || {
-      fail "Could not parse a container address on ${GATEWAY_NETWORK}."
-      return 1
-    }
-    [[ "${entry_ip}" =~ ^((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$ ]] || {
-      fail "Invalid IPv4 address on ${GATEWAY_NETWORK}: ${entry_ip}."
-      return 1
-    }
-
-    for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-      IFS='|' read -r _ pod_name fixed_ip _ <<< "${mapping_entry}"
-      [[ "${entry_ip}" == "${fixed_ip}" ]] || continue
-      expected_infra_name=${allowed_infra_names["${pod_name}"]:-}
-      [[ "${entry_name}" == "${expected_infra_name}" ]] || {
-        fail "Fixed IP ${fixed_ip} on ${GATEWAY_NETWORK} is held by ${entry_name}, not the infra container for ${pod_name}."
-        return 1
-      }
-    done
-  done
 }
 # ---------------------------------- #
 
@@ -599,13 +523,12 @@ write_transformed_copy() {
   local unit_name
   local mapping_entry
   local pod_name
-  local fixed_ip
   local network_alias
   local expected_network_line
   local mapped=false
   if [[ "${copy_kind}" == kube ]]; then
     for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-      IFS='|' read -r unit_name pod_name fixed_ip network_alias <<< "${mapping_entry}"
+      IFS='|' read -r unit_name pod_name network_alias <<< "${mapping_entry}"
       if [[ "${source_file##*/}" == "${pod_name}.yaml" ]]; then
         mapped=true
         break
@@ -617,7 +540,7 @@ write_transformed_copy() {
     }
   elif [[ "${copy_kind}" == quadlet ]]; then
     for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-      IFS='|' read -r unit_name pod_name fixed_ip network_alias <<< "${mapping_entry}"
+      IFS='|' read -r unit_name pod_name network_alias <<< "${mapping_entry}"
       if [[ "${source_file##*/}" == "${unit_name%.service}.kube" ]]; then
         mapped=true
         break
@@ -627,7 +550,7 @@ write_transformed_copy() {
       fail "No deployment mapping for Quadlet file ${source_file##*/}."
       return 1
     }
-    expected_network_line="Network=${GATEWAY_NETWORK}:ip=${fixed_ip},alias=${network_alias}"
+    expected_network_line="Network=${GATEWAY_NETWORK}:alias=${network_alias}"
   fi
   staged=$(mktemp --tmpdir="${destination%/*}" .webapp-copy.XXXXXX) || return
   TEMP_FILES+=("${staged}")
@@ -1008,7 +931,7 @@ start_units() {
   local webapp_unit=""
   local proxy_unit=""
   for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-    IFS='|' read -r unit pod_name _ _ <<< "${mapping_entry}"
+    IFS='|' read -r unit pod_name _ <<< "${mapping_entry}"
     if [[ "${pod_name}" == webapp-db ]]; then
       database_unit=${unit}
     fi
@@ -1051,7 +974,7 @@ wait_healthy() {
   local unit
   local -a units=()
   for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-    IFS='|' read -r unit _ _ _ <<< "${mapping_entry}"
+    IFS='|' read -r unit _ <<< "${mapping_entry}"
     units+=("${unit}")
   done
   for _attempt in {1..45}; do
@@ -1081,13 +1004,13 @@ report_status() {
   local container_states
   log "Unit states:"
   for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-    IFS='|' read -r unit _ _ _ <<< "${mapping_entry}"
+    IFS='|' read -r unit _ <<< "${mapping_entry}"
     unit_state=$(systemctl --user show --property=ActiveState --value "${unit}") || return
     printf '%s: %s\n' "${unit}" "${unit_state}"
   done
   log "Container states:"
   for mapping_entry in "${DEPLOYMENT_MAP[@]}"; do
-    IFS='|' read -r _ pod_name _ _ <<< "${mapping_entry}"
+    IFS='|' read -r _ pod_name _ <<< "${mapping_entry}"
     container_states=$(podman ps --all --filter "pod=${pod_name}" --format '{{.Names}} {{.State}}') || return
     [[ -n "${container_states}" ]] || {
       fail "No containers found for pod ${pod_name}."
