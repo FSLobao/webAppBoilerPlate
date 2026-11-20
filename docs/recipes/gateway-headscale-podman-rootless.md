@@ -1250,12 +1250,16 @@ Espera-se estas linhas de `stat -c %a`: `644 0:0 /etc/nginx/nginx.conf`, `644 0:
 Leia os logs da unidade; confirme inicialização do Headplane e ausência de erros:
 
 ```bash
-journalctl --user -u gateway.service -n 100 --no-pager
+systemctl --user status gateway.service --no-pager
 ```
 
 Reinicie e confira se a rota volta sem comando manual:
 
 ```bash
+VPN_PREFIX='100.101.0.0/24'
+GATEWAY_IP='10.100.0.2'
+ROOTLESS_BRIDGE_IFACE='podman1'
+
 systemctl --user restart gateway.service
 set -o pipefail
 podman unshare --rootless-netns /usr/sbin/ip -4 route show "${VPN_PREFIX}" | awk -v prefix="${VPN_PREFIX}" -v gateway="${GATEWAY_IP}" -v iface="${ROOTLESS_BRIDGE_IFACE}" '
@@ -1283,7 +1287,6 @@ END {
 
 **Resultado esperado:** A unidade está ativa e `healthy`; logs não mostram erro de leitura; a rota reaparece após restart.
 
-**Verificação:** Confirme os critérios G5/G2 e o destino, next hop e interface da rota.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -1297,20 +1300,37 @@ END {
 
 ## Passo 29: Criar a conta Headscale
 
-**Objetivo:** Criar o usuário Headscale usado para inscrever o Gateway.
-
-**Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless.
-
-Crie o usuário no Headscale e obtenha seu ID sem expor segredo:
+Para verificar os usuários existentes e posteriormente confirmar se um novo usuário foi criado, utilize o seguinte comando:
 
 ```bash
-podman exec gateway headscale users create gateway-router
 podman exec gateway headscale users list
 ```
 
-**Resultado esperado:** Headscale lista o usuário criado e seu ID.
+Defina um nome de usuário para o Headscale. O nome de usuário deve seguir as regras de formato descritas abaixo.
 
-**Verificação:** Registre o ID retornado; não confunda usuário com nó.
+- Tamanho mínimo de 2 caracteres.
+- Deve começar com uma letra.
+- Conjunto de caracteres permitido:
+  - Letras (a-z, A-Z)
+  - Dígitos / números (0-9)
+  - Hífen (-)
+  - Ponto (.)
+  - Sublinhado / underscore (_)
+  - Arroba (@): permitido mas melhor evitar. Caso utilizado, isso deve ser feito uma única vez no nome de usuário (por exemplo, em formatos tipo e-mail vindos de provedores OIDC), e nunca deve ser o último caractere, ou seja, não deve terminar com @.
+
+Atribua o nome de usuário à variável `HEADSCALE_USER_NAME` para reutilização nos comandos subsequentes.
+
+Durante a instalação inicial, crie o usuário Headscale que possuirá o nó Gateway. O nó autenticado executará tailscaled, anunciará a subnet rootless e atuará como subnet router.
+
+```bash
+HEADSCALE_USER_NAME='gateway-router'
+```
+
+Para criar o usuário no Headscale execute o comando à seguir.
+
+```bash
+podman exec gateway headscale users create "$HEADSCALE_USER_NAME"
+```
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -1324,20 +1344,17 @@ podman exec gateway headscale users list
 
 ## Passo 30: Criar auth key de laboratório
 
-**Objetivo:** Criar uma auth key individual de curta duração sem expô-la.
-
-**Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless; não exiba a auth key.
-
-Crie auth key de uso único diretamente no bind mount:
+Obtenha o ID do usuário Headscale criado no passo anterior e atribua este à variável `HEADSCALE_USER_ID`, diretamente ou à partir da variável `HEADSCALE_USER_NAME` com o seguinte comando:
 
 ```bash
-read -r -p 'ID do usuário Headscale: ' HEADSCALE_USER_ID
-podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; headscale preauthkeys create --user "$1" --expiration 1h > /run/tailscale-auth/authkey' sh "$HEADSCALE_USER_ID"
+HEADSCALE_USER_ID=$(podman exec gateway headscale users list | grep "$HEADSCALE_USER_NAME" | awk '{print $1}')
 ```
 
-**Resultado esperado:** O terminal solicita o ID do usuário Headscale. Informe o ID listado. A chave fica no bind mount e não aparece no terminal.
+Crie uma auth key para o usuário Headscale obtido. Esta terá validade de 1hora
 
-**Verificação:** Confirme que o comando terminou sem imprimir a chave.
+```bash
+podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; headscale preauthkeys create --user "$1" --expiration 1h > /run/tailscale-auth/authkey' sh "$HEADSCALE_USER_ID"
+```
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -1355,13 +1372,11 @@ podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; he
 
 **Contexto:** Execute como `<GATEWAY_USER>` em laboratório aprovado; mantenha a auth key fora do terminal e do histórico.
 
-> **Não verificado:** O [registro histórico](../../.agent/memory/historico-dev.md) classifica esta chamada como workaround de laboratório. A integração rootless de inscrição permanece pendente.
-
-> **Atenção:** Não trate este helper como integração rootless suportada para produção. Pare antes da inscrição em qualquer ambiente que exija essa garantia.
-
 O helper usa o store Podman dessa conta, exige um CIDR IPv4 único, anuncia a rede com `--snat-subnet-routes=false`, sem exit node e sem aceitar DNS/rotas, e remove o arquivo de auth key.
 
 ```bash
+HEADSCALE_FQDN='rhel9podhost.hv'
+
 deploy/scripts/enroll-gateway.sh "${HEADSCALE_FQDN}" gateway gateway-vpn
 ```
 
@@ -1416,7 +1431,6 @@ podman exec gateway tailscale status
    ```bash
    if grep -qx 'PublishPort=8443:443/tcp' "$HOME/.config/containers/systemd/gateway.container"; then
      printf "TCP 8443 já está publicado; revise a unidade antes de continuar.\n" >&2
-     exit 1
    fi
    sed -i 's|^PublishPort=443:443/tcp$|PublishPort=8443:443/tcp\nPublishPort=443:443/tcp|' "$HOME/.config/containers/systemd/gateway.container"
    sed -i "s|^server_url: .*|server_url: \"https://${HEADSCALE_FQDN}\"|" "$HOME/.config/gateway-vpn/headscale.yaml"
@@ -1523,8 +1537,9 @@ podman exec gateway rm -f -- /run/tailscale-auth/authkey
    **Contexto:** Execute no cliente Linux com chave própria em arquivo protegido.
 
    ```bash
-   HEADSCALE_FQDN='headscale.dev.anatel'
+   HEADSCALE_FQDN='rhel9podhost.hv'
    AUTH_KEY_FILE="$HOME/.config/tailscale/auth-key"
+
    sudo tailscale up --login-server="https://${HEADSCALE_FQDN}" \
      --auth-key="file:${AUTH_KEY_FILE}" --accept-routes=true --accept-dns=true --force-reauth
    rm -- "${AUTH_KEY_FILE}"

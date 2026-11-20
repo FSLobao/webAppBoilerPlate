@@ -126,6 +126,18 @@ Oriente o usuário a seguir a [receita do cliente VPN](gateway-vpn-client.md). E
 configuração por sistema operacional, a confiança na CA, a inscrição com o arquivo de chave e os
 testes de conectividade.
 
+Durante a tentativa de inscrição, acompanhe o fluxo do container:
+
+```bash
+podman logs --since 10m --follow gateway
+```
+
+Se o cliente informar `no DNS fallback candidates remain`, o `tailscaled` não alcançou o endpoint;
+não há registro válido no Headscale e não se deve emitir outra chave. Se informar
+`x509: certificate signed by unknown authority`, a comunicação TCP funcionou, mas o cliente
+rejeitou a cadeia TLS. Oriente a importação da CA pública em `Cert:\LocalMachine\Root` no Windows
+e não desative a validação TLS.
+
 Depois da inscrição, confirme que o dispositivo aparece associado ao usuário esperado:
 
 ```bash
@@ -217,6 +229,19 @@ podman logs --tail 100 gateway
 Para a unidade do sistema, use `systemctl status gateway.service --no-pager` na variante rootful.
 Na variante rootless, execute como `<GATEWAY_USER>` e use
 `systemctl --user status gateway.service --no-pager`.
+
+Para distinguir uma CA ausente no cliente de uma cadeia incompleta no Gateway, teste o endpoint a
+partir do host:
+
+```bash
+openssl s_client -connect "<HEADSCALE_FQDN>:443" -servername "<HEADSCALE_FQDN>" \
+  -CAfile "<CA_FILE>" -verify_return_error </dev/null
+```
+
+**Resultado esperado:** a saída termina com `Verify return code: 0 (ok)`. Se informar
+`unable to get local issuer certificate`, confira a ordem e os intermediários em
+`/etc/gateway-vpn/tls/fullchain.pem`. Não compartilhe `privkey.pem`, o conteúdo da chave de
+inscrição ou o banco do Headscale.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

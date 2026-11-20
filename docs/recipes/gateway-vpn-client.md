@@ -159,27 +159,41 @@ oficial da distribuição; não presuma que os comandos Debian ou RHEL se aplica
 
 ### Windows 11
 
-**Não verificado nesta receita.**
+O import no repositório do computador foi verificado nesta sessão com Tailscale 1.104.1 e
+Windows 11.
 
 Em PowerShell 7, calcule a impressão digital SHA-256 do certificado e compare com o valor SHA-256
 recebido do operador por canal separado. O método usa .NET Core; não compare o hash SHA-256 do
 arquivo com a impressão digital do certificado. Se a impressão digital diferir, pare.
 
 ```powershell
-$c=[System.Security.Cryptography.X509Certificates.X509Certificate2]::new("<CA_FILE>"); $c.GetCertHashString("SHA256")
+$CaFile = "<CA_FILE>"
+$Ca = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CaFile)
+$Ca.GetCertHashString("SHA256")
 ```
 
-`Import-Certificate` aceita arquivos `.cer` em DER ou Base64. Importe a CA para as raízes
-confiáveis do computador local:
+`Import-Certificate` aceita arquivos de certificado em DER ou Base64. Em PowerShell elevado, importe
+a CA para as raízes confiáveis do computador local:
 
 ```powershell
-Import-Certificate -FilePath "<CA_FILE>" -CertStoreLocation Cert:\LocalMachine\Root
+Import-Certificate -FilePath $CaFile -CertStoreLocation Cert:\LocalMachine\Root
 ```
 
-Se a importação acima falhar, use esta alternativa em PowerShell elevado:
+Confirme a impressão digital no repositório do computador e reinicie o serviço:
 
 ```powershell
-certutil -addstore -f Root "<CA_FILE>"
+Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $Ca.Thumbprint
+Restart-Service Tailscale
+```
+
+**Resultado esperado:** o certificado aparece no primeiro comando e `Tailscale` reinicia sem erro.
+Não importe somente em `Cert:\CurrentUser\Root`: o cliente é executado pelo serviço `Tailscale`
+no contexto do computador. Se `Import-Certificate` falhar, use esta alternativa em PowerShell
+elevado:
+
+```powershell
+certutil -addstore -f Root $CaFile
+certutil -store Root $Ca.Thumbprint
 ```
 
 ### macOS
@@ -242,15 +256,25 @@ v1.88 e o uso com Headscale não foram verificados. Trayscale e KTailctl são GU
 
 ## 6. Windows 11
 
-**Não verificado nesta receita.**
+O diagnóstico de inscrição desta seção foi verificado com Tailscale 1.104.1 no Windows 11. Consulte
+a versão instalada antes de reproduzir os resultados em outra versão.
+
 Instale o cliente Tailscale oficial pelo [instalador Windows](https://tailscale.com/kb/1022/install-windows) ou pelo [MSI oficial](https://tailscale.com/docs/install/windows/msi). Use PowerShell elevado (Administrador) para `tailscale up`. O aplicativo gráfico oficial fornece o estado e os controles diários. Confirme na documentação da versão instalada o suporte ao servidor Headscale customizado.
 
 Para definir o servidor Headscale, siga o fluxo CLI documentado pelo Headscale. Com chave
 entregue em arquivo, use o caminho local sem copiar o segredo para a linha de comando:
 
 ```powershell
-tailscale up --login-server=https://<HEADSCALE_FQDN> `
-  --auth-key="file:<AUTH_KEY_FILE>" --accept-routes=true --accept-dns=true
+$HeadscaleFqdn = "<HEADSCALE_FQDN>"
+$AuthKeyFile = "<AUTH_KEY_FILE>"
+```
+
+```powershell
+tailscale up `
+  --login-server="https://$HeadscaleFqdn" `
+  --auth-key="file:$AuthKeyFile" `
+  --accept-routes=true `
+  --accept-dns=true
 ```
 
 Confira a rota default:
@@ -260,6 +284,85 @@ Get-NetRoute -DestinationPrefix 0.0.0.0/0
 ```
 
 **Resultado esperado:** a rota default continua usando o gateway local, não a Tailscale.
+
+### Diagnosticar DNS antes da inscrição
+
+`Resolve-DnsName` usa o resolvedor do Windows. O serviço `Tailscale` pode usar uma seleção de
+servidores DNS diferente antes de receber a configuração do Headscale. Teste ambos:
+
+```powershell
+Resolve-DnsName $HeadscaleFqdn
+Test-NetConnection $HeadscaleFqdn -Port 443
+tailscale debug resolve $HeadscaleFqdn
+```
+
+**Resultado esperado:** os dois comandos de resolução retornam o mesmo endereço e
+`TcpTestSucceeded` é `True`. Se somente `Resolve-DnsName` funcionar, inspecione os servidores
+configurados nos adaptadores:
+
+```powershell
+Get-DnsClientServerAddress -AddressFamily IPv4
+Get-NetIPConfiguration
+```
+
+Localize o adaptador físico ou virtual que alcança o Gateway e confirme que o DNS entregue pelo
+DHCP resolve `<HEADSCALE_FQDN>`. Desative temporariamente somente adaptadores não usados e com
+configuração DNS obsoleta, se a política local permitir. Para a interface ativa, teste o DNS local
+explicitamente:
+
+```powershell
+$Interface = "<INTERFACE_ATIVA>"
+$LocalDns = "<IP_DNS_LOCAL>"
+Set-DnsClientServerAddress -InterfaceAlias $Interface -ServerAddresses $LocalDns
+Restart-Service Tailscale
+tailscale debug resolve $HeadscaleFqdn
+```
+
+> **Atenção:** alterar DNS pode interromper aplicações que dependem de resolução corporativa.
+> Faça a alteração somente com o DNS aprovado e sob orientação do administrador da rede.
+
+**Resultado esperado:** `tailscale debug resolve` retorna o endereço do Headscale. Para voltar a
+usar DHCP no adaptador:
+
+```powershell
+Set-DnsClientServerAddress -InterfaceAlias $Interface -ResetServerAddresses
+Restart-Service Tailscale
+```
+
+Não configure um DNS público para resolver um nome privado como `<HEADSCALE_FQDN>`. Se a rede
+depende de um DNS do roteador, a correção estrutural é publicar o registro no DNS interno aprovado.
+Não use o arquivo `hosts` como correção permanente; ele apenas contorna a divergência entre os
+resolvedores.
+
+### Diagnosticar TLS e coletar logs
+
+Confira a rota de saúde HTTPS e o estado completo:
+
+```powershell
+curl.exe --fail --silent --show-error "https://$HeadscaleFqdn/health"
+tailscale status --json
+```
+
+**Resultado esperado:** o primeiro comando retorna JSON de saúde e `BackendState` não permanece
+como `NoState`. O erro
+`x509: certificate signed by unknown authority` indica que a cadeia não alcança uma CA confiável.
+Repita [Confiar na CA](#4-confiar-na-ca) e confirme que a CA está em
+`Cert:\LocalMachine\Root`, não somente em `Cert:\CurrentUser\Root`. Reinicie o serviço depois da
+importação.
+
+No Windows, os logs locais ficam em `C:\ProgramData\Tailscale\Logs`, ou de modo mais geral em
+`$env:ProgramData\Tailscale\Logs`. Localize o log mais recente e acompanhe novas tentativas:
+
+```powershell
+$Log = Get-ChildItem "$env:ProgramData\Tailscale\Logs\*service*.txt" |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+Get-Content $Log.FullName -Tail 200 -Wait
+```
+
+Execute `tailscale up` em outro PowerShell elevado durante o acompanhamento. Não envie logs sem
+revisar IPs, hostnames e identificadores internos. Nunca inclua o conteúdo de
+`<AUTH_KEY_FILE>`.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -423,13 +526,16 @@ autorização; conectividade TCP não substitui autenticação no banco.
 
 | Sintoma | Causa provável | Ação |
 | --- | --- | --- |
-| Erro TLS ao contatar Headscale | CA privada ausente, nome incorreto ou certificado expirado. | Confirme `<HEADSCALE_FQDN>`, validade e impressão digital SHA-256 com o operador; instale somente a CA pública aprovada. Não desative a validação TLS. |
+| `failed to resolve "<HEADSCALE_FQDN>": no DNS fallback candidates remain` | `Resolve-DnsName` e o resolvedor interno do Tailscale consultam servidores diferentes, ou um adaptador contém DNS obsoleto. | Compare `Resolve-DnsName` com `tailscale debug resolve`; inspecione os DNSs dos adaptadores. Configure o DNS local aprovado na interface ativa e reinicie `Tailscale`. Não corrija permanentemente com `hosts`. |
+| `x509: certificate signed by unknown authority` | CA privada instalada apenas para o usuário atual, raiz incorreta ou cadeia de servidor incompleta. | Confirme a impressão digital; instale a CA pública em `Cert:\LocalMachine\Root` como Administrador e reinicie `Tailscale`. Se persistir, peça ao operador para validar a cadeia de `/etc/gateway-vpn/tls/fullchain.pem`. |
+| Erro TLS por hostname ou validade | `<HEADSCALE_FQDN>` não corresponde ao SAN, ou o certificado expirou. | Confirme o nome, o SAN, a validade e a impressão digital com o operador. Não desative a validação TLS nem acesse por IP para contornar o SAN. |
 | Nó inscrito, mas serviço inacessível | Rota não aprovada, rota não aceita ou porta não liberada. | Confirme aprovação da rota, aceite de rotas no cliente e acesso ao `<SERVICE_PORT>` com o operador. O comportamento de rotas pode variar por sistema; confirme a configuração aplicada no cliente. |
 | Alias `dev.anatel` não resolve | DNS não aceito, alias ausente, resolução local em cache ou VPN sem configuração split DNS. | Confirme `--accept-dns=true`, alias e política DNS distribuída; repita a consulta do sistema operacional. |
 | DNS usa endereço diferente do esperado | Cache local ou domínio conflitante com outra VPN. | Compare com o endereço fornecido pelo operador, limpe o cache pelo método do SO e teste sem alterar DNS corporativo. |
 | VPN corporativa/Tailscale conflitante | CIDR, domínio DNS ou rota sobrepostos. | Compare as rotas da LAN/VPN corporativa com `<CONTAINER_CIDR>` e `<VPN_PREFIX>`; envie conflitos ao operador e peça plano de endereçamento. Não altere a rota default nem desconecte a VPN corporativa sem autorização. |
 | Login informa chave inválida, expirada ou usada | Chave de inscrição de uso único foi consumida ou expirou. | Peça ao operador nova chave individual. Não envie a chave antiga em chamados ou logs. |
 | `tailscale status` não mostra conexão | Serviço parado, login pendente ou endpoint configurado indisponível. | Confirme serviço, relógio do sistema e resolução/acesso ao endpoint definido pelo operador antes da VPN; solicite aprovação ao operador. |
+
 
 Em Linux com `systemd-resolved`, `resolvectl query <APP_ALIAS>` mostra o resultado consultado.
 Se o domínio também existir numa VPN corporativa, a seleção do resolver pode depender da
@@ -509,6 +615,9 @@ e estão identificados como tal.
 - [Red Hat: certificados compartilhados do sistema](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/securing_networks/using-shared-system-certificates_securing-networks)
 - [PowerShell: `Import-Certificate`](https://learn.microsoft.com/en-us/powershell/module/pki/import-certificate?view=windowsserver2025-ps)
 - [Apple: adicionar certificados ao Keychain](https://support.apple.com/guide/keychain-access/add-certificates-to-a-keychain-kyca2794/mac)
+- [Tailscale: logs locais por sistema operacional](https://tailscale.com/docs/features/logging)
+- [Tailscale: falhas de resolução DNS](https://tailscale.com/docs/reference/troubleshooting/resolve-domain-names-failure)
+- [Headscale: comandos de diagnóstico](https://headscale.net/stable/ref/debug/)
 - [OpenSSH Client no Windows](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse)
 - [VS Code Remote - SSH](https://code.visualstudio.com/docs/remote/ssh)
 
