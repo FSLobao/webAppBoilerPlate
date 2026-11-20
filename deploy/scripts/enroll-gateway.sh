@@ -119,8 +119,11 @@ enroll_gateway() {
     --accept-routes=false
   )
 
-  if ! podman exec "${container_name}" "${tailscale_args[@]}"; then
-    printf 'tailscale up failed inside container: %s\n' "${container_name}" >&2
+  if ! podman exec "${container_name}" timeout 60s "${tailscale_args[@]}"; then
+    printf 'tailscale up failed or timed out inside container: %s\n' \
+      "${container_name}" >&2
+    printf 'Inspect podman logs --tail 100 %s before issuing a new auth key.\n' \
+      "${container_name}" >&2
     return 1
   fi
 

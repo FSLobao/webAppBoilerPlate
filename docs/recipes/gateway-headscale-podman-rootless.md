@@ -19,10 +19,10 @@
         <li><a href="#passo-12-testar-tun-e-encaminhamento-no-container">Passo 12: Testar TUN e encaminhamento no container</a></li>
         <li><a href="#passo-13-remover-os-containers-de-teste">Passo 13: Remover os containers de teste</a></li>
         <li><a href="#passo-14-preparar-configurações">Passo 14: Preparar configurações</a></li>
-        <li><a href="#passo-15-preparar-a-candidata-headplane">Passo 15: Preparar a candidata Headplane</a></li>
+        <li><a href="#passo-15-preparar-as-candidatas-de-configuração">Passo 15: Preparar as candidatas de configuração</a></li>
         <li><a href="#passo-16-validar-a-candidata-headplane">Passo 16: Validar a candidata Headplane</a></li>
         <li><a href="#passo-17-instalar-configurações-de-base">Passo 17: Instalar configurações de base</a></li>
-        <li><a href="#passo-18-ajustar-configurações-rootless">Passo 18: Ajustar configurações rootless</a></li>
+        <li><a href="#passo-18-verificar-configurações-instaladas">Passo 18: Verificar configurações instaladas</a></li>
         <li><a href="#passo-19-instalar-tls-e-segredo-headplane">Passo 19: Instalar TLS e segredo Headplane</a></li>
         <li><a href="#passo-20-aplicar-ownership-e-modos-internos">Passo 20: Aplicar ownership e modos internos</a></li>
         <li><a href="#passo-21-inspecionar-rede-rootless">Passo 21: Inspecionar rede rootless</a></li>
@@ -105,6 +105,7 @@ A bridge existe na namespace de rede rootless e não é diretamente alcançável
 | [headplane.yaml](../../deploy/gateway/v1/config/headplane.yaml) | Candidato, validado e instalado | `prepare-headplane-candidate.sh` cria segredo inicial em modo `0444`; ajuste permissões depois da validação. |
 | [nginx.conf](../../deploy/gateway/v1/config/nginx.conf) | Copiado e adaptado | Ajustar FQDN e prefixo permitido; validar o endereço de origem que NGINX realmente recebe. |
 | [gateway.container](../../deploy/gateway/v1/quadlet/gateway.container) | Copiado para o diretório Quadlet do usuário | Trocar dependências rootful, rede, publicação de porta e caminhos bind. Manter TUN, `NET_ADMIN` e `ip_forward`. |
+| [load-env.sh](../../deploy/scripts/load-env.sh) | Fonte das constantes operacionais | Revisar antes do uso; instalar no diretório privado da conta Gateway e carregar com `source`. |
 | [gateway-vpn-return-route.service](../../deploy/gateway/v1/host/gateway-vpn-return-route.service) e [env.example](../../deploy/gateway/v1/host/gateway-vpn-return-route.env.example) | **Não usados** | Configuram uma rota na namespace rootful do host; não controlam a namespace rootless. |
 | [prepare-headplane-candidate.sh](../../deploy/scripts/prepare-headplane-candidate.sh) | Reutilizado como `<GATEWAY_USER>` | Usa `openssl`; cria diretório `0700`, config `0600` e segredo `0444`. |
 | [validate-headplane-config.sh](../../deploy/scripts/validate-headplane-config.sh) | Reutilizado como `<GATEWAY_USER>` | Chama `podman run`, `podman healthcheck` e remove o container de validação. Usa o store rootless da sessão atual; não valida as permissões finais dos bind mounts. |
@@ -170,23 +171,35 @@ Interfaces reais dos scripts:
 | 443 | TCP | Entrada no host | Endpoint Headscale e Headplane |
 | 53 | UDP/TCP | Somente dentro da VPN | Consultas ao resolver Aardvark; não publique no host |
 
-Defina as variáveis na sessão atual. Execute o bloco novamente em cada sessão nova e substitua os valores de exemplo por valores aprovados:
+Antes do [Passo 1](#passo-1-preparar-a-conta-rootless), defina somente a conta necessária para
+criar o ambiente:
 
 ```bash
-SUBUID_RANGE='<INICIO-FIM_LIVRES>'
-SUBGID_RANGE='<INICIO-FIM_LIVRES>'
-
 GATEWAY_USER=podman_user
-ROOTLESS_SUBNET='10.100.0.0/24'
-ROOTLESS_BRIDGE_IP='10.100.0.1'
-ROOTLESS_BRIDGE_IFACE='podman1'
-GATEWAY_IP='10.100.0.2'
-VPN_PREFIX='100.101.0.0/24'
-HEADSCALE_FQDN='rhel9podhost.hv'
-GATEWAY_LAN_IP='192.168.7.164'
-APP_ALIAS='webapp.dev.anatel'
-TLS_STAGE='/home/podman_user/tls-stage'
 ```
+
+> **Atenção:** Antes de instalar ou carregar o arquivo, revise todos os valores em
+> [load-env.sh](../../deploy/scripts/load-env.sh). Endereços, FQDNs, conta e caminhos devem
+> corresponder ao ambiente aprovado. Não continue se qualquer valor for de exemplo ou não aprovado.
+
+O Passo 1 instala o loader versionado como `~/.config/gateway-vpn/load-env.sh`. Carregue-o no
+início de cada etapa que usa as constantes desta receita:
+
+```bash
+install -Dm600 deploy/scripts/load-env.sh "$HOME/.config/gateway-vpn/load-env.sh"
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+> [!TIP]
+> Use `source` ou o equivalente `.`. Como dica, defina este alias na conta Gateway para carregar o arquivo com um comando curto:
+> 
+> ```bash
+> alias gwenv='source "$HOME/.config/gateway-vpn/load-env.sh"'
+> ```
+
+Para torná-lo persistente, adicione a linha ao `~/.bashrc` somente depois de revisar o loader.
+Executar `load-env.sh` diretamente não altera o shell atual, porque um processo filho não modifica
+o ambiente do processo pai.
 
 | Variável ou placeholder | Descrição | Exemplo | Onde usar |
 | --- | --- | --- | --- |
@@ -203,6 +216,7 @@ TLS_STAGE='/home/podman_user/tls-stage'
 | `APP_ALIAS` / `<APP_ALIAS>` | Alias DNS do container de aplicação | `webapp.dev.anatel` | Passos 41–42 |
 | `AUTH_KEY_FILE` | Arquivo local, fora do repositório, para chave de re-inscrição do cliente | `$HOME/.config/tailscale/auth-key` | Passo 37 |
 | `TLS_STAGE` / `<TLS_STAGE>` | Diretório seguro com certificado e chave entregues à conta | `/home/podman_user/tls-stage` | Passo 19 |
+| `CA_FILE` / `<CA_FILE>` | Certificado público da CA que assinou o endpoint Headscale | `/home/podman_user/tls-stage/gateway-dev-ca.crt` | Passo 19 |
 | `<ID_DO_USUÁRIO>`, `<ID_DO_NÓ>` | IDs retornados pelo Headscale | Valores da listagem | Passos 29–38 |
 
 Antes do [Passo 1](#passo-1-preparar-o-host), como `root`, guarde o valor atual do sysctl em diretório restrito:
@@ -270,7 +284,34 @@ As variáveis `SUBUID_RANGE` e `SUBGID_RANGE` usam o formato `UID_INICIAL-UID_FI
 Caso seja necessário definir as faixas de subuids e subgids, utilize os comandos `usermod` apropriados antes de prosseguir.
 
 ```bash
+SUBUID_RANGE='<INICIO-FIM_LIVRES>'
+SUBGID_RANGE='<INICIO-FIM_LIVRES>'
+
 usermod --add-subuids "$SUBUID_RANGE" --add-subgids "$SUBGID_RANGE" "$GATEWAY_USER"
+```
+
+Instale o loader versionado somente depois de revisar
+[load-env.sh](../../deploy/scripts/load-env.sh). O arquivo instalado pertence à conta Gateway e
+usa modo `0700`.
+
+```bash
+GATEWAY_HOME=$(getent passwd "$GATEWAY_USER" | cut -d: -f6)
+GATEWAY_GROUP=$(id -gn "$GATEWAY_USER")
+GATEWAY_ENV_FILE="$GATEWAY_HOME/.config/gateway-vpn/load-env.sh"
+[[ -n "$GATEWAY_HOME" && ! -e "$GATEWAY_ENV_FILE" && ! -L "$GATEWAY_ENV_FILE" ]] || {
+  printf 'Home inválida ou loader já existente; preserve-o e resolva manualmente.\n' >&2
+  exit 1
+}
+install -d -o "$GATEWAY_USER" -g "$GATEWAY_GROUP" -m 0700 "$(dirname "$GATEWAY_ENV_FILE")"
+install -o "$GATEWAY_USER" -g "$GATEWAY_GROUP" -m 0700 deploy/scripts/load-env.sh "$GATEWAY_ENV_FILE"
+```
+
+Valide o arquivo como Bash e confirme que ele carrega todas as variáveis sem alterá-las fora do
+shell que executou `source`:
+
+```bash
+bash -n "$GATEWAY_ENV_FILE"
+runuser -u "$GATEWAY_USER" -- bash -ec 'source "$1"; declare -p GATEWAY_USER ROOTLESS_SUBNET ROOTLESS_BRIDGE_IP ROOTLESS_BRIDGE_IFACE GATEWAY_IP VPN_PREFIX HEADSCALE_FQDN GATEWAY_LAN_IP APP_ALIAS TLS_STAGE CA_FILE >/dev/null' bash "$GATEWAY_ENV_FILE"
 ```
 
 Mude para a conta dedicada do usuário para clonar o repositório com os scripts que serão posteriormente utilizados, que devem ser armazenados no diretório home do usuário, retornando em seguida para a conta de root.
@@ -293,6 +334,13 @@ exit
 </div>
 
 ## Passo 2: Preparar o host como root
+
+Carregue as constantes antes dos comandos desta etapa:
+
+```bash
+GATEWAY_USER=podman_user
+source "$(getent passwd "${GATEWAY_USER}" | cut -d: -f6)/.config/gateway-vpn/load-env.sh"
+```
 
 De volta à conta de root, gere uma senha inicial aleatória para a conta dedicada. Execute na raiz do repositório, confirme que `.env` é ignorado e que ainda não existe. O arquivo fica em modo `0600`; não imprima nem passe a senha em argumentos. O uso do pequeno script abaixo garante que a senha seja criada, armazenada e aplicada de forma segura, sem apresentar a senha em logs ou argumentos.
 
@@ -426,28 +474,23 @@ findmnt -no FSTYPE,OPTIONS -T "$HOME"
 
 **Contexto:** Use o inventário de rotas e os valores aprovados na seção Pré-requisitos e variáveis.
 
+Carregue as variáveis aprovadas. No shell da conta Gateway, use:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+No shell `root`, carregue o mesmo arquivo pelo home da conta:
+
+```bash
+source "$(getent passwd "${GATEWAY_USER}" | cut -d: -f6)/.config/gateway-vpn/load-env.sh"
+```
+
 ```bash
 ip -4 route show table all
 ```
 
 Compare as rotas do host com `<ROOTLESS_SUBNET>`, `<VPN_PREFIX>`, LAN/corporativas e o CIDR rootful `podman` fornecido pela infraestrutura. Não use `sudo podman` nesta receita.
-
-## Definir variáveis
-
-Defina isto como variáveis para facilitar a configuração e reutilização ao longo da receita.
-
-```bash
-GATEWAY_USER=podman_user
-ROOTLESS_SUBNET='10.100.0.0/24'
-ROOTLESS_BRIDGE_IP='10.100.0.1'
-ROOTLESS_BRIDGE_IFACE='podman1'
-GATEWAY_IP='10.100.0.2'
-VPN_PREFIX='100.101.0.0/24'
-HEADSCALE_FQDN='rhel9podhost.hv'
-GATEWAY_LAN_IP='192.168.7.164'
-APP_ALIAS='webapp.dev.anatel'
-TLS_STAGE='/home/podman_user/tls-stage'
-```
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -460,6 +503,12 @@ TLS_STAGE='/home/podman_user/tls-stage'
 </div>
 
 ## Passo 5: Criar a bridge rootless
+
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
 
 Crie a bridge com DNS habilitado por padrão e informe subnet/gateway escolhidos. Confirme o resultado efetivo; não prossiga se DNS estiver desabilitado:
 
@@ -563,6 +612,12 @@ Esse ajuste não altera o sysctl global do host. **Se o comando falhar ou o valo
 **Objetivo:** Instalar a rota VPN dentro da namespace rootless.
 
 **Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless e use a interface descoberta.
+
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
 
 Descubra a interface na mesma namespace; use `replace` para tornar a instalação idempotente:
 
@@ -713,32 +768,76 @@ chmod 0700 "$HOME/.config/gateway-vpn" "$HOME/.config/gateway-vpn/tls" "$HOME/.c
   <br><br>
 </div>
 
-## Passo 15: Preparar a candidata Headplane
+## Passo 15: Preparar as candidatas de configuração
 
-**Objetivo:** Gerar e atualizar a candidata Headplane sem alterar o template versionado.
+**Objetivo:** Aplicar todas as alterações de ambiente às candidatas antes de instalá-las.
 
 **Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless.
 
-Prepare o candidato Headplane com o script existente, como `<GATEWAY_USER>`:
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+Prepare o staging da configuração Headplane com o script existente:
 
 ```bash
 headplane_candidate_dir=$(deploy/scripts/prepare-headplane-candidate.sh)
 headplane_candidate_config="$headplane_candidate_dir/headplane.yaml"
 headplane_candidate_secret="$headplane_candidate_dir/headplane-cookie-secret"
+headscale_candidate_config="$headplane_candidate_dir/headscale.yaml"
+nginx_candidate_config="$headplane_candidate_dir/nginx.conf"
 ```
 
-Atualize somente `headscale.public_url` na candidata; mantenha `server.base_url` e os caminhos de config/secret do template:
+Copie as demais configurações para o mesmo staging:
 
 ```bash
-sed -i "s|^  public_url: .*|  public_url: \"https://${HEADSCALE_FQDN}\"|" "$headplane_candidate_config"
-grep -F "public_url: \"https://${HEADSCALE_FQDN}\"" "$headplane_candidate_config"
+install -m 0600 deploy/gateway/v1/config/headscale.yaml "$headscale_candidate_config"
+install -m 0600 deploy/gateway/v1/config/nginx.conf "$nginx_candidate_config"
 ```
 
-O script deixa o segredo candidato em `0444` para a validação upstream; não instale esse modo como permissão final.
+Aplique todas as substituições específicas do ambiente antes de instalar as candidatas.
+O Headscale e o Headplane usam o mesmo endpoint HTTPS externo. O Headplane usa
+`headscale.url: "http://127.0.0.1:8080"` para comunicação interna e
+`server.base_url: "https://dev-gateway.dev.anatel"` para sua própria interface.
 
-**Resultado esperado:** A candidata usa o FQDN aprovado e mantém `server.base_url` e caminhos do template.
+```bash
+sed -i \
+  -e "s|^server_url: .*|server_url: \"https://${HEADSCALE_FQDN}\"|" \
+  -e "s|^  v4: .*|  v4: \"${VPN_PREFIX}\"|" \
+  -e "s|^        - \"192.0.2.53\"|        - \"${ROOTLESS_BRIDGE_IP}\"|" \
+  "$headscale_candidate_config"
+```
 
-**Verificação:** Confirme a saída de `grep` e preserve o segredo candidato em modo `0444` até G4.
+```bash
+sed -i \
+  -e "s|server_name headscale.example.invalid;|server_name ${HEADSCALE_FQDN};|" \
+  -e "s|allow 100.64.0.0/10;|allow ${VPN_PREFIX};|" \
+  "$nginx_candidate_config"
+```
+
+```bash
+sed -i "s|^  public_url: .*|  public_url: \"https://${HEADSCALE_FQDN}\"|" \
+  "$headplane_candidate_config"
+```
+
+O script deixa o segredo candidato em `0444` para a validação upstream. Preserve esse modo até o
+[Passo 19](#passo-19-instalar-tls-e-segredo-headplane), quando ele será instalado com modo final.
+
+**Resultado esperado:** As três candidatas usam os valores rootless aprovados. Os dois campos do
+endpoint Headscale usam `https://${HEADSCALE_FQDN}`; `server.base_url` permanece no endereço do
+Headplane.
+
+**Verificação:** Confirme os valores críticos antes de instalar:
+
+```bash
+grep -F "server_url: \"https://${HEADSCALE_FQDN}\"" "$headscale_candidate_config"
+grep -F "  v4: \"${VPN_PREFIX}\"" "$headscale_candidate_config"
+grep -F "        - \"${ROOTLESS_BRIDGE_IP}\"" "$headscale_candidate_config"
+grep -F "  public_url: \"https://${HEADSCALE_FQDN}\"" "$headplane_candidate_config"
+grep -F "  base_url: \"https://dev-gateway.dev.anatel\"" "$headplane_candidate_config"
+```
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -780,24 +879,47 @@ O helper executa Headplane com `--network none` e monta somente o YAML Headplane
 
 ## Passo 17: Instalar configurações de base
 
-**Objetivo:** Instalar arquivos novos a partir dos templates sem sobrescrever dados.
+**Objetivo:** Instalar as candidatas sem sobrescrever dados existentes.
 
 **Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless; use o diretório de configuração privado.
 
-Instale cópias novas dos arquivos e adapte somente os valores indicados. O resolver deve ser `<ROOTLESS_BRIDGE_IP>`, não o IP do container Gateway. Em NGINX, permita somente o prefixo Headscale e mantenha `deny all`.
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+Instale as candidatas já adaptadas no [Passo 15](#passo-15-preparar-as-candidatas-de-configuração).
+Não execute substituições depois da instalação.
 
 ```bash
 gateway_config_dir="$HOME/.config/gateway-vpn"
 ```
 
+Verifique se os arquivos de configuração já existem antes de prosseguir:
+
 ```bash
-[[ ! -e "$gateway_config_dir/headscale.yaml" && ! -L "$gateway_config_dir/headscale.yaml" && ! -e "$gateway_config_dir/headplane.yaml" && ! -L "$gateway_config_dir/headplane.yaml" && ! -e "$gateway_config_dir/nginx.conf" && ! -L "$gateway_config_dir/nginx.conf" && ! -e "$gateway_config_dir/tls/fullchain.pem" && ! -L "$gateway_config_dir/tls/fullchain.pem" && ! -e "$gateway_config_dir/tls/privkey.pem" && ! -L "$gateway_config_dir/tls/privkey.pem" && ! -e "$gateway_config_dir/secrets/headplane-cookie-secret" && ! -L "$gateway_config_dir/secrets/headplane-cookie-secret" ]] || { printf "Um ou mais destinos já existem; preserve-os e resolva manualmente.\n" >&2; exit 1; }
-install -m 0600 deploy/gateway/v1/config/headscale.yaml "$gateway_config_dir/headscale.yaml"
-install -m 0600 "$headplane_candidate_config" "$gateway_config_dir/headplane.yaml"
-install -m 0600 deploy/gateway/v1/config/nginx.conf "$gateway_config_dir/nginx.conf"
+[[ -f "$headscale_candidate_config" && -f "$headplane_candidate_config" && -f "$nginx_candidate_config" ]] || {
+  printf 'Uma ou mais candidatas estão ausentes; refaça o Passo 15.\n' >&2
+}
+[[ ! -e "$gateway_config_dir/headscale.yaml" && ! -L "$gateway_config_dir/headscale.yaml" &&
+   ! -e "$gateway_config_dir/headplane.yaml" && ! -L "$gateway_config_dir/headplane.yaml" &&
+   ! -e "$gateway_config_dir/nginx.conf" && ! -L "$gateway_config_dir/nginx.conf" ]] || {
+  printf 'Um ou mais destinos já existem; preserve-os e resolva manualmente.\n' >&2
+}
 ```
 
-`install-file.sh` não é a alternativa desta receita: ele chama `chown` e não faz o mapeamento rootless necessário; `install -m` executado pelo usuário mantém o proprietário atual. Execute as substituições seguintes como o usuário; não execute o instalador como root.
+Instale as candidatas nos destinos finais:
+
+```bash
+install -m 0600 "$headscale_candidate_config" "$gateway_config_dir/headscale.yaml"
+install -m 0600 "$headplane_candidate_config" "$gateway_config_dir/headplane.yaml"
+install -m 0600 "$nginx_candidate_config" "$gateway_config_dir/nginx.conf"
+```
+
+`install-file.sh` não é a alternativa desta receita: ele chama `chown` e não faz o mapeamento
+rootless necessário. `install -m`, executado pelo usuário, mantém o proprietário atual. Não
+execute a instalação como root.
 
 **Resultado esperado:** Os três arquivos base existem em destinos novos sob o diretório rootless.
 
@@ -813,34 +935,32 @@ install -m 0600 deploy/gateway/v1/config/nginx.conf "$gateway_config_dir/nginx.c
   <br><br>
 </div>
 
-## Passo 18: Ajustar configurações rootless
+## Passo 18: Verificar configurações instaladas
 
-**Objetivo:** Aplicar os valores rootless às cópias de configuração.
+**Objetivo:** Confirmar que a instalação preservou os valores aplicados no staging.
 
 **Contexto:** Execute como `<GATEWAY_USER>` na mesma sessão rootless.
 
-Atualize os campos confirmados nos templates:
+Carregue as constantes aprovadas:
 
 ```bash
-sed -i \
-  -e "s|^server_url: .*|server_url: \"https://${HEADSCALE_FQDN}\"|" \
-  -e "s|^  v4: .*|  v4: \"${VPN_PREFIX}\"|" \
-  -e "s|^        - \"192.0.2.53\"|        - \"${ROOTLESS_BRIDGE_IP}\"|" \
-  "$gateway_config_dir/headscale.yaml"
+source "$HOME/.config/gateway-vpn/load-env.sh"
 ```
 
 ```bash
-sed -i \
-  -e "s|server_name headscale.example.invalid;|server_name ${HEADSCALE_FQDN};|" \
-  -e "s|allow 100.64.0.0/10;|allow ${VPN_PREFIX};|" \
-  "$gateway_config_dir/nginx.conf"
+grep -Fq "server_url: \"https://${HEADSCALE_FQDN}\"" "$gateway_config_dir/headscale.yaml" &&
+grep -Fq "  v4: \"${VPN_PREFIX}\"" "$gateway_config_dir/headscale.yaml" &&
+grep -Fq "        - \"${ROOTLESS_BRIDGE_IP}\"" "$gateway_config_dir/headscale.yaml" &&
+grep -Fq "  public_url: \"https://${HEADSCALE_FQDN}\"" "$gateway_config_dir/headplane.yaml" &&
+grep -Fq "server_name ${HEADSCALE_FQDN};" "$gateway_config_dir/nginx.conf" &&
+grep -Fq "allow ${VPN_PREFIX};" "$gateway_config_dir/nginx.conf" &&
+grep -Fq "deny all;" "$gateway_config_dir/nginx.conf"
 ```
 
-Confira `server_url`, `prefixes.v4`, o nameserver split DNS, o `server_name`, `allow` e `deny all` antes de iniciar o Gateway.
+**Resultado esperado:** Todos os comandos terminam com código `0` e nenhuma substituição restante
+é necessária nos arquivos instalados.
 
-**Resultado esperado:** Headscale e NGINX usam os valores rootless aprovados.
-
-**Verificação:** Revise `server_url`, `prefixes.v4`, o nameserver split DNS, `server_name`, `allow` e `deny all`.
+**Verificação:** Confirme `printf '%s\n' "$?"` retorna `0` depois do último comando.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -854,19 +974,44 @@ Confira `server_url`, `prefixes.v4`, o nameserver split DNS, o `server_name`, `a
 
 ## Passo 19: Instalar TLS e segredo Headplane
 
-**Objetivo:** Instalar certificado, chave e segredo Headplane com permissões restritas.
+**Objetivo:** Instalar certificado, chave, CA pública e segredo Headplane com permissões restritas.
 
 **Contexto:** Execute como `<GATEWAY_USER>` após a validação candidata; obtenha TLS por canal seguro e não exiba secrets.
+
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
 
 Obtenha `fullchain.pem` e `privkey.pem` por processo aprovado. A receita [gateway-tls.md](gateway-tls.md) produz os arquivos de TLS do host, mas a chave pode ser root-only; não copie por um caminho que o usuário não possa ler, não relaxe a permissão de origem e não passe a chave em argumentos. A infraestrutura deve entregar o par a uma área de staging legível somente pela conta rootless, por canal seguro. Use o `TLS_STAGE` definido na seção Pré-requisitos e variáveis. Preserve a chave em `0600`; o certificado público pode usar `0644`.
 
 ```bash
-TLS_STAGE="/etc/gateway-vpn/tls"
-install -m 0644 "$TLS_STAGE/fullchain.pem" "$gateway_config_dir/tls/fullchain.pem"
-install -m 0600 "$TLS_STAGE/privkey.pem" "$gateway_config_dir/tls/privkey.pem"
+GATEWAY_CERT='/etc/gateway/tls/gateway.cert'
+GATEWAY_KEY='/etc/gateway/tls/gateway.key'
+CA_FILE='/etc/gateway/tls/gateway-dev-ca.crt'
+
+install -m 0644  "$GATEWAY_CERT" "$gateway_config_dir/tls/fullchain.pem"
+install -m 0600 "$GATEWAY_KEY" "$gateway_config_dir/tls/privkey.pem"
+install -m 0644 "$CA_FILE" "$gateway_config_dir/tls/gateway-ca.crt"
 ```
 
-Depois de validar o candidato, instale o segredo em destino novo e remova o staging criado pelo script:
+Crie um bundle de confiança dentro do diretório montado. Ele preserva as CAs públicas da imagem
+e adiciona a CA privada que assinou `<HEADSCALE_FQDN>`. Sem essa confiança, `tailscaled` dentro
+do Gateway rejeita a conexão com o Headscale como `x509: certificate signed by unknown authority`.
+
+```bash
+ca_bundle_tmp=$(mktemp "$gateway_config_dir/tls/ca-bundle.pem.XXXXXX")
+podman run --rm --entrypoint /bin/cat localhost/gateway:1.0.0 /etc/ssl/certs/ca-certificates.crt > "$ca_bundle_tmp"
+cat "$gateway_config_dir/tls/gateway-ca.crt" >> "$ca_bundle_tmp"
+```
+
+```bash
+install -m 0644 "$ca_bundle_tmp" "$gateway_config_dir/tls/ca-bundle.pem"
+rm -f -- "$ca_bundle_tmp"
+```
+
+Depois de validar e instalar a candidata, instale o segredo em destino novo e remova o staging:
 
 ```bash
 chmod 0600 "$headplane_candidate_secret"
@@ -876,9 +1021,16 @@ if [[ -n "${headplane_candidate_dir:-}" && -d "${headplane_candidate_dir}" && ! 
 fi
 ```
 
-**Resultado esperado:** Certificado público usa `0644`; chave privada usa `0600`; secret pertence ao UID interno `20002` e usa `0400`.
+**Resultado esperado:** Certificado, CA e bundle são públicos com modo `0644`; a chave TLS e o
+secret usam `0600`. O staging foi removido.
 
-**Verificação:** Confirme modos TLS e teste a leitura do secret como Headplane no G5; pare se qualquer teste falhar.
+**Verificação:** Confirme que os três certificados existem e que o bundle não está vazio:
+
+```bash
+test -s "$gateway_config_dir/tls/fullchain.pem"
+test -s "$gateway_config_dir/tls/gateway-ca.crt"
+test -s "$gateway_config_dir/tls/ca-bundle.pem"
+```
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -927,6 +1079,11 @@ podman unshare chmod 0400 "$gateway_config_dir/secrets/headplane-cookie-secret"
 podman unshare chown 0:0 "$gateway_config_dir/headscale.yaml" "$gateway_config_dir/headplane.yaml" "$gateway_config_dir/nginx.conf" "$gateway_config_dir/tls/fullchain.pem" "$gateway_config_dir/tls/privkey.pem"
 podman unshare chmod 0644 "$gateway_config_dir/headscale.yaml" "$gateway_config_dir/headplane.yaml" "$gateway_config_dir/nginx.conf" "$gateway_config_dir/tls/fullchain.pem"
 podman unshare chmod 0600 "$gateway_config_dir/tls/privkey.pem"
+```
+
+```bash
+podman unshare chown 0:0 "$gateway_config_dir/tls/gateway-ca.crt" "$gateway_config_dir/tls/ca-bundle.pem"
+podman unshare chmod 0644 "$gateway_config_dir/tls/gateway-ca.crt" "$gateway_config_dir/tls/ca-bundle.pem"
 ```
 
 As pastas continuam sob controle do usuário; os arquivos mapeados podem aparecer com UID não reconhecido na namespace do host. Defina e valide o método de backup desses arquivos antes da operação contínua. `tailscaled` roda como root interno e grava seu estado no volume rootless. A montagem `secrets/tailscale` é temporária para auth key e deve permanecer `0700`.
@@ -979,6 +1136,12 @@ podman unshare --rootless-netns /usr/sbin/ip -4 route
 
 **Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless; use os valores de rede verificados no Passo 19.
 
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
 O serviço rootful `gateway-vpn-return-route.service` e o arquivo `/etc/sysconfig/gateway-vpn-return-route` **não são usados**. Não instale rota no host. A rota `<VPN_PREFIX> via <GATEWAY_IP> dev <ROOTLESS_BRIDGE_IFACE>` deve existir dentro da namespace rootless e ser reaplicada quando ela for recriada, inclusive após parar todos os containers rootless.
 
 Use drop-in Quadlet do usuário em `~/.config/containers/systemd/gateway.container.d/`. O Quadlet oficialmente aceita arquivos `<name>.container.d/*.conf` e os mescla ao arquivo fonte; consulte [podman-systemd.unit(5), seção DESCRIPTION](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html). O próximo comando cria `gateway.container.d/10-return-route.conf` em modo `0644`, usando o caminho absoluto retornado por `command -v podman` e os valores definidos para a rede:
@@ -1023,6 +1186,12 @@ Se `ExecStartPost` falhar, o systemd marca a inicialização da unidade como fal
 
 **Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless, sem `sudo`.
 
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
 Como `<GATEWAY_USER>`, copie o Quadlet versionado para `~/.config/containers/systemd/` depois de confirmar que o destino não existe. Altere somente a cópia do usuário; não altere `deploy/`.
 
 ```bash
@@ -1042,6 +1211,7 @@ O arquivo abaixo contém a unidade completa. Ele preserva as diretivas necessár
 | `Network=podman` | `Network=gateway-vpn` |
 | `IP=CHANGE_ME_GATEWAY_IPV4` | `IP=<GATEWAY_IP>` |
 | `PublishPort=443:443/tcp` | Mantenha; publicação direta da TCP 443 |
+| `Environment=SSL_CERT_FILE=/etc/gateway-vpn/tls/ca-bundle.pem` | Adicione para `tailscaled` confiar na CA privada |
 | `Volume=/etc/gateway-vpn/headscale.yaml:/etc/headscale/config.yaml:ro` | `Volume=<GATEWAY_HOME>/.config/gateway-vpn/headscale.yaml:/etc/headscale/config.yaml:ro` |
 | `Volume=/etc/gateway-vpn/headplane.yaml:/etc/headplane/config.yaml:ro` | `Volume=<GATEWAY_HOME>/.config/gateway-vpn/headplane.yaml:/etc/headplane/config.yaml:ro` |
 | `Volume=/etc/gateway-vpn/nginx.conf:/etc/nginx/nginx.conf:ro` | `Volume=<GATEWAY_HOME>/.config/gateway-vpn/nginx.conf:/etc/nginx/nginx.conf:ro` |
@@ -1053,10 +1223,6 @@ O arquivo abaixo contém a unidade completa. Ele preserva as diretivas necessár
 Execute como `<GATEWAY_USER>`. `GATEWAY_HOME` vem do sexto campo de `getent passwd`; o comando recusa um destino existente, instala o arquivo em modo `0644` e confirma as diretivas principais:
 
 ```bash
-GATEWAY_USER=podman_user
-GATEWAY_IP='10.100.0.2'
-
-GATEWAY_HOME=$(getent passwd "$GATEWAY_USER" | cut -d: -f6)
 gateway_quadlet="$HOME/.config/containers/systemd/gateway.container"
 [[ -n "$GATEWAY_HOME" && ! -e "$gateway_quadlet" && ! -L "$gateway_quadlet" ]] || { printf "Home inválida ou destino existente.\n" >&2; exit 1; }
 install -m 0644 /dev/stdin "$gateway_quadlet" <<EOF
@@ -1075,6 +1241,7 @@ Network=gateway-vpn
 NetworkAlias=dev-gateway.dev.anatel
 IP=${GATEWAY_IP}
 PublishPort=443:443/tcp
+Environment=SSL_CERT_FILE=/etc/gateway-vpn/tls/ca-bundle.pem
 AddCapability=NET_ADMIN
 AddDevice=/dev/net/tun:/dev/net/tun
 Sysctl=net.ipv4.ip_forward=1
@@ -1247,6 +1414,12 @@ Espera-se estas linhas de `stat -c %a`: `644 0:0 /etc/nginx/nginx.conf`, `644 0:
 
 **Contexto:** Execute como `<GATEWAY_USER>` depois dos checks de permissão.
 
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
 Leia os logs da unidade; confirme inicialização do Headplane e ausência de erros:
 
 ```bash
@@ -1256,10 +1429,6 @@ systemctl --user status gateway.service --no-pager
 Reinicie e confira se a rota volta sem comando manual:
 
 ```bash
-VPN_PREFIX='100.101.0.0/24'
-GATEWAY_IP='10.100.0.2'
-ROOTLESS_BRIDGE_IFACE='podman1'
-
 systemctl --user restart gateway.service
 set -o pipefail
 podman unshare --rootless-netns /usr/sbin/ip -4 route show "${VPN_PREFIX}" | awk -v prefix="${VPN_PREFIX}" -v gateway="${GATEWAY_IP}" -v iface="${ROOTLESS_BRIDGE_IFACE}" '
@@ -1372,17 +1541,34 @@ podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; he
 
 **Contexto:** Execute como `<GATEWAY_USER>` em laboratório aprovado; mantenha a auth key fora do terminal e do histórico.
 
-O helper usa o store Podman dessa conta, exige um CIDR IPv4 único, anuncia a rede com `--snat-subnet-routes=false`, sem exit node e sem aceitar DNS/rotas, e remove o arquivo de auth key.
+Carregue as constantes aprovadas:
 
 ```bash
-HEADSCALE_FQDN='rhel9podhost.hv'
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
 
+O helper usa o store Podman dessa conta, exige um CIDR IPv4 único, anuncia a rede com
+`--snat-subnet-routes=false`, sem exit node e sem aceitar DNS/rotas. Ele limita `tailscale up`
+a 60 segundos e remove o arquivo de auth key ao terminar.
+
+```bash
 deploy/scripts/enroll-gateway.sh "${HEADSCALE_FQDN}" gateway gateway-vpn
 ```
 
 **Resultado esperado:** O Gateway fica inscrito no laboratório e anuncia somente `<ROOTLESS_SUBNET>`; a rota ainda não foi aprovada.
 
 **Verificação:** Confira o estado Tailscale antes de aprovar a rota.
+
+Se o helper terminar por timeout, não repita com a mesma auth key. Examine primeiro:
+
+```bash
+podman exec gateway tailscale status
+podman logs --tail 100 gateway
+```
+
+O erro `x509: certificate signed by unknown authority` indica que o bundle do
+[Passo 19](#passo-19-instalar-tls-e-segredo-headplane) não está montado ou `SSL_CERT_FILE`
+não foi aplicado pela unidade do [Passo 23](#passo-23-instalar-a-unidade-quadlet).
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -1399,6 +1585,12 @@ deploy/scripts/enroll-gateway.sh "${HEADSCALE_FQDN}" gateway gateway-vpn
 **Objetivo:** Aprovar somente a subnet anunciada pelo Gateway de laboratório.
 
 **Contexto:** Execute como `<GATEWAY_USER>` na sessão rootless após confirmar o estado Tailscale.
+
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
 
 Para obter o ID do nó, consulte a saída de `podman exec gateway headscale nodes list`.
 
@@ -1428,6 +1620,12 @@ podman exec gateway tailscale status
 
    **Contexto:** Execute como `<GATEWAY_USER>` em janela aprovada. Mantenha 8443 até concluir os Passos 34–38; não remova antes de confirmar nós e rota.
 
+   Carregue as constantes aprovadas:
+
+   ```bash
+   source "$HOME/.config/gateway-vpn/load-env.sh"
+   ```
+
    ```bash
    if grep -qx 'PublishPort=8443:443/tcp' "$HOME/.config/containers/systemd/gateway.container"; then
      printf "TCP 8443 já está publicado; revise a unidade antes de continuar.\n" >&2
@@ -1455,6 +1653,12 @@ podman exec gateway tailscale status
    **Objetivo:** Confirmar que Headscale responde em TCP 443 antes de reautenticar nós.
 
    **Contexto:** Execute como `<GATEWAY_USER>` após o Passo 33.
+
+   Carregue as constantes aprovadas:
+
+   ```bash
+   source "$HOME/.config/gateway-vpn/load-env.sh"
+   ```
 
    ```bash
    systemctl --user restart gateway.service
@@ -1508,6 +1712,12 @@ podman exec gateway sh -ec 'test ! -e /run/tailscale-auth/authkey; umask 077; he
 
 **Contexto:** Execute como `<GATEWAY_USER>` após criar auth key no Passo 35.
 
+Carregue as constantes aprovadas:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
 ```bash
 podman exec gateway tailscale up --login-server="https://${HEADSCALE_FQDN}" \
   --auth-key=file:/run/tailscale-auth/authkey --advertise-routes="${ROOTLESS_SUBNET}" \
@@ -1536,8 +1746,13 @@ podman exec gateway rm -f -- /run/tailscale-auth/authkey
 
    **Contexto:** Execute no cliente Linux com chave própria em arquivo protegido.
 
+   No cliente, revise o loader aprovado e carregue sua cópia segura:
+
    ```bash
-   HEADSCALE_FQDN='rhel9podhost.hv'
+   source "$HOME/.config/gateway-vpn/load-env.sh"
+   ```
+
+   ```bash
    AUTH_KEY_FILE="$HOME/.config/tailscale/auth-key"
 
    sudo tailscale up --login-server="https://${HEADSCALE_FQDN}" \
@@ -1564,6 +1779,12 @@ podman exec gateway rm -f -- /run/tailscale-auth/authkey
    **Objetivo:** Confirmar Gateway e cliente online e aprovar somente a subnet rootless.
 
    **Contexto:** Execute os comandos do Gateway como `<GATEWAY_USER>`; execute `tailscale status` no cliente Linux.
+
+   No host Gateway, carregue as constantes aprovadas:
+
+   ```bash
+   source "$HOME/.config/gateway-vpn/load-env.sh"
+   ```
 
    ```bash
    podman exec gateway headscale nodes list
@@ -1647,6 +1868,12 @@ podman exec gateway rm -f -- /run/tailscale-auth/authkey
 
 **Contexto:** Execute no cliente VPN; defina o bloco de variáveis nessa sessão.
 
+Carregue uma cópia revisada do loader:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
 **Gate G7 — bloqueante.** De um cliente VPN, consulte por UDP e TCP o resolver Aardvark em `<ROOTLESS_BRIDGE_IP>`:
 
 ```bash
@@ -1681,6 +1908,12 @@ dig +tcp @"${ROOTLESS_BRIDGE_IP}" "${APP_ALIAS}" A
 
 **Contexto:** Execute as verificações a partir de cliente VPN e cliente LAN sem VPN.
 
+Carregue uma cópia revisada do loader em cada cliente:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
 **Gate G8 — bloqueante.** O endpoint de controle e VPN atende diretamente em TCP 443 no host, tanto pela LAN como pela VPN; não encaminhe 443 para 8443. Acesse `https://dev-gateway.dev.anatel/admin` pela VPN e de um cliente LAN sem VPN:
 
 ```bash
@@ -1710,6 +1943,14 @@ Confie no certificado pela CA aprovada; não use `curl -k`. A consulta `/admin` 
 **Objetivo:** Confirmar que o Gateway, a rota VPN, o DNS e o acesso Headplane funcionam após reiniciar o user manager.
 
 **Contexto:** Execute os checks no host RHEL autorizado e no cliente VPN; os resultados registrados não substituem a evidência histórica.
+
+Como `<GATEWAY_USER>`, carregue as constantes antes dos checks no host:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+Nos checks executados pelo cliente VPN, carregue a cópia revisada do loader no cliente.
 
 Execute os gates na ordem indicada. Qualquer falha interrompe a receita. Comandos são exemplos de verificação, não evidência de execução ou aprovação no alvo.
 
@@ -1804,6 +2045,7 @@ curl --fail --show-error https://dev-gateway.dev.anatel/admin
 | Cliente não recebe o IP VPN original | Rota ou regras de retorno ausentes | Pare e revise os [Passos 22–28](#passo-22-criar-drop-in-de-rota) |
 | `/admin` falha pela VPN ou abre pela LAN | Origem vista pelo NGINX ou regra `allow`/`deny` incorreta | Não relaxe a regra; revise o [Passo 42](#passo-42-validar-acesso-https-e-headplane) |
 | Gateway fica offline após remover TCP 8443 | Nó não foi reinscrito em TCP 443 | Reaplique a sequência dos [Passos 33–38](#passo-33-preparar-o-corte-para-tcp-443) |
+| `tailscale up` trava e o log mostra `x509: certificate signed by unknown authority` | `tailscaled` não confia na CA do certificado Headscale | Corrija o bundle e `SSL_CERT_FILE` nos [Passos 19](#passo-19-instalar-tls-e-segredo-headplane) e [23](#passo-23-instalar-a-unidade-quadlet) |
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -1818,6 +2060,13 @@ curl --fail --show-error https://dev-gateway.dev.anatel/admin
 ## Reversão e desinstalação
 
 Esta reversão interrompe a VPN e o acesso Headplane. Faça-a em janela aprovada. Não apague volumes rootless: contêm banco/identidade Headscale, estado Tailscale e dados Headplane.
+
+Antes de executar comandos da reversão como `<GATEWAY_USER>`, carregue as mesmas constantes
+aprovadas usadas na instalação:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
 
 > **Irreversível:** Não remova volumes. Isso apaga banco e identidade Headscale, dados Headplane e estado Tailscale. Faça backup verificado e obtenha aprovação separada antes de qualquer remoção.
 
