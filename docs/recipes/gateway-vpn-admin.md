@@ -76,10 +76,18 @@ logs e o procedimento de implantação da variante.
 
 Confirme que o usuário ainda não existe e cadastre-o no Headscale:
 
+O nome de usuário deve seguir o conjunto de caracteres permitido abaixo:
+- Conjunto de caracteres permitido:
+  - Letras (a-z, A-Z)
+  - Dígitos / números (0-9)
+  - Hífen (-)
+  - Ponto (.)
+  - Sublinhado / underscore (_)
+  - Arroba (@): permitido mas melhor evitar. Caso utilizado, isso deve ser feito uma única vez no nome de usuário (por exemplo, em formatos tipo e-mail vindos de provedores OIDC), e nunca deve ser o último caractere, ou seja, não deve terminar com @.
+
 ```bash
 podman exec gateway headscale users list
 podman exec gateway headscale users create '<NOME_DO_USUÁRIO>'
-podman exec gateway headscale users list
 ```
 
 Anote o ID associado ao novo usuário. Use esse ID para emitir uma chave de inscrição individual:

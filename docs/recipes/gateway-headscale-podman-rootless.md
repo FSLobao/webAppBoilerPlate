@@ -163,43 +163,8 @@ Interfaces reais dos scripts:
 
 - Use Bash a partir da raiz do repositório, com acesso `root` para preparar o host e a conta.
 - Reserve uma conta local dedicada, ranges subuid/subgid sem sobreposição e home em disco local.
-- Disponha de Podman rootless, Quadlet, systemd, `newuidmap`, `newgidmap`, Netavark, Aardvark DNS, `pasta`, OpenSSL e `/dev/net/tun`.
-- Disponha de certificado e chave TLS entregues à conta por canal seguro. Não copie nem relaxe permissões da chave de origem.
-
-| Porta | Protocolo | Direção | Uso |
-| --- | --- | --- | --- |
-| 443 | TCP | Entrada no host | Endpoint Headscale e Headplane |
-| 53 | UDP/TCP | Somente dentro da VPN | Consultas ao resolver Aardvark; não publique no host |
-
-Antes do [Passo 1](#passo-1-preparar-a-conta-rootless), defina somente a conta necessária para
-criar o ambiente:
-
-```bash
-GATEWAY_USER=podman_user
-```
-
-> **Atenção:** Antes de instalar ou carregar o arquivo, revise todos os valores em
-> [load-env.sh](../../deploy/scripts/load-env.sh). Endereços, FQDNs, conta e caminhos devem
-> corresponder ao ambiente aprovado. Não continue se qualquer valor for de exemplo ou não aprovado.
-
-O Passo 1 instala o loader versionado como `~/.config/gateway-vpn/load-env.sh`. Carregue-o no
-início de cada etapa que usa as constantes desta receita:
-
-```bash
-install -Dm600 deploy/scripts/load-env.sh "$HOME/.config/gateway-vpn/load-env.sh"
-source "$HOME/.config/gateway-vpn/load-env.sh"
-```
-
-> [!TIP]
-> Use `source` ou o equivalente `.`. Como dica, defina este alias na conta Gateway para carregar o arquivo com um comando curto:
-> 
-> ```bash
-> alias gwenv='source "$HOME/.config/gateway-vpn/load-env.sh"'
-> ```
-
-Para torná-lo persistente, adicione a linha ao `~/.bashrc` somente depois de revisar o loader.
-Executar `load-env.sh` diretamente não altera o shell atual, porque um processo filho não modifica
-o ambiente do processo pai.
+- O host deve der disponibilidade para uso da porta 443 que aturará como Endpoint Headscale e Headplane.
+- O host deve ter disponibilidade da porta usada pelo serviço VPN, geralmente a porta 41641 UDP.
 
 | Variável ou placeholder | Descrição | Exemplo | Onde usar |
 | --- | --- | --- | --- |
@@ -290,18 +255,30 @@ SUBGID_RANGE='<INICIO-FIM_LIVRES>'
 usermod --add-subuids "$SUBUID_RANGE" --add-subgids "$SUBGID_RANGE" "$GATEWAY_USER"
 ```
 
-Instale o loader versionado somente depois de revisar
-[load-env.sh](../../deploy/scripts/load-env.sh). O arquivo instalado pertence à conta Gateway e
-usa modo `0700`.
+Mude para a conta dedicada do usuário para clonar o repositório com os scripts que serão posteriormente utilizados, que devem ser armazenados no diretório home do usuário.
 
+```bash
+su - "$GATEWAY_USER"
+cd ~
+git clone https://github.com/FSLobao/webAppBoilerPlate.git
+exit
+```
+
+Como etapa inicial da configuração, defina as variáveis de ambiente e prepare o loader.
+
+Verifique se as variáveis já estão definidas corretamente antes de prosseguir.
 ```bash
 GATEWAY_HOME=$(getent passwd "$GATEWAY_USER" | cut -d: -f6)
 GATEWAY_GROUP=$(id -gn "$GATEWAY_USER")
 GATEWAY_ENV_FILE="$GATEWAY_HOME/.config/gateway-vpn/load-env.sh"
 [[ -n "$GATEWAY_HOME" && ! -e "$GATEWAY_ENV_FILE" && ! -L "$GATEWAY_ENV_FILE" ]] || {
   printf 'Home inválida ou loader já existente; preserve-o e resolva manualmente.\n' >&2
-  exit 1
 }
+```
+
+Caso as verificações anteriores estejam corretas, crie o diretório de configuração e instale o loader:
+
+```bash
 install -d -o "$GATEWAY_USER" -g "$GATEWAY_GROUP" -m 0700 "$(dirname "$GATEWAY_ENV_FILE")"
 install -o "$GATEWAY_USER" -g "$GATEWAY_GROUP" -m 0700 deploy/scripts/load-env.sh "$GATEWAY_ENV_FILE"
 ```
@@ -314,14 +291,25 @@ bash -n "$GATEWAY_ENV_FILE"
 runuser -u "$GATEWAY_USER" -- bash -ec 'source "$1"; declare -p GATEWAY_USER ROOTLESS_SUBNET ROOTLESS_BRIDGE_IP ROOTLESS_BRIDGE_IFACE GATEWAY_IP VPN_PREFIX HEADSCALE_FQDN GATEWAY_LAN_IP APP_ALIAS TLS_STAGE CA_FILE >/dev/null' bash "$GATEWAY_ENV_FILE"
 ```
 
-Mude para a conta dedicada do usuário para clonar o repositório com os scripts que serão posteriormente utilizados, que devem ser armazenados no diretório home do usuário, retornando em seguida para a conta de root.
+Uma vez validado, sempre que necessário, carregue o loader no shell com as variáveis para continuar o processo de instalação:
 
 ```bash
-su - "$GATEWAY_USER"
-cd ~
-git clone https://github.com/FSLobao/webAppBoilerPlate.git
-exit
+source "$HOME/.config/gateway-vpn/load-env.sh"
 ```
+
+> [!TIP]
+> Use `source` ou o equivalente `.`. Como dica, defina este alias na conta Gateway para carregar o arquivo com um comando curto:
+> 
+> ```bash
+> alias gwenv='source "$HOME/.config/gateway-vpn/load-env.sh"'
+> ```
+>
+>  Para tornar persistente o alias, adicione-o à última linha do `~/.bashrc` do usuário GATEWAY_USER. Para isso, pode usar o seguinte comando:
+>
+> ```bash
+> echo "alias gwenv='source \"/home/$GATEWAY_USER/.config/gateway-vpn/load-env.sh\"'" >> /home/$GATEWAY_USER/.bashrc
+> ```
+
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -421,7 +409,44 @@ SELinux runtime mode is Enforcing; reboot required to complete
   <br><br>
 </div>
 
-## Passo 3: Verificar os pré-requisitos no host como `<GATEWAY_USER>`
+## Passo 3: Confirmar o plano da bridge rootless
+
+Carregue as variáveis definidas no loader usando o comando a seguir:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+Caso tenha definido o alias `gwenv` no `~/.bashrc` do root, basta executá-lo para carregar as variáveis:
+
+```bash
+gwenv
+```
+
+No shell `root`, carregue o mesmo arquivo pelo home da conta:
+
+```bash
+source "$(getent passwd "${GATEWAY_USER}" | cut -d: -f6)/.config/gateway-vpn/load-env.sh"
+```
+
+```bash
+ip -4 route show table all
+```
+
+Compare as rotas do host com `<ROOTLESS_SUBNET>`, `<VPN_PREFIX>`, LAN/corporativas e o CIDR rootful `podman` fornecido pela infraestrutura. Não use `sudo podman` nesta receita.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
+
+## Passo 4: Verificar os pré-requisitos no host como `<GATEWAY_USER>`
 
 Depois da preparação, como `root`, abra uma sessão de `<GATEWAY_USER>`:
 
@@ -457,40 +482,6 @@ Confirme que a home não está em NFS nem montada com `noexec` ou `nodev`.
 ```bash
 findmnt -no FSTYPE,OPTIONS -T "$HOME"
 ```
-
-<div>
-  <a href="#top" title="De volta ao topo da página">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
-      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
-    </picture>
-  </a>
-  <br><br>
-</div>
-
-## Passo 4: Confirmar o plano da bridge rootless
-
-**Objetivo:** Confirmar que subnet, gateway e prefixo VPN não se sobrepõem a redes existentes.
-
-**Contexto:** Use o inventário de rotas e os valores aprovados na seção Pré-requisitos e variáveis.
-
-Carregue as variáveis aprovadas. No shell da conta Gateway, use:
-
-```bash
-source "$HOME/.config/gateway-vpn/load-env.sh"
-```
-
-No shell `root`, carregue o mesmo arquivo pelo home da conta:
-
-```bash
-source "$(getent passwd "${GATEWAY_USER}" | cut -d: -f6)/.config/gateway-vpn/load-env.sh"
-```
-
-```bash
-ip -4 route show table all
-```
-
-Compare as rotas do host com `<ROOTLESS_SUBNET>`, `<VPN_PREFIX>`, LAN/corporativas e o CIDR rootful `podman` fornecido pela infraestrutura. Não use `sudo podman` nesta receita.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -991,9 +982,9 @@ GATEWAY_CERT='/etc/gateway/tls/gateway.cert'
 GATEWAY_KEY='/etc/gateway/tls/gateway.key'
 CA_FILE='/etc/gateway/tls/gateway-dev-ca.crt'
 
-install -m 0644  "$GATEWAY_CERT" "$gateway_config_dir/tls/fullchain.pem"
-install -m 0600 "$GATEWAY_KEY" "$gateway_config_dir/tls/privkey.pem"
-install -m 0644 "$CA_FILE" "$gateway_config_dir/tls/gateway-ca.crt"
+install -D -m 0644  "$GATEWAY_CERT" "$gateway_config_dir/tls/fullchain.pem"
+install -D -m 0600 "$GATEWAY_KEY" "$gateway_config_dir/tls/privkey.pem"
+install -D -m 0644 "$CA_FILE" "$gateway_config_dir/tls/gateway-ca.crt"
 ```
 
 Crie um bundle de confiança dentro do diretório montado. Ele preserva as CAs públicas da imagem
@@ -1516,7 +1507,13 @@ podman exec gateway headscale users create "$HEADSCALE_USER_NAME"
 Obtenha o ID do usuário Headscale criado no passo anterior e atribua este à variável `HEADSCALE_USER_ID`, diretamente ou à partir da variável `HEADSCALE_USER_NAME` com o seguinte comando:
 
 ```bash
-HEADSCALE_USER_ID=$(podman exec gateway headscale users list | grep "$HEADSCALE_USER_NAME" | awk '{print $1}')
+HEADSCALE_USER_ID=$(
+  NO_COLOR=1 podman exec gateway headscale users list \
+    --output json |
+  python3 -c 'import json,sys; users=json.load(sys.stdin); print(next(u["id"] for u in users if u["name"] == "gateway-router"))'
+)
+
+HEADSCALE_USER_ID=$(NO_COLOR=1 podman exec gateway headscale users list | grep "$HEADSCALE_USER_NAME" | grep '^[0-9]\+')
 ```
 
 Crie uma auth key para o usuário Headscale obtido. Esta terá validade de 1hora
@@ -1595,7 +1592,7 @@ source "$HOME/.config/gateway-vpn/load-env.sh"
 Para obter o ID do nó, consulte a saída de `podman exec gateway headscale nodes list`.
 
 ```bash
-read -r -p 'ID do nó Gateway: ' NODE_ID
+NODE_ID=$(NO_COLOR=1 podman exec gateway headscale nodes list | grep "$HEADSCALE_USER_NAME" | awk '{print $1}')
 podman exec gateway headscale nodes approve-routes --identifier "$NODE_ID" --routes "${ROOTLESS_SUBNET}"
 podman exec gateway tailscale status
 ```
