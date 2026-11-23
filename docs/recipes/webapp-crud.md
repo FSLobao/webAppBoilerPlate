@@ -4,6 +4,7 @@
         <li><a href="#objetivo">Objetivo</a></li>
         <li><a href="#pré-requisitos">Pré-requisitos</a></li>
         <li><a href="#implantar">Implantar</a></li>
+        <li><a href="#atualizar">Atualizar</a></li>
         <li><a href="#alternativa-legada-rootful">Alternativa legada rootful</a></li>
         <li><a href="#verificar">Verificar</a></li>
         <li><a href="#operar">Operar</a></li>
@@ -138,6 +139,71 @@ Alterações no frontend e seus assets só aparecem após reconstruir a imagem;
   <br><br>
 </div>
 
+## Atualizar
+
+Execute a atualização com a mesma conta usada na implantação. O script não executa `git pull`;
+ele aplica somente o conteúdo do checkout informado por `--source`.
+
+Atualize o checkout quando quiser incorporar alterações versionadas no repositório. Isso inclui
+mudanças no frontend, backend, dependências, Containerfiles, scripts, YAML, SQL, NGINX, Quadlet
+ou documentação operacional:
+
+```bash
+cd "${HOME}/webAppBoilerPlate"
+git pull --ff-only
+```
+
+Não execute `git pull` quando o checkout local já contém a revisão desejada ou quando pretende
+implantar intencionalmente alterações locais não versionadas. `git pull` também não é necessário
+para substituir apenas a chave SSH ou outro secret externo ao repositório.
+
+Reconstrua as imagens e reaplique a configuração:
+
+```bash
+"${HOME}/webAppBoilerPlate/deploy/scripts/deploy-webapp-rootless.sh" \
+  --source "${HOME}/webAppBoilerPlate"
+```
+
+O script preserva `webapp-db-data`, `webapp-images`, as senhas existentes e
+`authorized_keys`. Ele reinicia a API e o proxy; o PostgreSQL reinicia somente quando seu YAML
+ou unidade Quadlet mudou, ou quando existe um marcador de reinício pendente.
+
+Use `--no-build` somente para reaplicar configuração quando nenhum Containerfile, frontend,
+backend, dependência ou entrypoint mudou:
+
+```bash
+"${HOME}/webAppBoilerPlate/deploy/scripts/deploy-webapp-rootless.sh" \
+  --source "${HOME}/webAppBoilerPlate" \
+  --no-build
+```
+
+Depois, confirme unidades, containers e health:
+
+```bash
+systemctl --user status webapp-db.service webapp.service app-proxy.service --no-pager
+podman ps --pod
+curl -fsS http://localhost:8080/webapp/api/health
+```
+
+Na alternativa rootful, atualize o checkout na conta que administra o repositório e reaplique:
+
+```bash
+sudo deploy/scripts/deploy-webapp.sh
+```
+
+Para a variante rootful, use `sudo deploy/scripts/deploy-webapp.sh --no-build` somente com as
+mesmas restrições descritas acima.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
 ## Alternativa legada rootful
 
 > [!WARNING]
@@ -254,7 +320,73 @@ user bus ativo. No exemplo, essa conta é `podman_user`.
 | Logs do PostgreSQL | `podman logs -f webapp-db-postgres` |
 | Reiniciar a aplicação | `systemctl --user restart webapp.service` |
 | Testar a configuração NGINX | `podman exec app-proxy-nginx nginx -t` |
-| Abrir `psql` | `podman exec -it webapp-db-postgres psql -U webapp_owner -d db_webapp` |
+
+### Inspecionar o banco de dados
+
+O banco `db_webapp` possui dois papéis de login:
+
+| Papel | Uso | Permissões |
+| --- | --- | --- |
+| `webapp_owner` | Superusuário criado pela imagem PostgreSQL como `POSTGRES_USER`; administração, diagnóstico e DDL. | Controle total do banco. |
+| `webapp_api` | Papel da API FastAPI. | `CONNECT`, uso do schema `webapp` e `SELECT`, `INSERT`, `UPDATE`, `DELETE` em `webapp.TB_USUARIO`; sem DDL. |
+
+As senhas são secrets externos ao Git. Na implantação rootless, ficam em
+`~/.local/share/webapp/secrets/`; na rootful, ficam em `/etc/webapp/secrets/`.
+
+| Arquivo no host | Papel correspondente | Montagem no container |
+| --- | --- | --- |
+| `postgres-password` | `webapp_owner` | `webapp-db-postgres:/run/secrets/postgres-password` |
+| `db-init-api-password` | `webapp_api` durante a inicialização | `webapp-db-postgres:/run/secrets/api-db-password` |
+| `api-db-password` | `webapp_api` durante a execução da API | `webapp-api:/run/secrets/api-db-password` |
+
+`db-init-api-password` e `api-db-password` contêm o mesmo valor e são cópias com proprietários
+diferentes para atender aos UIDs dos containers. Não copie, versione, registre em logs ou publique
+o conteúdo desses arquivos. Não recrie os secrets quando `webapp-db-data` já existe.
+
+Para inspeção administrativa a partir do host rootless, use o socket local do container:
+
+```bash
+podman exec -it webapp-db-postgres \
+  psql -U webapp_owner -d db_webapp
+```
+
+Para validar a perspectiva e os privilégios do papel da API:
+
+```bash
+podman exec -it webapp-db-postgres \
+  psql -U webapp_api -d db_webapp
+```
+
+Dentro da sessão, consultas seguras de leitura incluem:
+
+```sql
+\conninfo
+\du
+\dn+
+\dt+ webapp.*
+SELECT * FROM webapp.TB_USUARIO ORDER BY ID_USUARIO;
+```
+
+Para acessar diretamente pela VPN, conecte primeiro por SSH ao container PostgreSQL e use o secret
+montado localmente, sem exibir a senha:
+
+```bash
+ssh -i ~/.ssh/webapp_ed25519 root@webapp-db.dev.anatel
+PGPASSWORD="$(cat /run/secrets/postgres-password)" \
+  psql -h 127.0.0.1 -U webapp_owner -d db_webapp
+```
+
+Use `webapp_owner` apenas para diagnóstico ou manutenção autorizada. Para reproduzir o acesso da
+API pela VPN, use `webapp_api` e leia a senha de `/run/secrets/api-db-password` no container
+PostgreSQL:
+
+```bash
+PGPASSWORD="$(cat /run/secrets/api-db-password)" \
+  psql -h 127.0.0.1 -U webapp_api -d db_webapp
+```
+
+O primeiro exemplo remoto usa TCP e autentica a senha; os exemplos `podman exec` usam o socket
+local. Faça backup antes de executar DDL ou operações destrutivas.
 
 O NGINX resolve `webapp.dns.podman` a cada 10 s.
 Por isso, reiniciar o pod `webapp` não exige reiniciar o `app-proxy`.
