@@ -208,7 +208,7 @@ revogar apenas um dispositivo.
 ## 6. Acessar o Headplane e verificar o serviço
 
 O Headplane é a interface de administração e deve ser acessado pela VPN em
-`https://dev-gateway.dev.anatel/admin`, ou pelo endereço configurado no Gateway. A chave de API do
+`cat`, ou pelo endereço configurado no Gateway. A chave de API do
 Headscale usada pelo operador é diferente da chave de inscrição do cliente. Gere uma chave com
 validade limitada e transfira-a por um canal de segredos aprovado:
 

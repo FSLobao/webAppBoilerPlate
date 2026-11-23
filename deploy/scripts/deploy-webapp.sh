@@ -15,6 +15,8 @@ readonly SECRETS_DIR="${WEBAPP_ETC}/secrets"
 readonly PROXY_ETC=/etc/app-proxy
 readonly QUADLET_DIR=/etc/containers/systemd
 readonly IMAGE=localhost/webapp:0.1.0
+readonly POSTGRES_IMAGE=localhost/webapp-db-postgres:0.1.0
+readonly PROXY_IMAGE=localhost/app-proxy-nginx:0.1.0
 readonly POSTGRES_UID=999
 readonly WEBAPP_UID=10001
 readonly UNITS=(webapp-db.service webapp.service app-proxy.service)
@@ -47,7 +49,7 @@ log() {
 preflight() {
   (( EUID == 0 )) || fail "Run as root (rootful Podman and /etc are required)." || return
   local command_name
-  for command_name in podman systemctl curl openssl install; do
+  for command_name in podman systemctl curl openssl install ssh-keygen; do
     command -v "${command_name}" >/dev/null || fail "Missing command: ${command_name}" || return
   done
   if command -v getenforce >/dev/null; then
@@ -64,6 +66,24 @@ preflight() {
     || fail "Repository files not found under ${REPO_ROOT}." || return
   [[ -f "${REPO_ROOT}/webapp/frontend/index.html" ]] \
     || fail "Missing webapp/frontend/index.html." || return
+  validate_authorized_keys || return
+}
+# ---------------------------------- #
+
+# Validates the host SSH public-key file before deployment mutates state.
+# Arguments: none.
+# Global state read: SECRETS_DIR.
+# Output streams: diagnostics to stderr.
+# Return status: 0 when valid, nonzero otherwise.
+validate_authorized_keys() {
+  local path="${SECRETS_DIR}/authorized_keys"
+  [[ -f "${path}" && ! -L "${path}" && -s "${path}" ]] \
+    || fail "SSH key file is missing or empty: ${path}. Run install-webapp-ssh-key.sh." \
+    || return
+  ssh-keygen -l -f "${path}" >/dev/null \
+    || fail "SSH key file is invalid: ${path}" \
+    || return
+  chmod -- 0600 "${path}"
 }
 # ---------------------------------- #
 
@@ -98,6 +118,7 @@ ensure_secret() {
 # Output streams: stdout progress, stderr diagnostics.
 # Return status: 0 on success, nonzero on error.
 ensure_secrets() {
+  validate_authorized_keys || return
   install -d -m 0700 -o root -g root -- "${SECRETS_DIR}"
   local db_volume_exists=false
   podman volume exists webapp-db-data && db_volume_exists=true
@@ -167,7 +188,14 @@ ensure_image_volume() {
 # Return status: podman build status.
 build_image() {
   log "Building ${IMAGE}"
-  podman build --file "${REPO_ROOT}/webapp/Containerfile" --tag "${IMAGE}" -- "${REPO_ROOT}"
+  podman build --file "${REPO_ROOT}/webapp/Containerfile" \
+    --tag "${IMAGE}" -- "${REPO_ROOT}" || return
+  log "Building ${POSTGRES_IMAGE}"
+  podman build --file "${REPO_ROOT}/deploy/webapp/ssh/Containerfile.postgres" \
+    --tag "${POSTGRES_IMAGE}" -- "${REPO_ROOT}" || return
+  log "Building ${PROXY_IMAGE}"
+  podman build --file "${REPO_ROOT}/deploy/webapp/ssh/Containerfile.nginx" \
+    --tag "${PROXY_IMAGE}" -- "${REPO_ROOT}"
 }
 # ---------------------------------- #
 
@@ -227,7 +255,12 @@ main() {
   if [[ "${build}" == true ]]; then
     build_image
   else
-    podman image exists "${IMAGE}" || fail "Image ${IMAGE} not found; run without --no-build."
+    local image
+    for image in "${IMAGE}" "${POSTGRES_IMAGE}" "${PROXY_IMAGE}"; do
+      podman image exists "${image}" \
+        || fail "Image ${image} not found; run without --no-build." \
+        || return
+    done
   fi
   ensure_secrets
   install_config

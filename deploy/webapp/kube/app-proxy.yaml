@@ -11,13 +11,15 @@ metadata:
 spec:
   containers:
     - name: nginx
-      image: docker.io/library/nginx:1.28-alpine
+      image: localhost/app-proxy-nginx:0.1.0
       env:
         - name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS
           value: "1"
       ports:
         - containerPort: 8080
           hostPort: 8080
+          protocol: TCP
+        - containerPort: 22
           protocol: TCP
       volumeMounts:
         - name: templates
@@ -28,6 +30,9 @@ spec:
           readOnly: true
         - name: webapp-images
           mountPath: /srv/webapp/images
+          readOnly: true
+        - name: ssh-authorized-keys
+          mountPath: /root/.ssh/authorized_keys
           readOnly: true
   volumes:
     - name: templates
@@ -41,3 +46,7 @@ spec:
     - name: webapp-images
       persistentVolumeClaim:
         claimName: webapp-images
+    - name: ssh-authorized-keys
+      hostPath:
+        path: /etc/webapp/secrets/authorized_keys
+        type: File

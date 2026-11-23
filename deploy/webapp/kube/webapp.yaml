@@ -10,6 +10,9 @@ spec:
   containers:
     - name: api
       image: localhost/webapp:0.1.0
+      ports:
+        - containerPort: 22
+          protocol: TCP
       env:
         - name: WEBAPP_DB_HOST
           value: webapp-db
@@ -39,6 +42,9 @@ spec:
         - name: api-db-password
           mountPath: /run/secrets/api-db-password
           readOnly: true
+        - name: ssh-authorized-keys
+          mountPath: /root/.ssh/authorized_keys
+          readOnly: true
   volumes:
     - name: images
       persistentVolumeClaim:
@@ -46,4 +52,8 @@ spec:
     - name: api-db-password
       hostPath:
         path: /etc/webapp/secrets/api-db-password
+        type: File
+    - name: ssh-authorized-keys
+      hostPath:
+        path: /etc/webapp/secrets/authorized_keys
         type: File

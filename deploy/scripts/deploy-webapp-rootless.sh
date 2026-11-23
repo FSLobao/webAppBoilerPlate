@@ -11,6 +11,8 @@
 set -Eeuo pipefail
 
 readonly IMAGE=localhost/webapp:0.1.0
+readonly POSTGRES_IMAGE=localhost/webapp-db-postgres:0.1.0
+readonly PROXY_IMAGE=localhost/app-proxy-nginx:0.1.0
 readonly POSTGRES_UID=999
 readonly WEBAPP_UID=10001
 readonly GATEWAY_NETWORK=gateway-vpn
@@ -25,6 +27,7 @@ readonly BASE_IMAGES=(
   ghcr.io/astral-sh/uv:0.9-python3.13-trixie-slim
   docker.io/library/python:3.13-slim-trixie
 )
+readonly SSH_IMAGES=("${IMAGE}" "${POSTGRES_IMAGE}" "${PROXY_IMAGE}")
 readonly HEALTH_URL=http://127.0.0.1:8080/webapp/api/health
 
 SOURCE_ARG=""
@@ -236,7 +239,7 @@ preflight() {
   }
 
   local command_name
-  for command_name in podman systemctl curl openssl install loginctl id grep sleep chmod mktemp mv rm stat cmp; do
+  for command_name in podman systemctl curl openssl install loginctl id grep sleep chmod mktemp mv rm stat cmp ssh-keygen; do
     command -v "${command_name}" >/dev/null || {
       fail "Missing command: ${command_name}"
       return 1
@@ -268,6 +271,7 @@ preflight() {
   set_user_paths || return
   validate_source_tree || return
   validate_destination_paths || return
+  validate_authorized_keys || return
 
   local linger
   linger=$(loginctl show-user "${USER}" -p Linger) || {
@@ -322,9 +326,15 @@ preflight() {
   }
 
   check_existing_volumes || return
-  if [[ "${NO_BUILD}" == true ]] && ! podman image exists "${IMAGE}"; then
-    fail "Image ${IMAGE} not found; run without --no-build."
-    return 1
+  if [[ "${NO_BUILD}" == true ]]; then
+    local ssh_image
+    for ssh_image in "${SSH_IMAGES[@]}"; do
+      [[ -n "${ssh_image}" ]] || return
+      if ! podman image exists "${ssh_image}"; then
+        fail "Image ${ssh_image} not found; run without --no-build."
+        return 1
+      fi
+    done
   fi
 }
 # ---------------------------------- #
@@ -350,7 +360,14 @@ validate_source_tree() {
     deploy/webapp/quadlet/webapp.kube \
     deploy/webapp/quadlet/app-proxy.kube \
     deploy/webapp/nginx/default.conf.template \
-    deploy/webapp/nginx/apps.d/webapp.conf; do
+    deploy/webapp/nginx/apps.d/webapp.conf \
+    deploy/webapp/ssh/Containerfile.postgres \
+    deploy/webapp/ssh/Containerfile.nginx \
+    deploy/webapp/ssh/sshd_config \
+    deploy/webapp/ssh/webapp-entrypoint.sh \
+    deploy/webapp/ssh/postgres-entrypoint.sh \
+    deploy/webapp/ssh/nginx-entrypoint.sh \
+    deploy/scripts/install-webapp-ssh-key.sh; do
     [[ -f "${SOURCE_DIR}/${required_file}" ]] || {
       fail "Missing source file: ${SOURCE_DIR}/${required_file}"
       return 1
@@ -409,6 +426,7 @@ validate_destination_paths() {
     "${SECRETS_DIR}/postgres-password"
     "${SECRETS_DIR}/db-init-api-password"
     "${SECRETS_DIR}/api-db-password"
+    "${SECRETS_DIR}/authorized_keys"
   )
   local source_file
   for source_file in "${yaml_sources[@]}"; do
@@ -441,7 +459,8 @@ validate_destination_paths() {
   for path in \
     "${SECRETS_DIR}/postgres-password" \
     "${SECRETS_DIR}/db-init-api-password" \
-    "${SECRETS_DIR}/api-db-password"; do
+    "${SECRETS_DIR}/api-db-password" \
+    "${SECRETS_DIR}/authorized_keys"; do
     if [[ -e "${path}" || -L "${path}" ]]; then
       [[ -f "${path}" && ! -L "${path}" ]] || {
         fail "Existing secret must be a regular file: ${path}"
@@ -709,6 +728,25 @@ report_host_paths() {
 }
 # ---------------------------------- #
 
+# Validates the host SSH public-key file before deployment mutates state.
+# Arguments: none.
+# Global state read: SECRETS_DIR.
+# Output streams: diagnostics to stderr.
+# Return status: 0 when valid, nonzero otherwise.
+validate_authorized_keys() {
+  local path="${SECRETS_DIR}/authorized_keys"
+  [[ -f "${path}" && ! -L "${path}" && -s "${path}" ]] || {
+    fail "SSH key file is missing or empty: ${path}. Run install-webapp-ssh-key.sh."
+    return 1
+  }
+  ssh-keygen -l -f "${path}" >/dev/null || {
+    fail "SSH key file is invalid: ${path}"
+    return 1
+  }
+  chmod 0600 -- "${path}" || return
+}
+# ---------------------------------- #
+
 # Creates one secret without overwriting an existing file.
 # Arguments: $1 - path; $2 - owner UID/GID; $3 - value (empty to generate).
 # Global state read: SECRETS_DIR; global state changed: TEMP_FILES.
@@ -752,6 +790,8 @@ ensure_secret() {
 # Output streams: progress to stdout; diagnostics to stderr.
 # Return status: 0 on success, nonzero on error.
 ensure_secrets() {
+  validate_authorized_keys || return
+
   local db_volume_exists=false
   local command_status
   local api_password=""
@@ -910,7 +950,15 @@ pull_base_images() {
 build_image() {
   log "Building ${IMAGE}"
   podman build --no-cache --file "${SOURCE_DIR}/webapp/Containerfile" \
-    --tag "${IMAGE}" -- "${SOURCE_DIR}"
+    --tag "${IMAGE}" -- "${SOURCE_DIR}" || return
+  log "Building ${POSTGRES_IMAGE}"
+  podman build --no-cache --file \
+    "${SOURCE_DIR}/deploy/webapp/ssh/Containerfile.postgres" \
+    --tag "${POSTGRES_IMAGE}" -- "${SOURCE_DIR}" || return
+  log "Building ${PROXY_IMAGE}"
+  podman build --no-cache --file \
+    "${SOURCE_DIR}/deploy/webapp/ssh/Containerfile.nginx" \
+    --tag "${PROXY_IMAGE}" -- "${SOURCE_DIR}"
 }
 # ---------------------------------- #
 
@@ -1055,7 +1103,7 @@ main() {
   preflight || return
   pull_base_images
   if [[ "${NO_BUILD}" == true ]]; then
-    log "Reusing ${IMAGE}"
+    log "Reusing ${SSH_IMAGES[*]}"
   else
     build_image
   fi

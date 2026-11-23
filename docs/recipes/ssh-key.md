@@ -32,9 +32,15 @@ Os destinos usam os seguintes arquivos no host Gateway:
 | --- | --- | --- |
 | Gateway | `/etc/gateway/authorized_keys` | Acesso SSH administrativo ao Gateway. |
 | Container de aplicação | `/etc/gateway/application-keys/<container>/authorized_keys` | Caminho padrão; o caminho efetivo é configurável no JSON do deployment. Montado somente leitura em `/home/<account>/.ssh/authorized_keys` no container. |
+| Stack webapp de desenvolvimento | `/etc/webapp/secrets/authorized_keys` (rootful) ou `~/.local/share/webapp/secrets/authorized_keys` (rootless) | Arquivo único montado somente leitura em `/root/.ssh/authorized_keys` nos containers `webapp-api`, `webapp-db-postgres` e `app-proxy-nginx`. |
 
 Use uma chave por destino ou por finalidade. Assim, é possível revogar um acesso sem afetar
 os demais.
+
+> [!CAUTION]
+> O acesso como `root` da stack webapp é uma exceção de desenvolvimento. A senha e a
+> autenticação interativa estão desabilitadas. Não replique essa configuração em produção;
+> use contas não-root e arquivos independentes por destino.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -160,6 +166,7 @@ configurado no JSON do deployment, se ele diferir do padrão.
 ```bash
 KEYS_FILE=/etc/gateway/authorized_keys                                  # Gateway
 KEYS_FILE=/etc/gateway/application-keys/<container>/authorized_keys     # container
+KEYS_FILE=/etc/webapp/secrets/authorized_keys                            # stack webapp rootful
 ```
 
 Execute somente a linha do destino desejado. Caso o arquivo não exista, crie-o com dono
@@ -180,9 +187,26 @@ sudo nano "$KEYS_FILE"
 sudo ssh-keygen -lf "$KEYS_FILE"
 ```
 
+Para instalar uma chave somente na stack webapp, prefira o script idempotente. No deploy
+rootless, execute-o como o dono das unidades:
+
+```bash
+deploy/scripts/install-webapp-ssh-key.sh \
+  --public-key-file ~/.ssh/webapp_ed25519.pub
+```
+
+Para rootful, execute:
+
+```bash
+sudo deploy/scripts/install-webapp-ssh-key.sh \
+  --public-key-file /caminho/para/webapp_ed25519.pub
+```
+
 Confirme que `ssh-keygen` exibe a impressão digital da chave Ed25519 adicionada, com o
-comentário `<usuario>@<destino>`. O arquivo deve continuar com dono `root:root` e modo
-`0600`. Não remova chaves de outros usuários.
+comentário `<usuario>@<destino>`. No deploy rootful, o arquivo deve permanecer com dono
+`root:root` e modo `0600`. No deploy rootless, o proprietário no host é a conta de operação;
+esse UID aparece como `root` dentro do user namespace do container. Não remova chaves de outros
+usuários.
 
 O `sshd` lê o arquivo a cada autenticação, portanto não é necessário reiniciar o Gateway nem
 o container. Para revogar um acesso, remova a linha correspondente do mesmo arquivo.

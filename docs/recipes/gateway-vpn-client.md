@@ -497,8 +497,9 @@ própria. Não é um serviço de desenvolvedor.
 ## 9. Acessar containers
 
 A VPN fornece conectividade de rede, mas não autenticação dos serviços. O acesso SSH aos containers,
-inclusive por VS Code, está **a implementar** e fora do escopo atual. A referência de chaves
-permanece [Chaves SSH de acesso ao Gateway e aos containers](ssh-key.md).
+inclusive por VS Code, está habilitado somente na stack webapp de desenvolvimento descrita em
+[Chaves SSH de acesso ao Gateway e aos containers](ssh-key.md). A stack usa autenticação por chave
+pública, login `root` e um arquivo de chaves compartilhado; não use esse perfil em produção.
 
 O emulador de identidade está **a implementar** e fora do escopo atual. Use o proxy de aplicação
 autorizado para acesso HTTP de desenvolvimento.

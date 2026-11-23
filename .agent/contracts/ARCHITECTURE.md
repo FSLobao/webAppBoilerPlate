@@ -702,12 +702,15 @@ e [inspeção da rede](https://docs.podman.io/en/latest/markdown/podman-network-
 # 11. Acesso aos containers e VS Code
 
 O desenvolvedor estabelece primeiro a VPN com o cliente Tailscale inscrito no Headscale do Gateway.
-SSH e VS Code nos containers estão a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md).
+SSH está habilitado na stack webapp de desenvolvimento. A implementação é uma exceção deliberada
+para esse ambiente: usa login `root`, autenticação somente por chave e um arquivo compartilhado
+montado somente leitura. Produção deve usar contas não-root e chaves independentes por destino.
 Depois utiliza o DNS e as rotas distribuídos para acessar diretamente os serviços dos containers (SSH, SFTP, HTTP, ODBC etc.)
 
 ## 11.1 VS Code Remote - SSH
 
-**Status:** a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md).
+**Status:** implementado para a stack webapp de desenvolvimento com a exceção de acesso `root`
+descrita nesta seção. VS Code usa a mesma sessão SSH direta.
 
 O VS Code conecta-se ao nome DNS do container de destino pela rede VPN, sem salto intermediário
 de autenticação no Gateway e sem publicar a porta do serviço no host.
@@ -746,6 +749,11 @@ efetivo deve ser configurável no JSON. Use `root:root` e modo `0600`, com monta
 em `/home/<account>/.ssh/authorized_keys`. O bootstrap deve validar que a conta consegue ler o
 arquivo sem ampliar permissões indevidamente. A autenticação do serviço permanece independente
 da autenticação VPN.
+
+Na exceção de desenvolvimento da stack webapp, o script de deployment usa
+`/etc/webapp/secrets/authorized_keys` e monta o mesmo arquivo em
+`/root/.ssh/authorized_keys` para os três workloads. No modo rootless, o caminho efetivo fica em
+`~/.local/share/webapp/secrets/authorized_keys`.
 
 <div>
   <a href="#top" title="De volta ao topo da página"><picture>
@@ -885,7 +893,8 @@ O repositório deve conter scripts para:
 7. declarar nomes e aliases conforme a seção 9;
 8. provisionar Headscale, Headplane e `tailscaled`, anunciar/aprovar somente `ROOTLESS_SUBNET` e instalar a rota de retorno na namespace rootless sem SNAT;
 9. implantar o NGINX compartilhado obrigatório, publicando host TCP/8080 no container TCP/8080; o emulador de desenvolvimento está a implementar, fora do escopo atual, conforme [TODO.md](../plans/TODO.md);
-10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de aplicação habilitados; SSH está a implementar, fora do escopo atual, conforme [TODO.md](../plans/TODO.md);
+10. carregar chaves públicas SSH dos arquivos seguros no host somente para containers de
+    aplicação habilitados; a stack webapp usa a exceção de desenvolvimento descrita na seção 11;
 11. iniciar serviços em ordem, verificar saúde e testar conexões remotas;
 12. apresentar estado, logs, recursos alterados e instruções de recuperação;
 13. agendar no host full mensal e incremental semanal por PostgreSQL; executar pgBackRest no container como `postgres`, publicar somente gerações completas verificadas em volume host separado e fornecer restore manual validado.
@@ -929,7 +938,8 @@ Ferramentas principais:
 
 - Portainer para inspeção, logs e operações de containers compatíveis com Quadlet;
 - Headplane para administração da VPN;
-- SSH aos containers de aplicação pela VPN (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
+- SSH aos containers da stack webapp pela VPN; a generalização não-root para produção permanece
+  sujeita à [pendência registrada](../plans/TODO.md);
 - VS Code;
 - logs dos containers;
 - ferramentas de diagnóstico de rede.
@@ -1198,15 +1208,15 @@ As seguintes decisões são consideradas parte do contrato:
 | Inscrição | Headplane gerencia usuários/dispositivos e tokens de uso único; chaves privadas geradas nos clientes; OIDC corporativo opcional |
 | Retorno da VPN | `--snat-subnet-routes=false` e rota determinística ao prefixo VPN na namespace rootless |
 | Egress de containers | Saída normal do Podman rootless pelo host; alternativa rootful pode usar masquerading |
-| SSH para aplicações | Conexão direta ao destino pela VPN para VS Code; autenticação no container, sem bastion; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
+| SSH para aplicações | Conexão direta à stack webapp de desenvolvimento pela VPN para VS Code; autenticação no container, sem bastion; exceção `root` descrita na seção 11 |
 | Administração do Gateway | Headplane para VPN e Portainer para gestão do container pela VPN; sem listener de shell para desenvolvedores |
 | Bind de gestão | Headplane atrás de frontend HTTPS no Gateway; Portainer HTTPS no container dedicado, sem publicação no host; ingresso restrito à VPN e a operadores |
-| Chaves SSH dos destinos | Individuais por desenvolvedor, privadas somente no cliente, públicas provisionadas por destino; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
+| Chaves SSH dos destinos | Individuais por desenvolvedor e privadas no cliente; produção exige arquivos por destino, enquanto a stack webapp compartilha um arquivo de desenvolvimento |
 | Controle de acesso | Perímetro externo mais inscrição e política Headscale; autenticação de serviço independente |
 | Podman API | Socket Unix local exclusivo do Portainer; acesso de alto privilégio, sem exposição TCP |
 | Acesso diário ao host | Não |
 | Deployment | Scripts versionados e Quadlet; preflight comum e verificações específicas por serviço |
-| SSH key bootstrap | Chaves públicas de arquivos root-owned; host audit registra alterações; PAM externo; a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md) |
+| SSH key bootstrap | Script idempotente provisiona chave pública em arquivo externo ao Git; host audit registra alterações; PAM permanece controle externo |
 | Backup PostgreSQL | pgBackRest versionado na imagem; full mensal/incremental semanal por timers host; repositório de trabalho e exportações concluídas em volumes distintos; publicação de geração completa verificada; restore manual com drill; plano, não implementado |
 | TUS e file sharing | Serviços opcionais; limite de arquivo de 1 GB por padrão; file sharing NGINX somente leitura |
 | Serviços não HTTP para usuários | Publicação direta por bind de host, protocolo e portas explicitamente declarados; autenticação do serviço e perímetro próprios |
@@ -1260,8 +1270,9 @@ Uma implementação do boilerplate será considerada aderente quando:
 - deployment e testes de DNS em `gateway-vpn` cumprirem integralmente a seção 9, sem recriar rede em uso;
 - webapp receber endereços dinâmicos do Podman e expor os aliases estáveis dos serviços;
 - uma nova aplicação puder ser adicionada sem criar outro gateway;
-- desenvolvedores puderem acessar containers por SSH/VS Code diretamente pela VPN Tailscale coordenada pelo Headscale (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
-- o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
+- desenvolvedores puderem acessar a stack webapp de desenvolvimento por SSH/VS Code diretamente
+  pela VPN Tailscale coordenada pelo Headscale;
+- o gateway realizar forwarding sem substituir a autenticação SSH do container de aplicação;
 - NGINX compartilhado receber todas as aplicações por um endpoint host `0.0.0.0:8080`, mapeado ao TCP/8080 do container;
 - cada aplicação HTTP puder ser encaminhada por um prefixo de caminho, como `/app1` ou `/app2`, sem exigir outra porta publicada;
 - o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080 (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));

@@ -18,7 +18,10 @@ alvo rootless.
 ## Pendências de implementação
 
 - **Emulador de identidade (§8.2 do contrato): a implementar; fora do escopo.** O fluxo HTTP testado usa `app-proxy.dev.anatel`; não presume o emulador. Consulte [ARCHITECTURE.md](../contracts/ARCHITECTURE.md) e a [receita do cliente VPN](../../docs/recipes/gateway-vpn-client.md).
-- **SSH em containers (§9 da receita do cliente; §11 do contrato): a implementar; fora do escopo.** O túnel VPN não implementa nem autentica sessões SSH ou VS Code. Consulte [ARCHITECTURE.md](../contracts/ARCHITECTURE.md) e a [receita do cliente VPN](../../docs/recipes/gateway-vpn-client.md).
+- **SSH em containers (§9 da receita do cliente; §11 do contrato): implementado somente para a
+  stack webapp de desenvolvimento.** A implementação usa login `root`, chave pública e arquivo
+  compartilhado somente leitura. A generalização para produção ainda requer contas não-root e
+  chaves separadas por destino.
 
 <div>
   <a href="#top" title="De volta ao topo da página">

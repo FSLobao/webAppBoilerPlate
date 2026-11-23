@@ -10,7 +10,10 @@ metadata:
 spec:
   containers:
     - name: postgres
-      image: docker.io/library/postgres:18-trixie
+      image: localhost/webapp-db-postgres:0.1.0
+      ports:
+        - containerPort: 22
+          protocol: TCP
       env:
         - name: POSTGRES_DB
           value: db_webapp
@@ -35,6 +38,9 @@ spec:
         - name: api-db-password
           mountPath: /run/secrets/api-db-password
           readOnly: true
+        - name: ssh-authorized-keys
+          mountPath: /root/.ssh/authorized_keys
+          readOnly: true
   volumes:
     - name: data
       persistentVolumeClaim:
@@ -50,4 +56,8 @@ spec:
     - name: api-db-password
       hostPath:
         path: /etc/webapp/secrets/db-init-api-password
+        type: File
+    - name: ssh-authorized-keys
+      hostPath:
+        path: /etc/webapp/secrets/authorized_keys
         type: File

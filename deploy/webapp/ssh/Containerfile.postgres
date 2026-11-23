@@ -1,0 +1,16 @@
+FROM docker.io/library/postgres:18-trixie
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends openssh-server \
+    && rm -f /etc/ssh/ssh_host_* \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY deploy/webapp/ssh/sshd_config /etc/ssh/sshd_config
+COPY deploy/webapp/ssh/postgres-entrypoint.sh /usr/local/sbin/postgres-entrypoint
+RUN chmod 0755 /usr/local/sbin/postgres-entrypoint \
+    && install -d -o root -g root -m 0700 /root/.ssh \
+    && install -d -o root -g root -m 0755 /run/sshd
+
+EXPOSE 22 5432
+ENTRYPOINT ["/usr/local/sbin/postgres-entrypoint"]
+CMD ["postgres"]

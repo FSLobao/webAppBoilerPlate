@@ -1,0 +1,11 @@
+Port 22
+PidFile /run/sshd.pid
+PermitRootLogin prohibit-password
+AllowUsers root
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /root/.ssh/authorized_keys
+X11Forwarding no
+PrintMotd no
+Subsystem sftp internal-sftp

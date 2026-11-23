@@ -47,6 +47,7 @@ Ao final, o host atende:
 - Preparação do host conforme a [receita rootless do Gateway](gateway-headscale-podman-rootless.md).
 - SELinux `Disabled`.
 - Porta TCP 8080 livre no host.
+- Chave pública SSH Ed25519 do operador para acesso de desenvolvimento aos containers.
 - Acesso às imagens `docker.io/library/postgres:18-trixie`, `docker.io/library/nginx:1.28-alpine`, `docker.io/library/python:3.13-slim-trixie` e `ghcr.io/astral-sh/uv:0.9-python3.13-trixie-slim`.
 - `curl` e `jq` para o teste ponta a ponta.
 
@@ -71,6 +72,18 @@ Ao final, o host atende:
 Execute os passos desta seção com a conta que controla o Podman rootless e as unidades de
 usuário. O exemplo usa `podman_user`; substitua-a pela conta adotada no host.
 
+Instale somente a chave pública SSH no arquivo compartilhado pela stack:
+
+```bash
+"${HOME}/webAppBoilerPlate/deploy/scripts/install-webapp-ssh-key.sh" \
+  --public-key-file "${HOME}/.ssh/webapp_ed25519.pub"
+```
+
+O destino rootless padrão é `~/.local/share/webapp/secrets/authorized_keys`. O script preserva
+chaves existentes e não duplica a mesma chave. Esta stack de desenvolvimento monta o mesmo
+arquivo somente para leitura nos três containers e permite login SSH somente como `root` por
+chave pública. Não reutilize esse perfil em produção.
+
 Na conta dedicada, obtenha uma cópia versionada do repositório na pasta home:
 
 ```bash
@@ -90,7 +103,7 @@ secrets, volumes e unidades no escopo rootless dessa conta.
 O script é idempotente. Ele executa, nesta ordem:
 
 1. verifica o usuário executor, comandos, user bus, linger, DNS e subnet existente em `gateway-vpn`;
-2. atualiza as imagens-base e constrói `localhost/webapp:0.1.0`;
+2. atualiza as imagens-base e constrói as três imagens locais com `sshd`;
 3. cria os secrets ausentes em `~/.local/share/webapp/secrets/` sem sobrescrever os existentes;
 4. instala YAML, SQL de inicialização, configuração NGINX e unidades Quadlet de usuário;
 5. cria os volumes `webapp-db-data` e `webapp-images`;
@@ -99,6 +112,17 @@ O script é idempotente. Ele executa, nesta ordem:
 
 O Podman atribui endereços IPv4 dinamicamente aos pods. O deploy configura apenas aliases DNS
 estáveis; não derive nem fixe IPs dos serviços da webapp no script.
+
+Os listeners SSH usam TCP 22 dentro de `gateway-vpn`, sem publicação de porta no host:
+
+| Destino | Comando SSH |
+| --- | --- |
+| API | `ssh -i ~/.ssh/webapp_ed25519 root@webapp.dev.anatel` |
+| PostgreSQL | `ssh -i ~/.ssh/webapp_ed25519 root@webapp-db.dev.anatel` |
+| NGINX | `ssh -i ~/.ssh/webapp_ed25519 root@app-proxy.dev.anatel` |
+
+Os containers continuam não expondo SSH fora da VPN. A autenticação SSH é independente da
+inscrição do dispositivo no Headscale.
 
 Para reaplicar apenas a configuração sem reconstruir a imagem, acrescente `--no-build`.
 Alterações no frontend e seus assets só aparecem após reconstruir a imagem;
@@ -126,8 +150,12 @@ habilitado e SELinux `Disabled`.
 Na raiz do repositório, execute como administrador:
 
 ```bash
+sudo deploy/scripts/install-webapp-ssh-key.sh \
+  --public-key-file /caminho/para/webapp_ed25519.pub
 sudo deploy/scripts/deploy-webapp.sh
 ```
+
+Na variante rootful, o arquivo compartilhado é `/etc/webapp/secrets/authorized_keys`.
 
 O script rootful é idempotente. Ele escreve configuração em `/etc`, instala unidades em
 `/etc/containers/systemd` e usa `systemctl` global. Para manter a imagem existente, use:

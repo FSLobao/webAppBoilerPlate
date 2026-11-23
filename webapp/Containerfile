@@ -14,16 +14,25 @@ COPY webapp/backend/src webapp/backend/src
 RUN uv sync --locked --no-dev --no-editable --package webapp-api
 
 FROM docker.io/library/python:3.13-slim-trixie
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends openssh-server util-linux \
+    && rm -f /etc/ssh/ssh_host_* \
+    && rm -rf /var/lib/apt/lists/*
 # /data/images is the mount point of the webapp-images volume. Podman copies this
 # directory's ownership into an empty named volume on first use.
 RUN groupadd --system --gid 10001 webapp \
     && useradd --system --uid 10001 --gid webapp --no-create-home \
        --shell /usr/sbin/nologin webapp \
-    && install -d -o webapp -g webapp -m 0755 /data/images
+    && install -d -o webapp -g webapp -m 0755 /data/images \
+    && install -d -o root -g root -m 0700 /root/.ssh \
+    && install -d -o root -g root -m 0755 /run/sshd
 COPY --from=build /app/.venv /app/.venv
 COPY webapp/frontend /app/frontend
+COPY deploy/webapp/ssh/sshd_config /etc/ssh/sshd_config
+COPY deploy/webapp/ssh/webapp-entrypoint.sh /usr/local/sbin/webapp-entrypoint
+RUN chmod 0755 /usr/local/sbin/webapp-entrypoint
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1
-USER 10001:10001
-EXPOSE 8000
+EXPOSE 22 8000
+ENTRYPOINT ["/usr/local/sbin/webapp-entrypoint"]
 CMD ["uvicorn", "webapp_api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
