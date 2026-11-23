@@ -11,8 +11,8 @@
 set -Eeuo pipefail
 
 readonly IMAGE=localhost/webapp:0.1.0
-readonly POSTGRES_IMAGE=localhost/webapp-db-postgres:0.1.0
-readonly PROXY_IMAGE=localhost/app-proxy-nginx:0.1.0
+readonly POSTGRES_IMAGE=localhost/webapp-db:0.1.0
+readonly PROXY_IMAGE=localhost/app-proxy:0.1.0
 readonly POSTGRES_UID=999
 readonly WEBAPP_UID=10001
 readonly GATEWAY_NETWORK=gateway-vpn

@@ -6,6 +6,7 @@ After=network-online.target
 [Kube]
 Yaml=/etc/webapp/kube/webapp-db.yaml
 Network=podman
+PodmanArgs=--no-pod-prefix
 
 [Service]
 Restart=on-failure

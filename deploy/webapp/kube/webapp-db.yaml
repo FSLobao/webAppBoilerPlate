@@ -9,8 +9,8 @@ metadata:
     app: webapp
 spec:
   containers:
-    - name: postgres
-      image: localhost/webapp-db-postgres:0.1.0
+    - name: webapp-db
+      image: localhost/webapp-db:0.1.0
       ports:
         - containerPort: 22
           protocol: TCP

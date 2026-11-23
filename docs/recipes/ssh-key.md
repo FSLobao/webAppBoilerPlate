@@ -32,7 +32,7 @@ Os destinos usam os seguintes arquivos no host Gateway:
 | --- | --- | --- |
 | Gateway | `/etc/gateway/authorized_keys` | Acesso SSH administrativo ao Gateway. |
 | Container de aplicação | `/etc/gateway/application-keys/<container>/authorized_keys` | Caminho padrão; o caminho efetivo é configurável no JSON do deployment. Montado somente leitura em `/home/<account>/.ssh/authorized_keys` no container. |
-| Stack webapp de desenvolvimento | `/etc/webapp/secrets/authorized_keys` (rootful) ou `~/.local/share/webapp/secrets/authorized_keys` (rootless) | Arquivo único montado somente leitura em `/root/.ssh/authorized_keys` nos containers `webapp-api`, `webapp-db-postgres` e `app-proxy-nginx`. |
+| Stack webapp de desenvolvimento | `/etc/webapp/secrets/authorized_keys` (rootful) ou `~/.local/share/webapp/secrets/authorized_keys` (rootless) | Arquivo único montado somente leitura em `/root/.ssh/authorized_keys` nos containers `webapp`, `webapp-db` e `app-proxy`. |
 
 Use uma chave por destino ou por finalidade. Assim, é possível revogar um acesso sem afetar
 os demais.
@@ -105,9 +105,14 @@ já existir, não o sobrescreva: escolha outro nome ou faça uma cópia segura a
 No PowerShell, crie a pasta SSH, gere a chave e copie a chave pública:
 
 ```powershell
-New-Item -ItemType Directory -Force "$HOME\.ssh" | Out-Null
-ssh-keygen -t ed25519 -a 64 -f "$HOME\.ssh\<destino>_ed25519" -C "<usuario>@<destino>"
-Get-Content "$HOME\.ssh\<destino>_ed25519.pub" | Set-Clipboard
+$usuario = "<usuario>"
+$destino = "<servidor/app>"
+
+$sshDir = Join-Path $HOME ".ssh"
+$chave = Join-Path $sshDir "${destino}_ed25519"
+New-Item -ItemType Directory -Force $sshDir | Out-Null
+ssh-keygen -t ed25519 -a 64 -f $chave -C "${usuario}@${destino}"
+Get-Content "${chave}.pub" | Set-Clipboard
 ```
 
 ### macOS

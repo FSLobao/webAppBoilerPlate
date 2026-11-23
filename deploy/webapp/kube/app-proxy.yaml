@@ -10,8 +10,8 @@ metadata:
     app: app-proxy
 spec:
   containers:
-    - name: nginx
-      image: localhost/app-proxy-nginx:0.1.0
+    - name: app-proxy
+      image: localhost/app-proxy:0.1.0
       env:
         - name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS
           value: "1"

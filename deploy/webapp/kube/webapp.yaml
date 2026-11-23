@@ -8,7 +8,7 @@ metadata:
     app: webapp
 spec:
   containers:
-    - name: api
+    - name: webapp
       image: localhost/webapp:0.1.0
       ports:
         - containerPort: 22

@@ -315,11 +315,11 @@ user bus ativo. No exemplo, essa conta é `podman_user`.
 | Tarefa | Comando |
 |---|---|
 | Estado das unidades | `systemctl --user status webapp-db.service webapp.service app-proxy.service` |
-| Logs da API | `journalctl --user -u webapp.service -f` ou `podman logs -f webapp-api` |
-| Logs do NGINX | `podman logs -f app-proxy-nginx` |
-| Logs do PostgreSQL | `podman logs -f webapp-db-postgres` |
+| Logs da API | `journalctl --user -u webapp.service -f` ou `podman logs -f webapp` |
+| Logs do NGINX | `podman logs -f app-proxy` |
+| Logs do PostgreSQL | `podman logs -f webapp-db` |
 | Reiniciar a aplicação | `systemctl --user restart webapp.service` |
-| Testar a configuração NGINX | `podman exec app-proxy-nginx nginx -t` |
+| Testar a configuração NGINX | `podman exec app-proxy nginx -t` |
 
 ### Inspecionar o banco de dados
 
@@ -335,9 +335,9 @@ As senhas são secrets externos ao Git. Na implantação rootless, ficam em
 
 | Arquivo no host | Papel correspondente | Montagem no container |
 | --- | --- | --- |
-| `postgres-password` | `webapp_owner` | `webapp-db-postgres:/run/secrets/postgres-password` |
-| `db-init-api-password` | `webapp_api` durante a inicialização | `webapp-db-postgres:/run/secrets/api-db-password` |
-| `api-db-password` | `webapp_api` durante a execução da API | `webapp-api:/run/secrets/api-db-password` |
+| `postgres-password` | `webapp_owner` | `webapp-db:/run/secrets/postgres-password` |
+| `db-init-api-password` | `webapp_api` durante a inicialização | `webapp-db:/run/secrets/api-db-password` |
+| `api-db-password` | `webapp_api` durante a execução da API | `webapp:/run/secrets/api-db-password` |
 
 `db-init-api-password` e `api-db-password` contêm o mesmo valor e são cópias com proprietários
 diferentes para atender aos UIDs dos containers. Não copie, versione, registre em logs ou publique
@@ -346,14 +346,14 @@ o conteúdo desses arquivos. Não recrie os secrets quando `webapp-db-data` já 
 Para inspeção administrativa a partir do host rootless, use o socket local do container:
 
 ```bash
-podman exec -it webapp-db-postgres \
+podman exec -it webapp-db \
   psql -U webapp_owner -d db_webapp
 ```
 
 Para validar a perspectiva e os privilégios do papel da API:
 
 ```bash
-podman exec -it webapp-db-postgres \
+podman exec -it webapp-db \
   psql -U webapp_api -d db_webapp
 ```
 
@@ -467,7 +467,7 @@ Depois de alterar backend ou frontend, execute o deploy novamente para reconstru
 | Sintoma | Causa provável | Ação |
 |---|---|---|
 | Upload retorna `500` com `PermissionError` | volume `webapp-images` sem dono `10001` | faça backup das imagens, remova o volume com os pods parados e execute o deploy |
-| `502 Bad Gateway` em `/webapp/` | pod `webapp` parado ou iniciando | `systemctl --user status webapp.service` e `podman logs webapp-api` |
+| `502 Bad Gateway` em `/webapp/` | pod `webapp` parado ou iniciando | `systemctl --user status webapp.service` e `podman logs webapp` |
 | Health falha com erro de autenticação no banco | secrets diferentes dos usados na criação do volume | restaure os secrets originais |
 | Mudança em SQL de init sem efeito | scripts de init rodam só com volume vazio | aplique a mudança com `psql` ou recrie o volume em ambiente descartável |
 | `413 Request Entity Too Large` | imagem acima de 6 MiB no NGINX | envie imagem de até 5 MiB |

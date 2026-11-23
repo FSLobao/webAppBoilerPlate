@@ -242,7 +242,7 @@ recuperação do Gateway.
 ## 4.2 Application containers
 
 Aplicações usam containers para backend, frontend e serviços auxiliares. A configuração inicial
-combina frontend e FastAPI em `webApp`; PostgreSQL permanece separado. Detalhes estão na seção 6.
+combina frontend e FastAPI em `webapp`; PostgreSQL permanece separado. Detalhes estão na seção 6.
 
 ---
 
@@ -405,7 +405,7 @@ explícitas; indisponibilidade do Headplane não interrompe tráfego VPN já aut
 # 6. Aplicações
 
 Cada aplicação pode usar containers para backend, frontend, workers, schedulers e serviços
-auxiliares. A configuração inicial combina assets frontend e FastAPI no container `webApp`;
+auxiliares. A configuração inicial combina assets frontend e FastAPI no container `webapp`;
 PostgreSQL permanece separado.
 
 FastAPI fornece API REST/HTTP, lógica de negócio, integrações e acesso ao banco. Ele autoriza
@@ -441,7 +441,7 @@ container separado, uma interface na rede rootless `gateway-vpn` e volume persis
 sua porta no host. Desenvolvedores podem alcançar o serviço pela VPN roteada; PostgreSQL aplica
 autenticação e autorização próprias.
 
-Somente o processo FastAPI no container `webApp` recebe credenciais PostgreSQL. Como frontend e
+Somente o processo FastAPI no container `webapp` recebe credenciais PostgreSQL. Como frontend e
 backend compartilham o container, valide que os assets servidos ao browser nunca exponham essas
 credenciais.
 
@@ -481,7 +481,7 @@ Este NGINX recebe as chamadas externas na porta `8080` do host, vinculada ao lis
 do container. É o único endpoint HTTP publicado pelo boilerplate para aplicações e encaminha
 requisições por caminho a todas as aplicações configuradas, por exemplo `/app1` e `/app2`.
 Cada aplicação declara seus prefixos e upstreams. A aplicação inicial usa `/webapp/` e `/webapp/api/`,
-ambos encaminhados ao listener FastAPI `webApp:8000`; avalia a rota da API antes do fallback SPA.
+ambos encaminhados ao listener FastAPI `webapp:8000`; avalia a rota da API antes do fallback SPA.
 O proxy mantém somente estado de configuração e logs operacionais; não armazena dados de aplicação.
 
 O proxy não armazena dados de aplicação nem autentica usuários. Em produção, o perímetro externo
@@ -1177,7 +1177,7 @@ As seguintes decisões são consideradas parte do contrato:
 | Frontend | Vite com JavaScript sem framework por padrão; HTML/JS estático para páginas pequenas |
 | Rota frontend/API | `/webapp/` e `/webapp/api/<route>` no mesmo domínio |
 | Database | PostgreSQL 18 por padrão, versão configurável por instância |
-| Stack inicial da aplicação | `webApp` combina assets SPA e FastAPI em um listener TCP `8000`; PostgreSQL permanece separado |
+| Stack inicial da aplicação | `webapp` combina assets SPA e FastAPI em um listener TCP `8000`; PostgreSQL permanece separado |
 | Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
 | Gestão de containers | Portainer em container dedicado na rede padrão, restrito a operadores pela VPN; implementação pendente |
@@ -1276,7 +1276,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - NGINX compartilhado receber todas as aplicações por um endpoint host `0.0.0.0:8080`, mapeado ao TCP/8080 do container;
 - cada aplicação HTTP puder ser encaminhada por um prefixo de caminho, como `/app1` ou `/app2`, sem exigir outra porta publicada;
 - o emulador NGINX de desenvolvimento escutar TCP/80 sem bind no host, injetar headers sintéticos e encaminhar ao proxy compartilhado em TCP/8080 (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md));
-- NGINX encaminhar, para a aplicação inicial, `/webapp/` e `/webapp/api/<route>` ao mesmo listener FastAPI `webApp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
+- NGINX encaminhar, para a aplicação inicial, `/webapp/` e `/webapp/api/<route>` ao mesmo listener FastAPI `webapp:8000`, preservando o prefixo, sem restringir outras aplicações aos mesmos upstreams/portas;
 - FastAPI servir, na aplicação inicial, a SPA em `/webapp/` e a API em `/webapp/api/` no único listener TCP `8000`;
 - o perímetro autenticar usuários e fornecer identidade `X-USER` confiável, e a aplicação autorizar usuários sem atribuir autenticação ao NGINX;
 - rotas protegidas falharem fechadas quando a identidade estiver ausente/não confiável e deployment aplicar o gate de perímetro/proveniência;
@@ -1309,7 +1309,7 @@ Uma implementação do boilerplate será considerada aderente quando:
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
 - PostgreSQL 18 possuir armazenamento persistente e plano de backup pgBackRest com full mensal/incremental semanal, volumes de trabalho/exportação distintos, publicação íntegra e restore manual testado; esses campos e operações ainda não são suportados pelo runtime;
-- somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webApp`;
+- somente o processo FastAPI possuir credenciais PostgreSQL dentro do container combinado `webapp`;
 - TUS e file sharing NGINX serem recursos opcionais; uploads terem limite configurável de 1 GB por padrão e file sharing ser somente leitura;
 - seções não relacionadas do JSON permanecerem compatíveis com `schema_version: 1`; rede, DNS e acesso remoto seguem validação definida nas seções 5.5 e 9;
 - os dois NGINX funcionarem como proxies HTTP distintos: o compartilhado obrigatório para aplicações e o emulador exclusivo para desenvolvimento (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md)); nenhum deles servir tráfego administrativo;
