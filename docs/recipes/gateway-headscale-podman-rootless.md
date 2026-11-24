@@ -315,20 +315,20 @@ source "$HOME/.config/gateway-vpn/load-env.sh"
 
 ## Passo 2: Preparar o host como root
 
-Carregue as constantes antes dos comandos desta etapa:
+Lembre-se de carregar as constantes antes dos comandos desta etapa, caso a sessão tenha sido reiniciada.
 
 ```bash
 GATEWAY_USER=podman_user
-source "$(getent passwd "${GATEWAY_USER}" | cut -d: -f6)/.config/gateway-vpn/load-env.sh"
+source "/home/"$GATEWAY_USER"/webAppBoilerPlate/.config/gateway-vpn/load-env.sh"
 ```
 
-De volta à conta de root, gere uma senha inicial aleatória para a conta dedicada. Execute na raiz do repositório, confirme que `.env` é ignorado e que ainda não existe. O arquivo fica em modo `0600`; não imprima nem passe a senha em argumentos. O uso do pequeno script abaixo garante que a senha seja criada, armazenada e aplicada de forma segura, sem apresentar a senha em logs ou argumentos.
+Gere uma senha inicial aleatória para a conta dedicada. Execute na raiz do repositório, confirme que `.env` é ignorado e que ainda não existe. O arquivo fica em modo `0600`; não imprima nem passe a senha em argumentos. O uso do pequeno script abaixo garante que a senha seja criada, armazenada e aplicada de forma segura, sem apresentar a senha em logs ou argumentos.
 
 ```bash
 cd /home/"$GATEWAY_USER"/webAppBoilerPlate
 git config --global --add safe.directory /home/"$GATEWAY_USER"/webAppBoilerPlate
-git check-ignore -q .env || { printf ".env precisa estar ignorado pelo Git.\n" >&2; exit 1; }
-test ! -e .env || { printf ".env já existe; preserve-o e resolva manualmente.\n" >&2; exit 1; }
+git check-ignore -q .env || { printf ".env precisa estar ignorado pelo Git.\n" >&2; }
+test ! -e .env || { printf ".env já existe; preserve-o e resolva manualmente.\n" >&2; }
 umask 077
 GWVPN_INITIAL_PASSWORD=$(openssl rand -hex 32)
 printf "GWVPN_INITIAL_PASSWORD=%s\n" "$GWVPN_INITIAL_PASSWORD" > .env
@@ -403,22 +403,11 @@ SELinux runtime mode is Enforcing; reboot required to complete
 
 ## Passo 3: Confirmar o plano da bridge rootless
 
-Carregue as variáveis definidas no loader usando o comando a seguir:
+Ainda usando a conta de usuário, no shell `root`, carregue as variáveis de ambiente caso necessário:
 
 ```bash
-source "$HOME/.config/gateway-vpn/load-env.sh"
-```
-
-Caso tenha definido o alias `gwenv` no `~/.bashrc` do root, basta executá-lo para carregar as variáveis:
-
-```bash
-gwenv
-```
-
-No shell `root`, carregue o mesmo arquivo pelo home da conta:
-
-```bash
-source "$(getent passwd "${GATEWAY_USER}" | cut -d: -f6)/.config/gateway-vpn/load-env.sh"
+GATEWAY_USER=podman_user
+source "/home/"$GATEWAY_USER"/webAppBoilerPlate/.config/gateway-vpn/load-env.sh"
 ```
 
 ```bash
@@ -473,6 +462,18 @@ test -c /dev/net/tun
 Confirme que a home não está em NFS nem montada com `noexec` ou `nodev`.
 ```bash
 findmnt -no FSTYPE,OPTIONS -T "$HOME"
+```
+
+Sempre que iniciar a sessão do usuário `<GATEWAY_USER>`, carregue as variáveis definidas no loader usando o comando a seguir:
+
+```bash
+source "$HOME/.config/gateway-vpn/load-env.sh"
+```
+
+Caso tenha definido o alias `gwenv` no `~/.bashrc` do root, basta executá-lo para carregar as variáveis:
+
+```bash
+gwenv
 ```
 
 <div>
