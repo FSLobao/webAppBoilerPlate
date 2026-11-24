@@ -47,8 +47,6 @@ The visual Sign-in component does not implement GOV.BR authentication or replace
 - Reuse an installed package or vetted local assets first. Adding a package,
   build stage, external CDN, or remote font requires a justified dependency and
   deployment change, not an incidental styling edit.
-- The current `webapp/frontend/` is a static, no-build frontend served under
-  `/webapp/`. Preserve this delivery model unless the task explicitly changes it.
   Use relative asset paths that remain valid under that URL prefix.
 - When local distribution is needed, obtain files from the official release.
   Pin the version, retain applicable license notices, and record source URLs
