@@ -21,6 +21,17 @@ spec:
           protocol: TCP
         - containerPort: 22
           protocol: TCP
+      livenessProbe:
+        exec:
+          command:
+            - wget
+            - -q
+            - -O
+            - "-"
+            - http://127.0.0.1:8080/healthz
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
       volumeMounts:
         - name: templates
           mountPath: /etc/nginx/templates

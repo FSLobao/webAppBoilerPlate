@@ -13,6 +13,11 @@ server {
     absolute_redirect off;
     server_tokens off;
 
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
     location / {
         return 404;
     }
