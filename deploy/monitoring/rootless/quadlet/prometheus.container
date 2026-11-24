@@ -1,0 +1,21 @@
+[Unit]
+Description=Prometheus for the current rootless user
+After=podman-exporter.service
+Requires=podman-exporter.service
+
+[Container]
+Image=docker.io/prom/prometheus:v3.16.0
+ContainerName=prometheus
+Network=monitoring-rootless
+PublishPort=127.0.0.1:9090:9090
+Volume=%h/.config/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+Volume=monitoring-prometheus-data:/prometheus
+Exec=--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d
+Pull=missing
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

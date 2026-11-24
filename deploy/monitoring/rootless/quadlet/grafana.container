@@ -1,0 +1,22 @@
+[Unit]
+Description=Grafana for the current rootless user's Podman metrics
+After=prometheus.service
+Requires=prometheus.service
+
+[Container]
+Image=docker.io/grafana/grafana:13.3.1
+ContainerName=grafana
+Network=monitoring-rootless
+PublishPort=127.0.0.1:3000:3000
+Volume=monitoring-grafana-data:/var/lib/grafana
+Volume=%h/.config/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+Secret=monitoring-grafana-admin-password,type=env,target=GF_SECURITY_ADMIN_PASSWORD
+Environment=GF_SECURITY_ADMIN_USER=admin
+Pull=missing
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

@@ -156,6 +156,7 @@ uv run pytest
 
 - [Receita de implantação e operação](docs/recipes/webapp-crud.md)
 - [Receita do Gateway rootless](docs/recipes/gateway-headscale-podman-rootless.md)
+- [Receita de monitoramento Podman rootless com Prometheus e Grafana](docs/recipes/podman-rootless-prometheus-grafana.md)
 - [Receita de administração do Gateway VPN](docs/recipes/gateway-vpn-admin.md)
 - [Receita do cliente VPN](docs/recipes/gateway-vpn-client.md)
 - [Referências e reuso do Design System GOV.BR](docs/recipes/govbr-design-system.md)
