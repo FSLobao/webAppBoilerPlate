@@ -44,9 +44,11 @@ cujo CIDR efetivo é definido pelas variáveis de ambiente do deployment do Gate
 rootful `podman` permanece como alternativa. Não haverá redes por aplicação; preserve o IP de
 origem VPN.
 
-**Revisão da administração:** Portainer será a interface de gestão de containers, em container
-dedicado na rede padrão `podman`, acessível somente por operadores pela VPN. A integração ainda
-precisa ser implementada e validada no alvo RHEL 9.8 / Podman rootful 5.8.2.
+**Revisão da administração:** Portainer será a interface principal de gestão de containers, em
+container dedicado na rede padrão `podman`, acessível somente por operadores pela VPN.
+`cockpit-podman` é uma alternativa de inspeção e gestão operacional no host RHEL, restrita à
+conta `podman_user` e sem substituir Quadlet como fonte de deployment. A integração das duas
+interfaces ainda precisa ser implementada e validada no alvo RHEL 9.8 / Podman rootful 5.8.2.
 
 ---
 
@@ -110,16 +112,17 @@ independente dos containers, do Gateway e do Portainer. A instalação, atualiza
 ficam sob responsabilidade da equipe de infraestrutura, usando pacotes suportados do RHEL e
 ativação por `cockpit.socket`. Essa instalação está planejada; não foi executada por este contrato.
 
-Seu escopo inclui serviços systemd, logs do host, armazenamento, interfaces de rede, atualizações,
-contas e diagnóstico, conforme os módulos e as permissões disponíveis no RHEL. Portainer permanece
-responsável pela interface de gestão dos containers; não instalar `cockpit-podman` como segunda
-interface de gestão nem substituir o deployment declarativo Quadlet por operações manuais.
+Seu escopo inclui serviços systemd, armazenamento e interfaces de rede, conforme os módulos e as
+permissões disponíveis no RHEL. Portainer permanece a interface principal de gestão dos
+containers. A extensão `cockpit-podman` pode ser instalada como alternativa operacional no host,
+restrita à conta `podman_user`, mas não substitui o deployment declarativo Quadlet nem autoriza
+deployments concorrentes.
 
 Cockpit usa autenticação do sistema integrada aos controles corporativos existentes e elevação
 de privilégios autorizada pela política do host. Acesso fica restrito à equipe de infraestrutura,
-com HTTPS e certificado confiável em endereço de gestão do host. A porta padrão é TCP `9090`;
-bind e regras de ingresso devem limitar acesso à rede administrativa corporativa, sem exposição
-pública ou liberação indiscriminada no firewall.
+com HTTPS e certificado confiável em endereço de gestão do host. A porta padrão é TCP `9090`.
+ACLs, firewalls e roteamento externos ao host devem limitar o ingresso à rede administrativa
+corporativa, sem exposição pública. O `firewalld` e o `nftables` locais permanecem desativados.
 
 Esse endpoint administrativo do host deve permanecer acessível à infraestrutura quando o Gateway
 ou a VPN de desenvolvimento estiverem indisponíveis. Não usa o proxy NGINX de aplicações nem
@@ -1180,13 +1183,13 @@ As seguintes decisões são consideradas parte do contrato:
 | Stack inicial da aplicação | `webapp` combina assets SPA e FastAPI em um listener TCP `8000`; PostgreSQL permanece separado |
 | Gateway | Um único container compartilhado |
 | Gateway por aplicação | Não |
-| Gestão de containers | Portainer em container dedicado na rede padrão, restrito a operadores pela VPN; implementação pendente |
+| Gestão de containers | Portainer em container dedicado como interface principal; `cockpit-podman` é alternativa no host, restrita a `podman_user`; implementação pendente |
 | Integração Portainer | API compatível com Docker pelo socket Unix rootful local, montado somente no Portainer; sem Agent no ambiente local |
 | Estado Portainer | Volume persistente em `/data`, backup protegido e bootstrap administrativo restrito |
 | Fonte de deployment | Quadlet e scripts versionados; Portainer não cria stacks concorrentes nem substitui a gestão do host |
 | Gestão geral do host | Cockpit instalado diretamente no RHEL pela infraestrutura; serviço independente dos containers |
 | Acesso ao Cockpit | HTTPS no endereço administrativo do host, TCP `9090` por padrão, restrito à infraestrutura e aos controles corporativos; independente da VPN de desenvolvimento |
-| Limite do Cockpit | Gestão do servidor, sem `cockpit-podman`; Portainer permanece a interface de containers e Quadlet a autoridade de deployment |
+| Limite do Cockpit | Gestão do servidor; `cockpit-podman` pode operar containers de `podman_user`, enquanto Portainer permanece principal e Quadlet é a autoridade de deployment |
 | Headscale | Servidor de coordenação auto-hospedado dentro do Gateway; implementação pendente |
 | Endpoint de controle e VPN | TCP 443 publicado diretamente no host; Headscale e VPN usam o mesmo endpoint LAN |
 | Headplane | Interface administrativa VPN dentro do Gateway, restrita a operadores |
@@ -1299,13 +1302,16 @@ Uma implementação do boilerplate será considerada aderente quando:
 - chaves públicas forem lidas de arquivos root-owned no host e alterações forem registradas pela auditoria existente (a implementar, fora do escopo atual; consulte [TODO.md](../plans/TODO.md)); PAM permanece responsabilidade externa;
 - o Gateway não oferecer listener de shell ou transporte alternativo para acesso remoto de desenvolvedores;
 - Portainer permitir as operações de containers aprovadas, via API compatível com Docker e socket local, no alvo RHEL 9.8 / Podman 5.8.2, sem `--privileged`; falha de compatibilidade bloqueia aceitação;
-- somente Portainer receber o socket Podman, com acesso restrito a operadores confiáveis e sem exposição TCP da API;
+- somente Portainer receber o socket Podman rootful; o socket rootless de `podman_user` pode ser
+  consultado por `cockpit-podman`, sem exposição TCP da API;
 - Portainer não substituir Quadlet nem criar stacks ou configuração estrutural concorrente; validar efeitos das operações na política de reinício systemd;
 - dados em `/data` sobreviverem à recriação do Portainer, com backup/restore e bootstrap administrativo protegido;
 - indisponibilidade do Portainer não interromper aplicações, VPN ou DNS, e sua interface HTTPS não permitir ingresso não autorizado pela VPN ou bridge;
 - Cockpit executar diretamente no host, com HTTPS, autenticação e privilégios corporativos, restrito à infraestrutura e sem dependência dos containers, do Gateway ou da VPN de desenvolvimento;
 - acesso administrativo ao Cockpit permanecer funcional com o Gateway parado, sem expor sua porta publicamente nem disponibilizar outro canal de desenvolvedores;
-- Cockpit não instalar gestão concorrente de containers, não substituir Quadlet e sua indisponibilidade não interromper aplicações, VPN ou DNS;
+- `cockpit-podman` operar somente os containers visíveis a `podman_user`, como alternativa ao
+  Portainer, sem substituir Quadlet; a indisponibilidade do Cockpit não pode interromper
+  aplicações, VPN ou DNS;
 - Podman API não estiver exposto desnecessariamente;
 - PostgreSQL possuir armazenamento persistente;
 - PostgreSQL 18 possuir armazenamento persistente e plano de backup pgBackRest com full mensal/incremental semanal, volumes de trabalho/exportação distintos, publicação íntegra e restore manual testado; esses campos e operações ainda não são suportados pelo runtime;
