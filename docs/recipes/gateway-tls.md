@@ -140,7 +140,8 @@ O OpenSSL solicitará a frase secreta da chave da CA. Não a inclua em comandos,
 No host Gateway, abra uma sessão de administrador. Substitua `<HEADSCALE_FQDN>` pelo hostname exato que os clientes usarão na URL do Headscale (por exemplo, `vpn.example.com`). Confirme que DNS externo ou corporativo resolve esse nome para o host Gateway antes da VPN:
 
 ```bash
-sudo bash <<'BASH'
+HEADSCALE_FQDN=rhfisnsdsin01.anatel.gov.br
+bash <<'BASH'
 set -Eeuo pipefail
 umask 077
 install -d -o root -g root -m 0700 /etc/gateway/tls
@@ -153,8 +154,8 @@ done
 openssl req -new -newkey rsa:3072 -nodes -sha256 \
   -keyout /etc/gateway/tls/gateway.key \
   -out /etc/gateway/tls/gateway.csr \
-  -subj "/CN=gateway-server" \
-  -addext "subjectAltName=DNS:<HEADSCALE_FQDN>,DNS:dev-gateway.dev.anatel,DNS:localhost,IP:127.0.0.1"
+  -subj "/CN=${HEADSCALE_FQDN}" \
+  -addext "subjectAltName=DNS:${HEADSCALE_FQDN},DNS:dev-gateway.dev.anatel,DNS:localhost,IP:127.0.0.1"
 chmod 0600 /etc/gateway/tls/gateway.key
 openssl req -in /etc/gateway/tls/gateway.csr -noout -verify -text
 BASH
@@ -180,6 +181,7 @@ Na estação de trabalho de assinatura, dentro de `gateway-ca`, substitua `<HEAD
 
 ```bash
 (
+  HEADSCALE_FQDN=rhfisnsdsin01.anatel.gov.br
   set -Eeuo pipefail
   umask 077
   if [[ -e gateway.cert || -L gateway.cert || -e gateway-server.ext || -L gateway-server.ext ]]; then
@@ -190,7 +192,7 @@ Na estação de trabalho de assinatura, dentro de `gateway-ca`, substitua `<HEAD
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
-subjectAltName=DNS:<HEADSCALE_FQDN>,DNS:dev-gateway.dev.anatel,DNS:localhost,IP:127.0.0.1
+subjectAltName=DNS:${HEADSCALE_FQDN},DNS:dev-gateway.dev.anatel,DNS:localhost,IP:127.0.0.1
 subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid,issuer
 EOF
@@ -205,7 +207,7 @@ EOF
   openssl verify -CAfile gateway-dev-ca.crt -purpose sslserver \
     -verify_hostname dev-gateway.dev.anatel gateway.cert
   openssl verify -CAfile gateway-dev-ca.crt -purpose sslserver \
-    -verify_hostname "<HEADSCALE_FQDN>" gateway.cert
+    -verify_hostname "${HEADSCALE_FQDN}" gateway.cert
   openssl x509 -in gateway.cert -noout -dates -ext subjectAltName
 )
 ```

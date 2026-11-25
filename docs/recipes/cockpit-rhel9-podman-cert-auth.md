@@ -18,6 +18,7 @@
         <li><a href="#passo-10-testar-o-acesso-com-o-certificado">Passo 10: Testar o acesso com o certificado</a></li>
         <li><a href="#verificação-final">Verificação final</a></li>
         <li><a href="#operação-e-referência-rápida">Operação e referência rápida</a></li>
+        <li><a href="#revogar-uma-credencial-específica">Revogar uma credencial específica</a></li>
         <li><a href="#solução-de-problemas">Solução de problemas</a></li>
         <li><a href="#reversão-e-desinstalação">Reversão e desinstalação</a></li>
         <li><a href="#referências">Referências</a></li>
@@ -70,7 +71,7 @@ repositório:
 
 | Decisão | Risco | Justificativa | Mitigação |
 | --- | --- | --- | --- |
-| Uma conta local mapeia todos os certificados emitidos com `CN=podman_user` | Perda de autoria individual no host | Os containers pertencem a uma conta operacional dedicada | Emita um certificado por dispositivo, registre o titular e use validade curta |
+| Certificados com `CN=podman_user-<DEVICE_ID>` mapeiam para a conta `podman_user` | Perda de autoria individual no host | Os containers pertencem a uma conta operacional dedicada | Um identificador por máquina, registro em `issued-certificates.csv`, lista `ALLOWED_DEVICES` e revogação por identificador |
 | Cockpit aceita somente certificado de cliente | Bloqueio administrativo se o arquivo PKCS #12 ou a CA forem perdidos | Atende à exigência de remover login por senha | Mantenha console local e cópia recuperável da CA em cofre aprovado |
 | `firewalld` permanece desativado | A porta `9090/TCP` depende da proteção externa | O contrato não usa firewall local no host | Restrinja o ingresso por ACL, firewall ou proxy corporativo fora do host |
 | `authselect` habilita suporte a smart card | Altera a pilha PAM do sistema | Necessário ao provedor proxy do SSSD | Execute backup, confirme o perfil atual e mantenha senha para serviços externos ao Cockpit |
@@ -121,10 +122,10 @@ demais pacotes suportados pelo canal do RHEL 9.8.
 - O certificado de servidor do Cockpit deve ser confiável pelos navegadores.
 - Se necessário, use a [receita de TLS](gateway-tls.md) para instalar o certificado de servidor.
 - A CA privada de clientes deve permanecer em estação de assinatura controlada, fora do host RHEL.
-- Solicite ao usuário o arquivo `podman_user.csr`, gerado conforme o
+- Solicite ao usuário o arquivo `${CERT_NAME}.csr`, gerado conforme o
   [Passo 1 da receita de credencial de cliente](cockpit-client-certificate.md#passo-1-gerar-a-chave-e-o-csr).
-- Entregue ao usuário `podman_user.crt` e `cockpit-client-ca.crt`. Ele confere e importa a
-  credencial conforme o
+- Informe ao usuário o `DEVICE_ID` desta máquina. Entregue `${CERT_NAME}.crt` e
+  `cockpit-client-ca.crt`. Ele confere e importa a credencial conforme o
   [Passo 4 da receita de credencial de cliente](cockpit-client-certificate.md#passo-4-importar-no-navegador).
 - Confirme que o host está inscrito no Satellite, CDN ou outro repositório RHEL aprovado.
 - Faça backup de `/etc/cockpit`, `/etc/sssd`, `/etc/pam.d/cockpit` e do perfil `authselect`.
@@ -140,11 +141,14 @@ demais pacotes suportados pelo canal do RHEL 9.8.
 Defina as variáveis na sessão atual. Repita este bloco ao abrir outro shell:
 
 ```bash
-COCKPIT_FQDN=rhel9podhost.hv
+COCKPIT_FQDN=rhfisnsdsin01.anatel.gov.br
 COCKPIT_USER=podman_user
 CLIENT_CA_DIR="/home/${COCKPIT_USER}/cockpit-client-ca"
 CLIENT_CA_STAGE=/root/cockpit-client-stage
-CERT_VALIDITY_DAYS=365
+CERT_VALIDITY_DAYS=1095
+DEVICE_ID=notebook-joao
+CERT_NAME="${COCKPIT_USER}-${DEVICE_ID}"
+ALLOWED_DEVICES="notebook-joao"
 ```
 
 | Variável | Descrição | Exemplo | Usada em |
@@ -153,7 +157,10 @@ CERT_VALIDITY_DAYS=365
 | `COCKPIT_USER` | Conta local que possui os containers rootless | `podman_user` | Passos 2, 5 e 10 |
 | `CLIENT_CA_DIR` | Diretório privado da CA na estação de assinatura | `/home/podman_user/cockpit-client-ca` | Passos 3 e 4 |
 | `CLIENT_CA_STAGE` | Diretório de transporte da CA pública no host | `/root/cockpit-client-stage` | Passo 5 |
-| `CERT_VALIDITY_DAYS` | Validade do certificado de cliente | `365` | Passo 4 |
+| `CERT_VALIDITY_DAYS` | Validade do certificado de cliente | `1095` | Passo 4 |
+| `DEVICE_ID` | Identificador da máquina autorizada; compõe o `CN` e o nome do arquivo. Use apenas letras minúsculas, dígitos e `-` | `notebook-joao` | Passos 4 e revogação |
+| `CERT_NAME` | Nome do certificado: `${COCKPIT_USER}-${DEVICE_ID}` | `podman_user-notebook-joao` | Passos 4 e revogação |
+| `ALLOWED_DEVICES` | Identificadores ativos separados por `\|`; a regra SSSD aceita somente estes | `notebook-joao\|desktop-maria` | Passos 5 e revogação |
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -172,7 +179,7 @@ Instale a base do Cockpit, as extensões Podman e Files e o suporte necessário 
 **Contexto:** host RHEL 9.8, usuário `root`, diretório `/root`.
 
 ```bash
-dnf install --assumeyes cockpit cockpit-podman cockpit-files podman openssl sssd sssd-proxy
+dnf install --assumeyes cockpit cockpit-podman cockpit-files podman openssl sssd sssd-proxy sssd-tools
 ```
 
 **Resultado esperado:** o `dnf` conclui sem mensagens de erro e instala as dependências.
@@ -288,11 +295,11 @@ assinada nem transferida.
 
 **Contexto:** estação de assinatura, usuário administrador, diretório da CA.
 
-Crie `podman_user.ext` dentro de `CLIENT_CA_DIR`. A saída terá modo `0600` por `umask`:
+Crie `client-auth.ext` dentro de `CLIENT_CA_DIR`. A saída terá modo `0600` por `umask`:
 
 ```bash
 umask 077
-cat > "${CLIENT_CA_DIR}/podman_user.ext" <<'EOF'
+cat > "${CLIENT_CA_DIR}/client-auth.ext" <<'EOF'
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=clientAuth
@@ -301,10 +308,13 @@ authorityKeyIdentifier=keyid,issuer
 EOF
 ```
 
-Copie `podman_user.csr` para `CLIENT_CA_DIR`. Assine somente após conferir `subject=CN=podman_user`:
+Copie `${CERT_NAME}.csr` para `CLIENT_CA_DIR`. Assine somente após conferir `subject=CN=${CERT_NAME}`
+e se `DEVICE_ID` corresponde à máquina que solicitou o certificado:
 
 ```bash
-openssl x509 -req -in "${CLIENT_CA_DIR}/podman_user.csr" -CA "${CLIENT_CA_DIR}/cockpit-client-ca.crt" -CAkey "${CLIENT_CA_DIR}/cockpit-client-ca.key" -set_serial "0x$(openssl rand -hex 16)" -days "${CERT_VALIDITY_DAYS}" -sha256 -extfile "${CLIENT_CA_DIR}/podman_user.ext" -out "${CLIENT_CA_DIR}/podman_user.crt"
+test ! -e "${CLIENT_CA_DIR}/${CERT_NAME}.crt" && \
+openssl x509 -req -in "${CLIENT_CA_DIR}/${CERT_NAME}.csr" -CA "${CLIENT_CA_DIR}/cockpit-client-ca.crt" -CAkey "${CLIENT_CA_DIR}/cockpit-client-ca.key" -set_serial "0x$(openssl rand -hex 16)" -days "${CERT_VALIDITY_DAYS}" -sha256 -extfile "${CLIENT_CA_DIR}/client-auth.ext" -out "${CLIENT_CA_DIR}/${CERT_NAME}.crt" && \
+printf '%s,%s,%s\n' "$(date --iso-8601=seconds)" "${DEVICE_ID}" "$(openssl x509 -in "${CLIENT_CA_DIR}/${CERT_NAME}.crt" -noout -serial)" >> "${CLIENT_CA_DIR}/issued-certificates.csv"
 ```
 
 **Resultado esperado:** `Signature ok` aparece durante a emissão e o certificado termina com
@@ -313,14 +323,15 @@ openssl x509 -req -in "${CLIENT_CA_DIR}/podman_user.csr" -CA "${CLIENT_CA_DIR}/c
 **Verificação:**
 
 ```bash
-openssl verify -CAfile "${CLIENT_CA_DIR}/cockpit-client-ca.crt" -purpose sslclient "${CLIENT_CA_DIR}/podman_user.crt"
-openssl x509 -in "${CLIENT_CA_DIR}/podman_user.crt" -noout -subject -issuer -dates -ext extendedKeyUsage
+openssl verify -CAfile "${CLIENT_CA_DIR}/cockpit-client-ca.crt" -purpose sslclient "${CLIENT_CA_DIR}/${CERT_NAME}.crt"
+openssl x509 -in "${CLIENT_CA_DIR}/${CERT_NAME}.crt" -noout -subject -issuer -dates -ext extendedKeyUsage
 ```
 
-Critério: a verificação retorna `podman_user.crt: OK`, o assunto é `CN = podman_user` e
-`extendedKeyUsage` contém `TLS Web Client Authentication`.
+Critério: a verificação retorna `${CERT_NAME}.crt: OK`, o assunto é `CN = ${CERT_NAME}` e
+`extendedKeyUsage` contém `TLS Web Client Authentication`. O arquivo `issued-certificates.csv` registra
+data, `DEVICE_ID` e número de série.
 
-Entregue ao usuário `podman_user.crt` e `cockpit-client-ca.crt` pelo canal administrativo. O usuário confere e
+Entregue ao usuário `${CERT_NAME}.crt` e `cockpit-client-ca.crt` pelo canal administrativo. O usuário confere e
 importa a credencial conforme a [receita de credencial de cliente](cockpit-client-certificate.md).
 
 Copie para o diretório de staging do host em `CLIENT_CA_STAGE` apenas a CA pública:
@@ -348,15 +359,13 @@ permitidos ao PAM do Cockpit.
 > **Atenção:** esta etapa substitui a configuração SSSD do host autônomo. Se `sssd.conf` já
 > contém domínios corporativos, interrompa e adapte a configuração antes de continuar.
 
-Faça os backups de nome fixo uma vez. Os comandos param se um backup já existir:
+Faça os backups de nome fixo uma vez. Os backups não são sobrescritos se o passo for repetido:
 
 ```bash
-[[ ! -e /etc/sssd/sssd.conf ]] || test ! -e /etc/sssd/sssd.conf.pre-cockpit-cert
-[[ ! -e /etc/sssd/sssd.conf ]] || cp --archive /etc/sssd/sssd.conf /etc/sssd/sssd.conf.pre-cockpit-cert
+test -e /etc/sssd/sssd.conf.pre-cockpit-cert || [[ ! -e /etc/sssd/sssd.conf ]] || cp --archive /etc/sssd/sssd.conf /etc/sssd/sssd.conf.pre-cockpit-cert
 test ! -e /etc/pam.d/cockpit.pre-cockpit-cert && cp --archive /etc/pam.d/cockpit /etc/pam.d/cockpit.pre-cockpit-cert
-[[ ! -e /etc/sssd/pki/sssd_auth_ca_db.pem ]] || test ! -e /etc/sssd/pki/sssd_auth_ca_db.pem.pre-cockpit-cert
-[[ ! -e /etc/sssd/pki/sssd_auth_ca_db.pem ]] || cp --archive /etc/sssd/pki/sssd_auth_ca_db.pem /etc/sssd/pki/sssd_auth_ca_db.pem.pre-cockpit-cert
-authselect current > /root/authselect-profile.pre-cockpit-cert.txt
+test -e /etc/sssd/pki/sssd_auth_ca_db.pem.pre-cockpit-cert || [[ ! -e /etc/sssd/pki/sssd_auth_ca_db.pem ]] || cp --archive /etc/sssd/pki/sssd_auth_ca_db.pem /etc/sssd/pki/sssd_auth_ca_db.pem.pre-cockpit-cert
+test -e /root/authselect-profile.pre-cockpit-cert.txt || authselect current > /root/authselect-profile.pre-cockpit-cert.txt
 ```
 
 Instale a CA pública, com dono `root:root` e modo `0644`:
@@ -369,7 +378,7 @@ install -o root -g root -m 0644 "${CLIENT_CA_STAGE}/cockpit-client-ca.crt" /etc/
 Crie `/etc/sssd/sssd.conf` com `root:root`, modo `0600`:
 
 ```bash
-cat > /etc/sssd/sssd.conf <<'EOF'
+cat > /etc/sssd/sssd.conf <<EOF
 [sssd]
 domains = local
 
@@ -382,14 +391,15 @@ proxy_lib_name = files
 local_auth_policy = only
 
 [certmap/local/podman_user]
-matchrule = <SUBJECT>^CN=podman_user$
+matchrule = <SUBJECT>^CN=${COCKPIT_USER}-(${ALLOWED_DEVICES})\$
 EOF
 chown root:root /etc/sssd/sssd.conf
 chmod 0600 /etc/sssd/sssd.conf
 ```
 
-A seção termina com a conta de destino no nome da regra. O `matchrule` exige o assunto completo
-`CN=podman_user`; o SSSD rejeita outro assunto.
+A regra aceita somente o `CN=podman_user-<DEVICE_ID>` dos identificadores listados em
+`ALLOWED_DEVICES`. Um certificado de identificador desconhecido ou removido da lista não é
+mapeado. Ao adicionar ou remover uma máquina, altere `ALLOWED_DEVICES` e repita este passo.
 
 Crie `/etc/cockpit/allowed-users`, com `root:root`, modo `0640`:
 
@@ -714,6 +724,72 @@ novamente.
   <br><br>
 </div>
 
+## Revogar uma credencial específica
+
+Revoga o acesso de uma máquina sem afetar as demais. A receita não publica lista de revogação
+(CRL) nem usa OCSP, e o SSSD não verifica revogação. O acesso é controlado pela lista
+`ALLOWED_DEVICES`: a regra aceita somente os identificadores listados. Revogar é remover o
+identificador dessa lista.
+
+**Contexto:** estação de assinatura para a etapa 1; host RHEL para as etapas 2 e 3. Defina
+`DEVICE_ID` com o identificador da máquina a revogar.
+
+1. Na estação de assinatura, localize o registro da máquina:
+
+```bash
+grep --fixed-strings ",${DEVICE_ID}," "${CLIENT_CA_DIR}/issued-certificates.csv"
+```
+
+   **Resultado esperado:** uma linha com a data de emissão, o `DEVICE_ID` e `serial=...`.
+
+2. No host RHEL, defina `ALLOWED_DEVICES` sem o identificador revogado e repita o
+   [Passo 5](#passo-5-mapear-o-certificado-para-podman_user). Depois, expire o cache do SSSD e
+   reinicie o serviço. Por exemplo, se a lista era `notebook-joao|desktop-maria` e a máquina
+   revogada é `desktop-maria`:
+
+```bash
+ALLOWED_DEVICES="notebook-joao"
+sss_cache -E
+systemctl restart sssd
+```
+
+   **Verificação:** tente abrir o Cockpit a partir da máquina revogada. O login deve ser
+   recusado. Para confirmar pelo log do host:
+
+```bash
+journalctl --since '-10 min' | grep --ignore-case 'matching user'
+```
+
+   Critério: a saída inclui `No matching user for certificate`. Uma máquina ativa deve continuar
+   entrando normalmente.
+
+3. Na estação de assinatura, registre a revogação:
+
+```bash
+printf '%s,%s,revoked\n' "$(date --iso-8601=seconds)" "${DEVICE_ID}" >> "${CLIENT_CA_DIR}/issued-certificates.csv"
+```
+
+4. Peça ao usuário da máquina revogada que remova o certificado do navegador e os arquivos locais,
+   conforme a [receita de credencial de cliente](cockpit-client-certificate.md#reversão-e-desinstalação).
+
+> **Atenção:** a CA não invalida a chave da máquina revogada. Se a chave foi comprometida, não
+> reative o identificador. Emita uma nova credencial com outro `DEVICE_ID`, por exemplo
+> `notebook-joao-2`, e aplique o Passo 5 com a nova lista.
+
+Para reativar uma máquina, inclua o identificador em `ALLOWED_DEVICES`, repita o
+[Passo 5](#passo-5-mapear-o-certificado-para-podman_user) e execute `sss_cache -E` e
+`systemctl restart sssd`.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
 ## Solução de problemas
 
 | Sintoma ou log | Causa provável | Correção |
@@ -724,6 +800,7 @@ novamente.
 | HTTP 401 ao apresentar certificado válido | CA do cliente não está em `/etc/sssd/pki/sssd_auth_ca_db.pem` | Confira cadeia e reinicie `sssd` no [Passo 5](#passo-5-mapear-o-certificado-para-podman_user) |
 | `sssctl config-check` falha | Sintaxe SSSD ou permissões incorretas | Mantenha `/etc/sssd/sssd.conf` com modo `0600` e valide a cópia do [Passo 5](#passo-5-mapear-o-certificado-para-podman_user) |
 | Podman containers não aparece | Pacote ou socket rootless ausente | Repita os [Passos 1](#passo-1-instalar-os-pacotes) e [2](#passo-2-ativar-o-cockpit-e-o-socket-podman) |
+| Máquina revogada ainda entra | Cache do SSSD ou `ALLOWED_DEVICES` não atualizada | Confirme a lista, execute `sss_cache -E` e `systemctl restart sssd` na [seção de revogação](#revogar-uma-credencial-específica) |
 | Containers vazios | Sessão Cockpit não entrou como `podman_user` | Confirme o assunto do certificado e a conta exibida no Cockpit |
 | Item ainda aparece no menu | Override usa pacote ou diretório incorreto | Execute `cockpit-bridge --packages` e compare com os [Passos 7 a 9](#passo-7-ocultar-logs-e-terminal) |
 | Item Files ausente | Pacote `cockpit-files` não instalado ou página em cache | Confirme `rpm --query cockpit-files`, reinicie `cockpit.socket` e recarregue a página sem cache |

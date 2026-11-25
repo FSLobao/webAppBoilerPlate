@@ -107,7 +107,7 @@ Navegadores previstos: Firefox, Google Chrome e Microsoft Edge.
 
 Receba do administrador, antes de começar, a CA pública `cockpit-client-ca.crt`. Confirme a
 impressão digital SHA-256 dela pelo canal administrativo separado. Depois de enviar o CSR,
-receba também `podman_user.crt`.
+receba também `${CERT_NAME}.crt`, cujo nome segue o identificador `DEVICE_ID` informado pelo administrador.
 
 > [!WARNING]
 > Os comandos param se encontrarem um arquivo existente no diretório de trabalho. Não apague nem
@@ -119,6 +119,8 @@ Defina as variáveis na sessão atual. Repita o bloco ao abrir outro terminal.
 
 ```bash
 COCKPIT_USER=podman_user
+DEVICE_ID=notebook-joao
+CERT_NAME="${COCKPIT_USER}-${DEVICE_ID}"
 CLIENT_WORK_DIR="${HOME}/cockpit-client-cert"
 OPENSSL_BIN=openssl
 ```
@@ -127,6 +129,8 @@ OPENSSL_BIN=openssl
 
 ```bash
 COCKPIT_USER=podman_user
+DEVICE_ID=notebook-joao
+CERT_NAME="${COCKPIT_USER}-${DEVICE_ID}"
 CLIENT_WORK_DIR="${HOME}/cockpit-client-cert"
 OPENSSL_BIN="$(brew --prefix openssl@3)/bin/openssl"
 ```
@@ -135,13 +139,17 @@ OPENSSL_BIN="$(brew --prefix openssl@3)/bin/openssl"
 
 ```powershell
 $CockpitUser = "podman_user"
+$DeviceId = "notebook-joao"
+$CertName = "$CockpitUser-$DeviceId"
 $ClientWorkDir = Join-Path $HOME "cockpit-client-cert"
 $OpenSsl = "C:\Program Files\Git\usr\bin\openssl.exe"
 ```
 
 | Variável | Descrição | Exemplo | Usada em |
 | --- | --- | --- | --- |
-| `COCKPIT_USER` | Nome da conta que aparece no certificado (`CN`) | `podman_user` | Passos 1 a 3 |
+| `COCKPIT_USER` | Conta de destino no Cockpit | `podman_user` | Passos 1 a 5 |
+| `DEVICE_ID` | Identificador da máquina, fornecido pelo administrador. Use letras minúsculas, dígitos e `-` | `notebook-joao` | Passos 1 a 5 |
+| `CERT_NAME` | Nome do certificado: `${COCKPIT_USER}-${DEVICE_ID}`, usado no `CN` e nos arquivos | `podman_user-notebook-joao` | Passos 1 a 5 |
 | `CLIENT_WORK_DIR` | Diretório de trabalho no computador do usuário | `${HOME}/cockpit-client-cert` | Passos 1 a 5 |
 | `OPENSSL_BIN` | Executável do OpenSSL (Linux e macOS) | `openssl` | Passos 1 a 3 |
 | `$ClientWorkDir` | Diretório de trabalho (Windows) | `$HOME\cockpit-client-cert` | Passos 1 a 5 |
@@ -172,22 +180,22 @@ Gere a chave privada e o pedido de certificado no computador do usuário. Envie 
 
 ```bash
 install -d -m 0700 "${CLIENT_WORK_DIR}" && \
-test ! -e "${CLIENT_WORK_DIR}/${COCKPIT_USER}.key" && \
-test ! -e "${CLIENT_WORK_DIR}/${COCKPIT_USER}.csr" && \
-"${OPENSSL_BIN}" genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out "${CLIENT_WORK_DIR}/${COCKPIT_USER}.key" && \
-"${OPENSSL_BIN}" req -new -sha256 -key "${CLIENT_WORK_DIR}/${COCKPIT_USER}.key" -out "${CLIENT_WORK_DIR}/${COCKPIT_USER}.csr" -subj "/CN=${COCKPIT_USER}" || \
+test ! -e "${CLIENT_WORK_DIR}/${CERT_NAME}.key" && \
+test ! -e "${CLIENT_WORK_DIR}/${CERT_NAME}.csr" && \
+"${OPENSSL_BIN}" genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out "${CLIENT_WORK_DIR}/${CERT_NAME}.key" && \
+"${OPENSSL_BIN}" req -new -sha256 -key "${CLIENT_WORK_DIR}/${CERT_NAME}.key" -out "${CLIENT_WORK_DIR}/${CERT_NAME}.csr" -subj "/CN=${CERT_NAME}" || \
 echo "Falha: arquivo existente ou frase secreta divergente. Mova os arquivos antes de repetir." >&2
 ```
 
 **Windows 11 (PowerShell):**
 
 ```powershell
-if ((Test-Path "$ClientWorkDir\$CockpitUser.key") -or (Test-Path "$ClientWorkDir\$CockpitUser.csr")) {
+if ((Test-Path "$ClientWorkDir\$CertName.key") -or (Test-Path "$ClientWorkDir\$CertName.csr")) {
     Write-Error "Arquivo existente em $ClientWorkDir. Mova-o antes de repetir."
 } else {
     New-Item -ItemType Directory -Force $ClientWorkDir | Out-Null
-    & $OpenSsl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out "$ClientWorkDir\$CockpitUser.key"
-    & $OpenSsl req -new -sha256 -key "$ClientWorkDir\$CockpitUser.key" -out "$ClientWorkDir\$CockpitUser.csr" -subj "/CN=$CockpitUser"
+    & $OpenSsl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -aes-256-cbc -out "$ClientWorkDir\$CertName.key"
+    & $OpenSsl req -new -sha256 -key "$ClientWorkDir\$CertName.key" -out "$ClientWorkDir\$CertName.csr" -subj "/CN=$CertName"
 }
 ```
 
@@ -199,20 +207,24 @@ confirma. Na terceira, informa a mesma frase para ler a chave e assinar o pedido
 ```text
 Enter PEM pass phrase:
 Verifying - Enter PEM pass phrase:
-Enter pass phrase for .../podman_user.key:
+Enter pass phrase for .../podman_user-notebook-joao.key:
 ```
 
-Envie `podman_user.csr` ao administrador. A chave `podman_user.key` nunca sai deste computador, é pessoal e deve ser mantida em segurança pelo próprio usuário.
+Envie `${CERT_NAME}.csr` ao administrador. A chave `${CERT_NAME}.key` nunca sai deste computador, é pessoal e deve ser mantida em segurança pelo próprio usuário.
 
 **Verificação:**
 
 ```bash
-"${OPENSSL_BIN}" req -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.csr" -noout -verify -subject
+"${OPENSSL_BIN}" req -in "${CLIENT_WORK_DIR}/${CERT_NAME}.csr" -noout -verify -subject
 ```
 
-No Windows, execute `& $OpenSsl req -in "$ClientWorkDir\$CockpitUser.csr" -noout -verify -subject`.
+No Windows, execute
 
-Critério: a saída inclui `Certificate request self-signature ok` e `subject=CN=podman_user`.
+```powershell
+& $OpenSsl req -in "$ClientWorkDir\$CertName.csr" -noout -verify -subject
+```
+
+Critério: a saída inclui `Certificate request self-signature ok` e `subject=CN=podman_user-notebook-joao`.
 
 > **Não verificado:** o bloco do Windows e a forma de fornecer a frase secreta pelo console do
 > PowerShell não foram executados.
@@ -229,7 +241,7 @@ Critério: a saída inclui `Certificate request self-signature ok` e `subject=CN
 
 ## Passo 2: Conferir o certificado assinado
 
-Copie para o diretório de trabalho os arquivos recebidos do administrador: `podman_user.crt` e
+Copie para o diretório de trabalho os arquivos recebidos do administrador: `${CERT_NAME}.crt` e
 `cockpit-client-ca.crt`. Confira se o certificado foi assinado pela CA correta, se tem a
 finalidade de cliente e se corresponde à sua chave privada.
 
@@ -238,24 +250,24 @@ finalidade de cliente e se corresponde à sua chave privada.
 **Linux e macOS:**
 
 ```bash
-"${OPENSSL_BIN}" verify -CAfile "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -purpose sslclient "${CLIENT_WORK_DIR}/${COCKPIT_USER}.crt"
-"${OPENSSL_BIN}" x509 -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.crt" -noout -subject -ext extendedKeyUsage
+"${OPENSSL_BIN}" verify -CAfile "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -purpose sslclient "${CLIENT_WORK_DIR}/${CERT_NAME}.crt"
+"${OPENSSL_BIN}" x509 -in "${CLIENT_WORK_DIR}/${CERT_NAME}.crt" -noout -subject -ext extendedKeyUsage
 "${OPENSSL_BIN}" x509 -in "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -noout -fingerprint -sha256
 ```
 
 **Windows 11 (PowerShell):**
 
 ```powershell
-& $OpenSsl verify -CAfile "$ClientWorkDir\cockpit-client-ca.crt" -purpose sslclient "$ClientWorkDir\$CockpitUser.crt"
-& $OpenSsl x509 -in "$ClientWorkDir\$CockpitUser.crt" -noout -subject -ext extendedKeyUsage
+& $OpenSsl verify -CAfile "$ClientWorkDir\cockpit-client-ca.crt" -purpose sslclient "$ClientWorkDir\$CertName.crt"
+& $OpenSsl x509 -in "$ClientWorkDir\$CertName.crt" -noout -subject -ext extendedKeyUsage
 & $OpenSsl x509 -in "$ClientWorkDir\cockpit-client-ca.crt" -noout -fingerprint -sha256
 ```
 
 **Resultado esperado:**
 
 ```text
-.../podman_user.crt: OK
-subject=CN=podman_user
+.../podman_user-notebook-joao.crt: OK
+subject=CN=podman_user-notebook-joao
 X509v3 Extended Key Usage:
     TLS Web Client Authentication
 sha256 Fingerprint=[...]
@@ -269,14 +281,14 @@ Agora confirme que o certificado corresponde à sua chave privada. O comando ped
 **Linux e macOS:**
 
 ```bash
-diff <("${OPENSSL_BIN}" x509 -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.crt" -noout -pubkey) <("${OPENSSL_BIN}" pkey -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.key" -pubout)
+diff <("${OPENSSL_BIN}" x509 -in "${CLIENT_WORK_DIR}/${CERT_NAME}.crt" -noout -pubkey) <("${OPENSSL_BIN}" pkey -in "${CLIENT_WORK_DIR}/${CERT_NAME}.key" -pubout)
 ```
 
 **Windows 11 (PowerShell):**
 
 ```powershell
-& $OpenSsl x509 -in "$ClientWorkDir\$CockpitUser.crt" -noout -pubkey -out "$ClientWorkDir\cert-pub.pem"
-& $OpenSsl pkey -in "$ClientWorkDir\$CockpitUser.key" -pubout -out "$ClientWorkDir\key-pub.pem"
+& $OpenSsl x509 -in "$ClientWorkDir\$CertName.crt" -noout -pubkey -out "$ClientWorkDir\cert-pub.pem"
+& $OpenSsl pkey -in "$ClientWorkDir\$CertName.key" -pubout -out "$ClientWorkDir\key-pub.pem"
 fc.exe "$ClientWorkDir\cert-pub.pem" "$ClientWorkDir\key-pub.pem"
 Remove-Item "$ClientWorkDir\cert-pub.pem", "$ClientWorkDir\key-pub.pem"
 ```
@@ -311,26 +323,26 @@ arquivo é o que o navegador importa.
 **Linux:**
 
 ```bash
-test ! -e "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12" && \
-"${OPENSSL_BIN}" pkcs12 -export -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.crt" -inkey "${CLIENT_WORK_DIR}/${COCKPIT_USER}.key" -certfile "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -name "RHEL Cockpit - ${COCKPIT_USER}" -out "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12" && \
-chmod 0600 "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12"
+test ! -e "${CLIENT_WORK_DIR}/${CERT_NAME}.p12" && \
+"${OPENSSL_BIN}" pkcs12 -export -in "${CLIENT_WORK_DIR}/${CERT_NAME}.crt" -inkey "${CLIENT_WORK_DIR}/${CERT_NAME}.key" -certfile "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -name "RHEL Cockpit - ${CERT_NAME}" -out "${CLIENT_WORK_DIR}/${CERT_NAME}.p12" && \
+chmod 0600 "${CLIENT_WORK_DIR}/${CERT_NAME}.p12"
 ```
 
 **macOS:**
 
 ```bash
-test ! -e "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12" && \
-"${OPENSSL_BIN}" pkcs12 -export -legacy -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.crt" -inkey "${CLIENT_WORK_DIR}/${COCKPIT_USER}.key" -certfile "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -name "RHEL Cockpit - ${COCKPIT_USER}" -out "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12" && \
-chmod 0600 "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12"
+test ! -e "${CLIENT_WORK_DIR}/${CERT_NAME}.p12" && \
+"${OPENSSL_BIN}" pkcs12 -export -legacy -in "${CLIENT_WORK_DIR}/${CERT_NAME}.crt" -inkey "${CLIENT_WORK_DIR}/${CERT_NAME}.key" -certfile "${CLIENT_WORK_DIR}/cockpit-client-ca.crt" -name "RHEL Cockpit - ${CERT_NAME}" -out "${CLIENT_WORK_DIR}/${CERT_NAME}.p12" && \
+chmod 0600 "${CLIENT_WORK_DIR}/${CERT_NAME}.p12"
 ```
 
 **Windows 11 (PowerShell):**
 
 ```powershell
-if (Test-Path "$ClientWorkDir\$CockpitUser.p12") {
+if (Test-Path "$ClientWorkDir\$CertName.p12") {
     Write-Error "Arquivo .p12 existente. Mova-o antes de repetir."
 } else {
-    & $OpenSsl pkcs12 -export -in "$ClientWorkDir\$CockpitUser.crt" -inkey "$ClientWorkDir\$CockpitUser.key" -certfile "$ClientWorkDir\cockpit-client-ca.crt" -name "RHEL Cockpit - $CockpitUser" -out "$ClientWorkDir\$CockpitUser.p12"
+    & $OpenSsl pkcs12 -export -in "$ClientWorkDir\$CertName.crt" -inkey "$ClientWorkDir\$CertName.key" -certfile "$ClientWorkDir\cockpit-client-ca.crt" -name "RHEL Cockpit - $CertName" -out "$ClientWorkDir\$CertName.p12"
 }
 ```
 
@@ -338,16 +350,20 @@ O OpenSSL solicita a frase secreta da chave privada e, em seguida, uma senha de 
 vezes. A senha de exportação protege o `.p12` e é pedida ao importar no navegador. Ela pode ser
 diferente da frase secreta da chave.
 
-**Resultado esperado:** o arquivo `podman_user.p12` existe no diretório de trabalho e não há
+**Resultado esperado:** o arquivo `${CERT_NAME}.p12` existe no diretório de trabalho e não há
 mensagem de erro.
 
 **Verificação:**
 
 ```bash
-"${OPENSSL_BIN}" pkcs12 -info -noout -in "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12"
+"${OPENSSL_BIN}" pkcs12 -info -noout -in "${CLIENT_WORK_DIR}/${CERT_NAME}.p12"
 ```
 
-No Windows, use `& $OpenSsl pkcs12 -info -noout -in "$ClientWorkDir\$CockpitUser.p12"`.
+No Windows, use:
+
+```powershell
+& $OpenSsl pkcs12 -info -noout -in "$ClientWorkDir\$CertName.p12"
+```
 
 Critério: o comando pede a senha de exportação e termina sem erro. Não exibe a chave privada.
 
@@ -369,14 +385,14 @@ Critério: o comando pede a senha de exportação e termina sem erro. Não exibe
 
 ## Passo 4: Importar no navegador
 
-Importe o arquivo `podman_user.p12` no navegador. Use a senha de exportação definida no Passo 3.
+Importe o arquivo `${CERT_NAME}.p12` no navegador. Use a senha de exportação definida no Passo 3.
 Os nomes dos menus podem variar conforme o idioma e a versão do navegador.
 
 **Firefox (Linux, Windows 11 e macOS):**
 
 1. Abra **Configurações** e selecione **Privacidade e segurança**.
 2. Em **Certificados**, escolha **Ver certificados**.
-3. Na guia **Seus certificados**, escolha **Importar** e selecione `podman_user.p12`.
+3. Na guia **Seus certificados**, escolha **Importar** e selecione `${CERT_NAME}.p12`.
 4. Informe a senha de exportação.
 
 **Google Chrome e Microsoft Edge (Windows 11):**
@@ -385,35 +401,35 @@ Execute no PowerShell. O comando pede a senha de exportação sem exibi-la.
 
 ```powershell
 $Password = Read-Host "Senha de exportação do .p12" -AsSecureString
-Import-PfxCertificate -FilePath "$ClientWorkDir\$CockpitUser.p12" -CertStoreLocation Cert:\CurrentUser\My -Password $Password
+Import-PfxCertificate -FilePath "$ClientWorkDir\$CertName.p12" -CertStoreLocation Cert:\CurrentUser\My -Password $Password
 ```
 
 **Resultado esperado:** o comando exibe uma linha com o `Thumbprint` e o `Subject`
-`CN=podman_user`.
+`CN=podman_user-notebook-joao`.
 
 **Google Chrome e Safari (macOS):**
 
-Clique duas vezes em `podman_user.p12`. O Acesso às Chaves abre e pede a senha de exportação.
+Clique duas vezes em `${CERT_NAME}.p12`. O Acesso às Chaves abre e pede a senha de exportação.
 Confirme a importação no chaveiro **login**.
 
 **Google Chrome e Chromium (Linux):**
 
 Abra **Configurações**, selecione **Privacidade e segurança** e depois **Segurança**. Em
-**Gerenciar certificados**, escolha **Importar** e selecione `podman_user.p12`.
+**Gerenciar certificados**, escolha **Importar** e selecione `${CERT_NAME}.p12`.
 
 > **Não verificado:** os passos do Chrome no Linux e do Safari no macOS não foram executados.
 
 **Resultado esperado em todos os casos:** ao acessar `https://<COCKPIT_FQDN>:9090`, o navegador
-oferece o certificado `podman_user`. Reinicie o navegador se ele não oferecer a opção.
+oferece o certificado `${CERT_NAME}`. Reinicie o navegador se ele não oferecer a opção.
 
 **Verificação:** consulte a lista de certificados pessoais do navegador. No Windows, também é
 possível listar o certificado com:
 
 ```powershell
-Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq "CN=$CockpitUser" }
+Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq "CN=$CertName" }
 ```
 
-Critério: o certificado `CN=podman_user` aparece na lista.
+Critério: o certificado `CN=podman_user-notebook-joao` aparece na lista.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -435,13 +451,13 @@ arquivo contém a chave privada.
 **Linux e macOS:**
 
 ```bash
-rm -f "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12"
+rm -f "${CLIENT_WORK_DIR}/${CERT_NAME}.p12"
 ```
 
 **Windows 11 (PowerShell):**
 
 ```powershell
-Remove-Item "$ClientWorkDir\$CockpitUser.p12"
+Remove-Item "$ClientWorkDir\$CertName.p12"
 ```
 
 **Resultado esperado:** o comando não exibe saída.
@@ -449,7 +465,7 @@ Remove-Item "$ClientWorkDir\$CockpitUser.p12"
 **Verificação:**
 
 ```bash
-test ! -e "${CLIENT_WORK_DIR}/${COCKPIT_USER}.p12" && echo "removido"
+test ! -e "${CLIENT_WORK_DIR}/${CERT_NAME}.p12" && echo "removido"
 ```
 
 Critério: a saída é `removido`. Não envie o `.p12` nem o `.key` ao administrador nem a outras
@@ -471,7 +487,7 @@ Confirme o resultado do ponto de vista do usuário.
 
 | Verificação | Ação | Critério |
 | --- | --- | --- |
-| Certificado no navegador | Consultar a lista de certificados pessoais | `CN=podman_user` aparece |
+| Certificado no navegador | Consultar a lista de certificados pessoais | `CN=podman_user-notebook-joao` aparece |
 | Acesso ao Cockpit | Abrir `https://<COCKPIT_FQDN>:9090` e selecionar o certificado | Login sem campos de senha |
 | Cópia de trabalho removida | Executar a verificação do Passo 5 | Saída `removido` |
 
@@ -494,7 +510,7 @@ Para o teste completo do Cockpit, siga o Passo 10 da
 | --- | --- | --- |
 | `Verifying - Enter PEM pass phrase` não confere | Frase secreta digitada de forma diferente | Mova os arquivos gerados e repita o [Passo 1](#passo-1-gerar-a-chave-e-o-csr) |
 | `unable to load Private Key` ou `bad decrypt` | Frase secreta incorreta | Informe a frase definida no Passo 1 |
-| Mensagem `Falha: arquivo existente` | Arquivo do passo anterior ainda existe | Mova `podman_user.key` ou `podman_user.csr` para outra pasta e repita o passo |
+| Mensagem `Falha: arquivo existente` | Arquivo do passo anterior ainda existe | Mova `${CERT_NAME}.key` ou `${CERT_NAME}.csr` para outra pasta e repita o passo |
 | `verify` retorna erro | CA diferente da que assinou o certificado | Confira a CA pública e a impressão digital com o administrador |
 | `diff` ou `fc.exe` mostra diferença | Certificado não corresponde à chave | Repita o [Passo 1](#passo-1-gerar-a-chave-e-o-csr) e envie novo CSR |
 | `Import-PfxCertificate` informa senha incorreta | Senha de exportação digitada errada | Use a senha definida no [Passo 3](#passo-3-criar-o-arquivo-p12) |
@@ -515,11 +531,11 @@ Para o teste completo do Cockpit, siga o Passo 10 da
 ## Reversão e desinstalação
 
 1. Remova o certificado do navegador:
-   - Firefox: em **Seus certificados**, selecione `podman_user` e escolha **Excluir**.
+   - Firefox: em **Seus certificados**, selecione `${CERT_NAME}` e escolha **Excluir**.
    - Windows: execute
-     `Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq "CN=$CockpitUser" } | Remove-Item`.
-   - macOS: no Acesso às Chaves, exclua o certificado `podman_user` do chaveiro **login**.
-   - Chrome no Linux: em **Gerenciar certificados**, exclua `podman_user`.
+     `Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq "CN=$CertName" } | Remove-Item`.
+   - macOS: no Acesso às Chaves, exclua o certificado `podman_user-notebook-joao` do chaveiro **login**.
+   - Chrome no Linux: em **Gerenciar certificados**, exclua `podman_user-notebook-joao`.
 2. Remova os arquivos de trabalho que ainda existirem em `CLIENT_WORK_DIR` ou `$ClientWorkDir`.
 3. Solicite ao administrador a remoção da CA de confiança do host, caso o acesso deva ser
    encerrado de forma geral.
