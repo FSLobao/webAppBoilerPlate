@@ -1,0 +1,41 @@
+/* Tela de entrada do Cockpit: fundo azul, logo isolado no canto superior esquerdo e título sobre o fundo. */
+html body.login-pf {
+    background: #295ca7;
+}
+
+.login-pf .container {
+    background: transparent;
+}
+
+.login-pf .container .container-body {
+    padding: 0;
+}
+
+#badge {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    width: 240px;
+    height: 58px;
+    background-image: url("logo.svg");
+    background-size: contain;
+    background-repeat: no-repeat;
+}
+
+#brand::before {
+    display: block;
+    font-size: 1.75rem;
+    font-weight: 700;
+    text-transform: none;
+    content: "Servidor WebApp Dev";
+}
+
+.login-pf #brand {
+    color: #fff;
+}
+
+.login-pf #login {
+    background: #fff;
+    border-radius: 24px;
+    padding: 2rem;
+}

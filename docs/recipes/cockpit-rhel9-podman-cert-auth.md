@@ -16,6 +16,7 @@
         <li><a href="#passo-8-ocultar-aplicações-e-atualizações">Passo 8: Ocultar aplicações e atualizações</a></li>
         <li><a href="#passo-9-ocultar-ferramentas-de-diagnóstico">Passo 9: Ocultar ferramentas de diagnóstico</a></li>
         <li><a href="#passo-10-testar-o-acesso-com-o-certificado">Passo 10: Testar o acesso com o certificado</a></li>
+        <li><a href="#passo-11-aplicar-a-personalização-da-tela-de-entrada">Passo 11: Aplicar a personalização da tela de entrada</a></li>
         <li><a href="#verificação-final">Verificação final</a></li>
         <li><a href="#operação-e-referência-rápida">Operação e referência rápida</a></li>
         <li><a href="#revogar-uma-credencial-específica">Revogar uma credencial específica</a></li>
@@ -149,6 +150,8 @@ CERT_VALIDITY_DAYS=1095
 DEVICE_ID=notebook-joao
 CERT_NAME="${COCKPIT_USER}-${DEVICE_ID}"
 ALLOWED_DEVICES="notebook-joao"
+BRANDING_REPO="/home/${COCKPIT_USER}/webAppBoilerPlate"
+BRANDING_STAGE="/home/${COCKPIT_USER}/cockpit-branding"
 ```
 
 | Variável | Descrição | Exemplo | Usada em |
@@ -161,6 +164,8 @@ ALLOWED_DEVICES="notebook-joao"
 | `DEVICE_ID` | Identificador da máquina autorizada; compõe o `CN` e o nome do arquivo. Use apenas letras minúsculas, dígitos e `-` | `notebook-joao` | Passos 4 e revogação |
 | `CERT_NAME` | Nome do certificado: `${COCKPIT_USER}-${DEVICE_ID}` | `podman_user-notebook-joao` | Passos 4 e revogação |
 | `ALLOWED_DEVICES` | Identificadores ativos separados por `\|`; a regra SSSD aceita somente estes | `notebook-joao\|desktop-maria` | Passos 5 e revogação |
+| `BRANDING_REPO` | Clone do repositório na conta `podman_user` | `/home/podman_user/webAppBoilerPlate` | Passo 11 |
+| `BRANDING_STAGE` | Cópia dos artefatos de personalização na home de `podman_user` | `/home/podman_user/cockpit-branding` | Passo 11 |
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -658,6 +663,54 @@ Critério: não há erro de certificado, mapeamento SSSD ou inicialização do C
   <br><br>
 </div>
 
+## Passo 11: Aplicar a personalização da tela de entrada
+
+Aplique o tema da tela de entrada do Cockpit: logo ANATEL branco isolado no canto superior
+esquerdo, título `Servidor WebApp Dev` e fundo `#295ca7`.
+
+**Contexto:** host RHEL 9.8, usuário `root`, diretório `/root`. O clone do repositório deve existir
+em `${BRANDING_REPO}`, na conta `podman_user`, conforme o
+[Implantar da receita da webapp](webapp-crud.md#implantar). Os artefatos são:
+`deploy/cockpit/branding/branding.css` e `docs/images/Logo Anatel White.svg`.
+
+Copie os artefatos do clone para a home de `podman_user` e, em seguida, instale-os no diretório
+local de branding do Cockpit. O Cockpit consulta `/etc/cockpit/branding` antes dos diretórios do
+sistema.
+
+```bash
+install --directory --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0755 "${BRANDING_STAGE}"
+install --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0644 "${BRANDING_REPO}/deploy/cockpit/branding/branding.css" "${BRANDING_STAGE}/branding.css"
+install --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0644 "${BRANDING_REPO}/docs/images/Logo Anatel White.svg" "${BRANDING_STAGE}/logo.svg"
+install --directory --mode 0755 /etc/cockpit/branding
+install --mode 0644 "${BRANDING_STAGE}/branding.css" "${BRANDING_STAGE}/logo.svg" /etc/cockpit/branding/
+restorecon -RF /etc/cockpit/branding
+```
+
+**Resultado esperado:** `/etc/cockpit/branding/` contém `branding.css` e `logo.svg`. O arquivo
+`logo.svg` é a cópia de `Logo Anatel White.svg`. Não há erro do `install` nem do `restorecon`.
+
+**Verificação:**
+
+```bash
+ls -l /etc/cockpit/branding/
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' "https://${COCKPIT_FQDN}:9090/cockpit/static/branding.css"
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' "https://${COCKPIT_FQDN}:9090/cockpit/static/logo.svg"
+```
+
+Critério: a listagem mostra os dois arquivos e os dois `curl` retornam `200`, sem autenticação.
+Para conferir o visual, encerre a sessão do Cockpit ou use janela anônima e recarregue a página
+com `Ctrl+F5`. Com autenticação por certificado, o navegador pode entrar sem exibir a tela.
+
+<div>
+  <a href="#top" title="De volta ao topo da página">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="../images/up-arrow_white.svg">
+      <img align="right" width="40" height="40" src="../images/up-arrow.svg" title="De volta ao topo da página" alt="De volta ao topo da página">
+    </picture>
+  </a>
+  <br><br>
+</div>
+
 ## Verificação final
 
 Execute as verificações do ponto de vista do host e do navegador.
@@ -670,6 +723,7 @@ Execute as verificações do ponto de vista do host e do navegador.
 | Certificado cliente | Abrir `https://cockpit.example.com:9090` | Navegador entra como `podman_user` sem formulário de senha |
 | Senha bloqueada | Executar o `curl` do Passo 10 | HTTP `401` |
 | Menu reduzido | Conferir o menu lateral | Nenhum item ocultado aparece |
+| Personalização da entrada | `curl` do Passo 11 | HTTP `200` para `branding.css` e `logo.svg` |
 | Containers | Abrir **Podman containers** | Containers rootless de `podman_user` aparecem |
 | Extensão Files | `rpm --query cockpit-files` e abrir **Files** | Pacote instalado e diretório pessoal de `podman_user` listado |
 | Firewall local | `systemctl is-enabled firewalld` | `disabled` |
@@ -832,7 +886,7 @@ nem configurações externas; a restauração do acesso por senha reduz os contr
 4. Restaure `/etc/sssd/pki/sssd_auth_ca_db.pem.pre-cockpit-cert`. Se não existir backup, remova
    o `sssd_auth_ca_db.pem` criado pela receita.
 5. Selecione novamente o perfil registrado em `/root/authselect-profile.pre-cockpit-cert.txt`.
-6. Remova somente os overrides e o allowlist criados por esta receita.
+6. Remova somente os overrides, o allowlist e a personalização de tela criados por esta receita.
 7. Reinicie `sssd`, `cockpit.socket` e o socket Podman do usuário.
 8. Revogue a credencial removendo a CA cliente de confiança ou substituindo toda a CA. Remova o
    certificado do navegador conforme a [receita de credencial de cliente](cockpit-client-certificate.md#reversão-e-desinstalação).
@@ -841,6 +895,7 @@ nem configurações externas; a restauração do acesso por senha reduz os contr
 ```bash
 rm --force /etc/cockpit/systemd.override.json /etc/cockpit/subscription-manager.override.json /etc/cockpit/packagekit.override.json /etc/cockpit/apps.override.json /etc/cockpit/selinux.override.json /etc/cockpit/kdump.override.json /etc/cockpit/sosreport.override.json
 rm --force /etc/cockpit/allowed-users
+rm --force /etc/cockpit/branding/branding.css /etc/cockpit/branding/logo.svg
 systemctl restart sssd cockpit.socket
 ```
 
