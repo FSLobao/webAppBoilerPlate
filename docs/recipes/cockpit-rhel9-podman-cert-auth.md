@@ -671,7 +671,8 @@ esquerdo, título `Servidor WebApp Dev` e fundo `#295ca7`.
 **Contexto:** host RHEL 9.8, usuário `root`, diretório `/root`. O clone do repositório deve existir
 em `${BRANDING_REPO}`, na conta `podman_user`, conforme o
 [Implantar da receita da webapp](webapp-crud.md#implantar). Os artefatos são:
-`deploy/cockpit/branding/branding.css` e `docs/images/Logo Anatel White.svg`.
+`deploy/cockpit/branding/branding.css`, `deploy/cockpit/branding/favicon.ico`,
+`deploy/cockpit/branding/apple-touch-icon.png` e `docs/images/Logo Anatel White.svg`.
 
 Copie os artefatos do clone para a home de `podman_user` e, em seguida, instale-os no diretório
 local de branding do Cockpit. O Cockpit consulta `/etc/cockpit/branding` antes dos diretórios do
@@ -680,26 +681,36 @@ sistema.
 ```bash
 install --directory --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0755 "${BRANDING_STAGE}"
 install --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0644 "${BRANDING_REPO}/deploy/cockpit/branding/branding.css" "${BRANDING_STAGE}/branding.css"
+install --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0644 "${BRANDING_REPO}/deploy/cockpit/branding/favicon.ico" "${BRANDING_STAGE}/favicon.ico"
+install --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0644 "${BRANDING_REPO}/deploy/cockpit/branding/apple-touch-icon.png" "${BRANDING_STAGE}/apple-touch-icon.png"
 install --owner "${COCKPIT_USER}" --group "${COCKPIT_USER}" --mode 0644 "${BRANDING_REPO}/docs/images/Logo Anatel White.svg" "${BRANDING_STAGE}/logo.svg"
 install --directory --mode 0755 /etc/cockpit/branding
-install --mode 0644 "${BRANDING_STAGE}/branding.css" "${BRANDING_STAGE}/logo.svg" /etc/cockpit/branding/
+install --mode 0644 "${BRANDING_STAGE}/branding.css" "${BRANDING_STAGE}/logo.svg" "${BRANDING_STAGE}/favicon.ico" "${BRANDING_STAGE}/apple-touch-icon.png" /etc/cockpit/branding/
 restorecon -RF /etc/cockpit/branding
+systemctl restart cockpit.socket
 ```
 
-**Resultado esperado:** `/etc/cockpit/branding/` contém `branding.css` e `logo.svg`. O arquivo
-`logo.svg` é a cópia de `Logo Anatel White.svg`. Não há erro do `install` nem do `restorecon`.
+> **Atenção:** o reinício encerra sessões administrativas ativas no Cockpit. Mantenha uma sessão
+> de console local aberta.
+
+**Resultado esperado:** `/etc/cockpit/branding/` contém `branding.css`, `logo.svg`, `favicon.ico` e
+`apple-touch-icon.png`. O arquivo `logo.svg` é a cópia de `Logo Anatel White.svg`. Não há erro do
+`install`, do `restorecon` nem do reinício. O reinício força novos processos do Cockpit a ler o
+diretório de branding.
 
 **Verificação:**
 
 ```bash
 ls -l /etc/cockpit/branding/
-curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' "https://${COCKPIT_FQDN}:9090/cockpit/static/branding.css"
-curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' "https://${COCKPIT_FQDN}:9090/cockpit/static/logo.svg"
+for asset in branding.css logo.svg favicon.ico apple-touch-icon.png; do
+  curl --silent --show-error --output /dev/null --write-out "${asset} %{http_code}\n" "https://${COCKPIT_FQDN}:9090/cockpit/static/${asset}"
+done
 ```
 
-Critério: a listagem mostra os dois arquivos e os dois `curl` retornam `200`, sem autenticação.
-Para conferir o visual, encerre a sessão do Cockpit ou use janela anônima e recarregue a página
-com `Ctrl+F5`. Com autenticação por certificado, o navegador pode entrar sem exibir a tela.
+Critério: a listagem mostra os quatro arquivos e cada `curl` retorna `200`, sem autenticação.
+A personalização aparece somente na tela de entrada (`/login`). Com `ClientCertAuthentication = yes`,
+o navegador com certificado entra direto e não exibe essa tela. Para conferir o visual, encerre a
+sessão pelo menu do usuário do Cockpit e recarregue a página com `Ctrl+F5`.
 
 <div>
   <a href="#top" title="De volta ao topo da página">
@@ -723,7 +734,7 @@ Execute as verificações do ponto de vista do host e do navegador.
 | Certificado cliente | Abrir `https://cockpit.example.com:9090` | Navegador entra como `podman_user` sem formulário de senha |
 | Senha bloqueada | Executar o `curl` do Passo 10 | HTTP `401` |
 | Menu reduzido | Conferir o menu lateral | Nenhum item ocultado aparece |
-| Personalização da entrada | `curl` do Passo 11 | HTTP `200` para `branding.css` e `logo.svg` |
+| Personalização da entrada | `curl` do Passo 11 | HTTP `200` para `branding.css`, `logo.svg`, `favicon.ico` e `apple-touch-icon.png` |
 | Containers | Abrir **Podman containers** | Containers rootless de `podman_user` aparecem |
 | Extensão Files | `rpm --query cockpit-files` e abrir **Files** | Pacote instalado e diretório pessoal de `podman_user` listado |
 | Firewall local | `systemctl is-enabled firewalld` | `disabled` |
@@ -851,6 +862,7 @@ Para reativar uma máquina, inclua o identificador em `ALLOWED_DEVICES`, repita 
 | Navegador não oferece certificado | PKCS #12 não foi importado ou contém cadeia incorreta | Repita a [importação na receita de credencial de cliente](cockpit-client-certificate.md#passo-4-importar-no-navegador) |
 | `No matching user for certificate` | `CN` ou regra `certmap` não coincide | Compare `openssl x509 -subject` com `[certmap/local/podman_user]` no [Passo 5](#passo-5-mapear-o-certificado-para-podman_user) |
 | Login retorna à página de senha | `[basic]` continua ativo ou Cockpit não reiniciou | Repita o [Passo 6](#passo-6-exigir-certificado-no-cockpit) e reinicie `cockpit.socket` |
+| Personalização da entrada sem efeito | Processo do Cockpit em execução usa raízes de branding antigas, ou a sessão entrou direto por certificado | Reinicie `cockpit.socket`, encerre a sessão e recarregue com `Ctrl+F5`. Confirme HTTP `200` no [Passo 11](#passo-11-aplicar-a-personalização-da-tela-de-entrada) |
 | HTTP 401 ao apresentar certificado válido | CA do cliente não está em `/etc/sssd/pki/sssd_auth_ca_db.pem` | Confira cadeia e reinicie `sssd` no [Passo 5](#passo-5-mapear-o-certificado-para-podman_user) |
 | `sssctl config-check` falha | Sintaxe SSSD ou permissões incorretas | Mantenha `/etc/sssd/sssd.conf` com modo `0600` e valide a cópia do [Passo 5](#passo-5-mapear-o-certificado-para-podman_user) |
 | Podman containers não aparece | Pacote ou socket rootless ausente | Repita os [Passos 1](#passo-1-instalar-os-pacotes) e [2](#passo-2-ativar-o-cockpit-e-o-socket-podman) |
@@ -895,7 +907,7 @@ nem configurações externas; a restauração do acesso por senha reduz os contr
 ```bash
 rm --force /etc/cockpit/systemd.override.json /etc/cockpit/subscription-manager.override.json /etc/cockpit/packagekit.override.json /etc/cockpit/apps.override.json /etc/cockpit/selinux.override.json /etc/cockpit/kdump.override.json /etc/cockpit/sosreport.override.json
 rm --force /etc/cockpit/allowed-users
-rm --force /etc/cockpit/branding/branding.css /etc/cockpit/branding/logo.svg
+rm --force /etc/cockpit/branding/branding.css /etc/cockpit/branding/logo.svg /etc/cockpit/branding/favicon.ico /etc/cockpit/branding/apple-touch-icon.png
 systemctl restart sssd cockpit.socket
 ```
 
