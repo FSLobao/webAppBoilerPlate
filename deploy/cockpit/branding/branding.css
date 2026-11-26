@@ -22,12 +22,18 @@ html body.login-pf {
     background-repeat: no-repeat;
 }
 
-#brand::before {
-    display: block;
+/* O texto de #brand vem do HTML; o ::before, que o Cockpit oculta com .hide-before, não é usado. */
+#brand {
     font-size: 1.75rem;
     font-weight: 700;
     text-transform: none;
-    content: "Servidor WebApp Dev";
+}
+
+#brand::after {
+    display: block;
+    font-size: 1rem;
+    font-weight: 400;
+    content: "podman_user@RHFISNSDSIN01";
 }
 
 .login-pf #brand {
