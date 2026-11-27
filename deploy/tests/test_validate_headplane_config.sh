@@ -51,24 +51,23 @@ PATH="${fake_bin}:${PATH}" FAKE_PODMAN_LOG="${podman_log}" \
   "${candidate_config}" "${candidate_secret}" example.invalid/headplane:test \
   > "${output_file}"
 
+grep -F -- '--entrypoint' "${podman_log}" >/dev/null \
+  && fail_test "temporary container replaced the Headplane entrypoint"
 grep -F -- '--health-cmd' "${podman_log}" >/dev/null \
-  || fail_test "temporary container did not configure a health command"
-grep -F -- '/usr/local/sbin/gateway-healthcheck' "${podman_log}" >/dev/null \
-  || fail_test "temporary container did not use the Gateway healthcheck"
-grep -F -- "${candidate_config}:/tmp/headplane-candidate-config.yaml:ro" \
+  && fail_test "temporary container replaced the Headplane healthcheck"
+grep -E -- '/headplane-validation\.[^/]+/config\.yaml:/etc/headplane/config\.yaml:ro' \
   "${podman_log}" >/dev/null \
-  || fail_test "candidate config was not mounted at its staging path"
-grep -F -- 'install -o headplane -g headplane -m 0400 /tmp/headplane-candidate-config.yaml /etc/headplane/config.yaml' \
+  || fail_test "candidate config was not mounted from private staging"
+grep -E -- '/headplane-validation\.[^/]+/cookie-secret:/run/secrets/headplane-cookie-secret:ro' \
   "${podman_log}" >/dev/null \
-  || fail_test "candidate config was not installed for the Headplane UID"
-grep -F -- 'install -o headplane -g headplane -m 0400 /tmp/headplane-candidate-secret /run/secrets/headplane-cookie-secret' \
-  "${podman_log}" >/dev/null \
-  || fail_test "candidate secret was not installed for the Headplane UID"
+  || fail_test "candidate secret was not mounted from private staging"
 grep -F -- "${candidate_config}:/etc/headplane/config.yaml:ro" "${podman_log}" \
   >/dev/null && fail_test "candidate config remained directly bind-mounted"
+grep -F -- "${candidate_secret}:/run/secrets/headplane-cookie-secret:ro" \
+  "${podman_log}" >/dev/null && fail_test "candidate secret remained directly bind-mounted"
 [[ $(stat -c '%a' -- "${candidate_config}") == 600 ]] \
   || fail_test "host candidate config permissions changed"
 grep -F -- 'validated successfully (healthcheck passed)' "${output_file}" >/dev/null \
   || fail_test "successful validation message was not emitted"
 
-printf 'PASS: Headplane validation stages private candidates for UID 20002\n'
+printf 'PASS: Headplane validation stages readable copies without changing originals\n'

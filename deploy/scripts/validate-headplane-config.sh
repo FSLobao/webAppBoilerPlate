@@ -3,13 +3,15 @@ set -Eeuo pipefail
 
 validation_container=""
 validation_image=""
+validation_staging_dir=""
 validation_passed=false
 validation_image_was_present=false
 
-# Cleans up the temporary validation container and removes newly downloaded images upon failure.
+# Cleans up validation resources and removes newly downloaded images upon failure.
 # Arguments: none.
-# Global state read: validation_container, validation_image, validation_passed, validation_image_was_present.
-# Global state changed: removes container and optional image via podman.
+# Global state read: validation_container, validation_image, validation_staging_dir,
+#   validation_passed, validation_image_was_present.
+# Global state changed: removes staging directory, container and optional image.
 # Output streams: error diagnostics to stderr.
 # Return status: 0.
 cleanup_validation() {
@@ -19,6 +21,13 @@ cleanup_validation() {
   if [[ -n "${validation_container}" ]] && podman container exists "${validation_container}" 2>/dev/null; then
     if ! podman rm --force "${validation_container}" >/dev/null 2>&1; then
       printf 'Warning: failed to remove temporary validation container: %s\n' "${validation_container}" >&2
+    fi
+  fi
+
+  if [[ -n "${validation_staging_dir}" && -d "${validation_staging_dir}" ]]; then
+    if ! rm -rf -- "${validation_staging_dir}"; then
+      printf 'Warning: failed to remove temporary validation directory: %s\n' \
+        "${validation_staging_dir}" >&2
     fi
   fi
 
@@ -96,24 +105,24 @@ validate_headplane() {
 
   trap cleanup_validation EXIT INT TERM
 
+  validation_staging_dir=$(mktemp -d --tmpdir=/tmp headplane-validation.XXXXXX)
+  chmod 0700 -- "${validation_staging_dir}"
+
+  local staged_config="${validation_staging_dir}/config.yaml"
+  local staged_secret="${validation_staging_dir}/cookie-secret"
+  install -m 0444 -- "${candidate_config}" "${staged_config}"
+  install -m 0444 -- "${candidate_secret}" "${staged_secret}"
+
   local run_args=(
     run
     --pull=missing
     --detach
     --name "${validation_container}"
     --network none
-    --entrypoint /bin/bash
-    --health-cmd /usr/local/sbin/gateway-healthcheck
-    --volume "${candidate_config}:/tmp/headplane-candidate-config.yaml:ro"
-    --volume "${candidate_secret}:/tmp/headplane-candidate-secret:ro"
+    --volume "${staged_config}:/etc/headplane/config.yaml:ro"
+    --volume "${staged_secret}:/run/secrets/headplane-cookie-secret:ro"
     "--tmpfs=/var/lib/headplane:rw,size=32m,mode=1777"
     "${validation_image}"
-    -Eeuo
-    pipefail
-    -c
-    'install -o headplane -g headplane -m 0400 /tmp/headplane-candidate-config.yaml /etc/headplane/config.yaml
-     && install -o headplane -g headplane -m 0400 /tmp/headplane-candidate-secret /run/secrets/headplane-cookie-secret
-     && exec /usr/local/sbin/gateway-entrypoint'
   )
 
   if ! podman "${run_args[@]}" >/dev/null; then
