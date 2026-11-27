@@ -33,7 +33,7 @@ html body.login-pf {
     display: block;
     font-size: 1rem;
     font-weight: 400;
-    content: "podman_user@RHFISNSDSIN01";
+    content: "Anatel LITE Dev Server \A podman_user@RHFISNSDSIN01";
 }
 
 .login-pf #brand {
