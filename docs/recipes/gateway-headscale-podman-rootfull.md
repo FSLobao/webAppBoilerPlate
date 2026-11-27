@@ -219,7 +219,7 @@ confirma que a inicialização chegou ao listener.
 O script [deploy/scripts/validate-headplane-config.sh](../../deploy/scripts/validate-headplane-config.sh) executa essa validação em container temporário isolado (`--network none`) e remove o container automaticamente na saída:
 
 - **Uso**: `deploy/scripts/validate-headplane-config.sh <candidate_config> <candidate_secret> [containerfile_or_image]`
-- **Argumentos**: caminho do YAML candidato, caminho do segredo de 32 hex e, opcionalmente, o Containerfile de onde extrair a imagem fixada.
+- **Argumentos**: caminho do YAML candidato, caminho do segredo de 32 hex e, opcionalmente, o Containerfile de onde extrair a imagem fixada. O helper copia os arquivos privados para o container descartável como `headplane:headplane` em modo `0400`, sem alterar os originais.
 - **Resultado esperado**: código de saída 0 e mensagem `Headplane configuration and cookie secret validated successfully (healthcheck passed).` Em caso de falha, exibe os logs do container e encerra com código 1.
 
 ```bash

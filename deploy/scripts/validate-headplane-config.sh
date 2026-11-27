@@ -102,10 +102,18 @@ validate_headplane() {
     --detach
     --name "${validation_container}"
     --network none
-    --volume "${candidate_config}:/etc/headplane/config.yaml:ro"
-    --volume "${candidate_secret}:/run/secrets/headplane-cookie-secret:ro"
+    --entrypoint /bin/bash
+    --health-cmd /usr/local/sbin/gateway-healthcheck
+    --volume "${candidate_config}:/tmp/headplane-candidate-config.yaml:ro"
+    --volume "${candidate_secret}:/tmp/headplane-candidate-secret:ro"
     "--tmpfs=/var/lib/headplane:rw,size=32m,mode=1777"
     "${validation_image}"
+    -Eeuo
+    pipefail
+    -c
+    'install -o headplane -g headplane -m 0400 /tmp/headplane-candidate-config.yaml /etc/headplane/config.yaml
+     && install -o headplane -g headplane -m 0400 /tmp/headplane-candidate-secret /run/secrets/headplane-cookie-secret
+     && exec /usr/local/sbin/gateway-entrypoint'
   )
 
   if ! podman "${run_args[@]}" >/dev/null; then
